@@ -98,10 +98,6 @@ async function readGolden(relativePath) {
   return fs.readFile(path.join(goldenDir, relativePath), 'utf8');
 }
 
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 test('buildSite matches the golden fixture for the default preview payload', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -201,7 +197,7 @@ test('buildSelectedRoutes renders only selected outputs with full-build parity',
   ];
 
   assert.deepEqual(selectedPaths, expectedPaths);
-  assert.equal(result.files.map((file) => file.path).sort().join('|'), expectedPaths.join('|'));
+  assert.equal(result.files.map((file) => file.path).sort().join('|'), [...expectedPaths].sort().join('|'));
 
   for (const outputPath of expectedPaths) {
     assert.equal(
@@ -215,7 +211,7 @@ test('buildSelectedRoutes renders only selected outputs with full-build parity',
   assert.equal(files.some((file) => file.path === 'about/index.html'), false);
 });
 
-test('buildSite supports medium fixture with encoded slugs and paginated taxonomy routes', async () => {
+test('buildSite supports medium fixture with raw Unicode slugs and paginated taxonomy routes', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadMediumPreviewData();
   const themePackage = await loadGoldenThemePackage();
@@ -228,44 +224,46 @@ test('buildSite supports medium fixture with encoded slugs and paginated taxonom
   });
 
   const files = writer.getFiles();
-  const encodedPostSlug = encodeURIComponent('안녕하세요-제로프레스');
-  const encodedSecondPostSlug = encodeURIComponent('디자인-시스템-가이드');
-  const encodedPageSlug = encodeURIComponent('회사소개');
-  const encodedCategorySlug = encodeURIComponent('디자인');
-  const encodedTagSlug = encodeURIComponent('한글');
+  const postSlug = '안녕하세요-제로프레스';
+  const secondPostSlug = '디자인-시스템-가이드';
+  const pageSlug = '회사소개';
+  const categorySlug = '디자인';
+  const tagSlug = '한글';
 
   const expectedPaths = [
-    `posts/${encodedPostSlug}/index.html`,
-    `posts/${encodedSecondPostSlug}/index.html`,
-    `${encodedPageSlug}/index.html`,
+    `posts/${postSlug}/index.html`,
+    `posts/${secondPostSlug}/index.html`,
+    `${pageSlug}/index.html`,
     'page/2/index.html',
-    `categories/${encodedCategorySlug}/index.html`,
-    `categories/${encodedCategorySlug}/page/2/index.html`,
-    `tags/${encodedTagSlug}/index.html`,
-    `tags/${encodedTagSlug}/page/2/index.html`,
+    `categories/${categorySlug}/index.html`,
+    `categories/${categorySlug}/page/2/index.html`,
+    `tags/${tagSlug}/index.html`,
+    `tags/${tagSlug}/page/2/index.html`,
   ];
 
   for (const outputPath of expectedPaths) {
     assert.equal(files.some((file) => file.path === outputPath), true, `Expected ${outputPath} to be generated`);
   }
 
-  const postHtml = getFileContent(files, `posts/${encodedPostSlug}/index.html`);
+  const postHtml = getFileContent(files, `posts/${postSlug}/index.html`);
   assert.match(postHtml, /안녕하세요 제로프레스/);
-  assert.match(postHtml, new RegExp(`/categories/${escapeRegExp(encodedCategorySlug)}/`));
-  assert.match(postHtml, new RegExp(`/tags/${escapeRegExp(encodedTagSlug)}/`));
 
-  const pageHtml = getFileContent(files, `${encodedPageSlug}/index.html`);
+  const pageHtml = getFileContent(files, `${pageSlug}/index.html`);
   assert.match(pageHtml, /회사 소개/);
   assert.match(pageHtml, /ZeroPress 소개 페이지입니다/);
 
-  const categoryPageTwoHtml = getFileContent(files, `categories/${encodedCategorySlug}/page/2/index.html`);
+  const categoryPageTwoHtml = getFileContent(files, `categories/${categorySlug}/page/2/index.html`);
   assert.match(categoryPageTwoHtml, /Taxonomy Coverage Check/);
 
   const sitemapXml = getFileContent(files, 'sitemap.xml');
-  assert.ok(sitemapXml.includes(`https://example.kr/posts/${encodedPostSlug}/`));
-  assert.ok(sitemapXml.includes(`https://example.kr/${encodedPageSlug}/`));
-  assert.ok(sitemapXml.includes(`https://example.kr/categories/${encodedCategorySlug}/`));
-  assert.ok(sitemapXml.includes(`https://example.kr/tags/${encodedTagSlug}/`));
+  assert.ok(sitemapXml.includes(`https://example.kr/posts/${postSlug}/`));
+  assert.ok(sitemapXml.includes(`https://example.kr/${pageSlug}/`));
+  assert.ok(sitemapXml.includes(`https://example.kr/categories/${categorySlug}/`));
+  assert.ok(sitemapXml.includes(`https://example.kr/tags/${tagSlug}/`));
+
+  const metaJson = JSON.parse(getFileContent(files, 'meta.json'));
+  assert.equal(metaJson.pages.some((page) => page.url === `/posts/${postSlug}/`), true);
+  assert.equal(metaJson.pages.some((page) => page.url === `/${pageSlug}/`), true);
 
   const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
   for (const outputPath of expectedPaths) {
@@ -273,11 +271,11 @@ test('buildSite supports medium fixture with encoded slugs and paginated taxonom
   }
 });
 
-test('buildSelectedRoutes keeps parity for medium fixture encoded routes and second-page taxonomy outputs', async () => {
+test('buildSelectedRoutes keeps parity for medium fixture raw Unicode routes and second-page taxonomy outputs', async () => {
   const previewData = await loadMediumPreviewData();
   const themePackage = await loadGoldenThemePackage();
-  const encodedCategorySlug = encodeURIComponent('디자인');
-  const encodedTagSlug = encodeURIComponent('한글');
+  const categorySlug = '디자인';
+  const tagSlug = '한글';
 
   const fullWriter = new MemoryWriter();
   await buildSite({
@@ -296,8 +294,8 @@ test('buildSelectedRoutes keeps parity for medium fixture encoded routes and sec
       posts: ['안녕하세요-제로프레스', 'taxonomy-coverage-check'],
       indexRoutes: ['/', '/page/2/'],
       archiveRoutes: ['/archive/', '/archive/page/2/'],
-      categoryRoutes: [`/categories/${encodedCategorySlug}/`, `/categories/${encodedCategorySlug}/page/2/`],
-      tagRoutes: [`/tags/${encodedTagSlug}/`, `/tags/${encodedTagSlug}/page/2/`],
+      categoryRoutes: [`/categories/${categorySlug}/`, `/categories/${categorySlug}/page/2/`],
+      tagRoutes: [`/tags/${tagSlug}/`, `/tags/${tagSlug}/page/2/`],
       includeAssets: false,
     },
     options: { generateSpecialFiles: false, injectHtmx: true },
@@ -307,18 +305,18 @@ test('buildSelectedRoutes keeps parity for medium fixture encoded routes and sec
   const expectedPaths = [
     'archive/index.html',
     'archive/page/2/index.html',
-    `categories/${encodedCategorySlug}/index.html`,
-    `categories/${encodedCategorySlug}/page/2/index.html`,
+    `categories/${categorySlug}/index.html`,
+    `categories/${categorySlug}/page/2/index.html`,
     'index.html',
     'page/2/index.html',
-    `posts/${encodeURIComponent('안녕하세요-제로프레스')}/index.html`,
+    'posts/안녕하세요-제로프레스/index.html',
     'posts/taxonomy-coverage-check/index.html',
-    `tags/${encodedTagSlug}/index.html`,
-    `tags/${encodedTagSlug}/page/2/index.html`,
+    `tags/${tagSlug}/index.html`,
+    `tags/${tagSlug}/page/2/index.html`,
   ];
 
-  assert.deepEqual(files.map((file) => file.path).sort(), expectedPaths);
-  assert.equal(result.files.map((file) => file.path).sort().join('|'), expectedPaths.join('|'));
+  assert.deepEqual(files.map((file) => file.path).sort(), [...expectedPaths].sort());
+  assert.equal(result.files.map((file) => file.path).sort().join('|'), [...expectedPaths].sort().join('|'));
 
   for (const outputPath of expectedPaths) {
     assert.equal(
@@ -330,5 +328,5 @@ test('buildSelectedRoutes keeps parity for medium fixture encoded routes and sec
 
   assert.equal(files.some((file) => file.path === 'feed.xml'), false);
   assert.equal(files.some((file) => file.path.startsWith('assets/')), false);
-  assert.equal(files.some((file) => file.path === `${encodeURIComponent('회사소개')}/index.html`), false);
+  assert.equal(files.some((file) => file.path === '회사소개/index.html'), false);
 });

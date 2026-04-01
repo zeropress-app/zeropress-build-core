@@ -158,10 +158,11 @@ async function finalizeBuildResult(writer, summaries, options) {
 }
 
 async function renderRoute(state, templateName, route) {
+  const currentUrl = normalizeRoutePath(route.path);
   let html = await state.engine.render(
     templateName,
     { ...route },
-    createRenderContext(state.previewData.site, route.path),
+    createRenderContext(state.previewData.site, currentUrl),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   await writeOutput(state.writer, state.summaries, routePathToOutputPath(route.path), html, 'text/html');
@@ -305,7 +306,8 @@ function normalizeRoutePath(routePath) {
   if (!routePath || routePath === '/') {
     return '/';
   }
-  return `/${String(routePath).replace(/^\/+|\/+$/g, '')}/`;
+  const normalized = decodeRoutePath(String(routePath)).replace(/^\/+|\/+$/g, '');
+  return `/${normalized}/`;
 }
 
 function normalizeOutputPath(filePath) {
@@ -356,7 +358,7 @@ function buildSitemapXml(previewData) {
   ];
 
   const body = entries.map((entry) => {
-    const loc = escapeXml(new URL(entry.url, previewData.site.url).toString());
+    const loc = escapeXml(resolveSiteUrl(previewData.site.url, entry.url));
     const lastmod = entry.lastmod.toISOString().split('T')[0];
     return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>${entry.changefreq}</changefreq>\n    <priority>${entry.priority.toFixed(1)}</priority>\n  </url>`;
   }).join('\n');
@@ -369,7 +371,7 @@ function buildFeedXml(previewData) {
     .sort((a, b) => toDate(b.published_at_iso).getTime() - toDate(a.published_at_iso).getTime())
     .slice(0, 20)
     .map((post) => {
-      const url = new URL(`/posts/${encodeSlugSegment(post.slug)}/`, previewData.site.url).toString();
+      const url = resolveSiteUrl(previewData.site.url, `/posts/${encodeSlugSegment(post.slug)}/`);
       return `    <item>\n      <title>${escapeXml(post.title)}</title>\n      <link>${escapeXml(url)}</link>\n      <guid>${escapeXml(url)}</guid>\n      <pubDate>${toDate(post.published_at_iso).toUTCString()}</pubDate>\n      <description>${escapeXml(post.excerpt)}</description>\n    </item>`;
     })
     .join('\n');
@@ -438,7 +440,36 @@ function getContentType(assetPath) {
 }
 
 function encodeSlugSegment(slug) {
-  return encodeURIComponent(String(slug));
+  return normalizeStoredSlug(slug);
+}
+
+function normalizeStoredSlug(slug) {
+  if (typeof slug !== 'string') {
+    return '';
+  }
+
+  const trimmed = slug.trim();
+  if (!trimmed.includes('%')) {
+    return trimmed;
+  }
+
+  try {
+    return decodeURIComponent(trimmed);
+  } catch {
+    return trimmed;
+  }
+}
+
+function decodeRoutePath(routePath) {
+  try {
+    return decodeURI(routePath);
+  } catch {
+    return routePath;
+  }
+}
+
+function resolveSiteUrl(siteUrl, relativePath) {
+  return decodeURI(new URL(relativePath, siteUrl).toString());
 }
 
 function toDate(value) {
