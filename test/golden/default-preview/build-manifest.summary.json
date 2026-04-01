@@ -1,0 +1,72 @@
+{
+  "files": [
+    {
+      "path": "index.html",
+      "contentType": "text/html"
+    },
+    {
+      "path": "page/2/index.html",
+      "contentType": "text/html"
+    },
+    {
+      "path": "posts/hello-zeropress/index.html",
+      "contentType": "text/html"
+    },
+    {
+      "path": "posts/theme-blocks-deep-dive/index.html",
+      "contentType": "text/html"
+    },
+    {
+      "path": "posts/archive-patterns/index.html",
+      "contentType": "text/html"
+    },
+    {
+      "path": "about/index.html",
+      "contentType": "text/html"
+    },
+    {
+      "path": "categories/general/index.html",
+      "contentType": "text/html"
+    },
+    {
+      "path": "categories/general/page/2/index.html",
+      "contentType": "text/html"
+    },
+    {
+      "path": "tags/intro/index.html",
+      "contentType": "text/html"
+    },
+    {
+      "path": "tags/intro/page/2/index.html",
+      "contentType": "text/html"
+    },
+    {
+      "path": "archive/index.html",
+      "contentType": "text/html"
+    },
+    {
+      "path": "archive/page/2/index.html",
+      "contentType": "text/html"
+    },
+    {
+      "path": "assets/style.494f4abf.css",
+      "contentType": "text/css"
+    },
+    {
+      "path": "sitemap.xml",
+      "contentType": "application/xml"
+    },
+    {
+      "path": "feed.xml",
+      "contentType": "application/rss+xml"
+    },
+    {
+      "path": "robots.txt",
+      "contentType": "text/plain"
+    },
+    {
+      "path": "meta.json",
+      "contentType": "application/json"
+    }
+  ]
+}

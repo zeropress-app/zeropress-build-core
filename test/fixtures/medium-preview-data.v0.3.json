@@ -1,0 +1,237 @@
+{
+  "version": "0.3",
+  "generator": "zeropress-theme",
+  "generated_at": "2026-04-02T00:00:00.000Z",
+  "site": {
+    "title": "ZeroPress Medium Preview",
+    "description": "Medium preview data",
+    "url": "https://example.kr",
+    "language": "ko"
+  },
+  "content": {
+    "posts": [
+      {
+        "id": "post-ko-1",
+        "public_id": 201,
+        "title": "안녕하세요 제로프레스",
+        "slug": "안녕하세요-제로프레스",
+        "html": "<p>첫 번째 한글 글입니다.</p>",
+        "excerpt": "한글 소개 글",
+        "published_at": "2026-03-01 09:00",
+        "updated_at": "2026-03-01 09:00",
+        "published_at_iso": "2026-03-01T09:00:00.000Z",
+        "updated_at_iso": "2026-03-01T09:00:00.000Z",
+        "reading_time": "2분 읽기",
+        "author_name": "관리자",
+        "categories_html": "<a href=\"/categories/%EB%94%94%EC%9E%90%EC%9D%B8/\" class=\"category-link\">디자인</a>",
+        "tags_html": "<a href=\"/tags/%ED%95%9C%EA%B8%80/\" class=\"tag-link\">한글</a>",
+        "comments_html": "<section id=\"comments\"></section>",
+        "status": "published"
+      },
+      {
+        "id": "post-ko-2",
+        "public_id": 202,
+        "title": "디자인 시스템 가이드",
+        "slug": "디자인-시스템-가이드",
+        "html": "<p>두 번째 글은 디자인 시스템을 다룹니다.</p>",
+        "excerpt": "디자인 시스템 요약",
+        "published_at": "2026-02-28 09:00",
+        "updated_at": "2026-02-28 09:00",
+        "published_at_iso": "2026-02-28T09:00:00.000Z",
+        "updated_at_iso": "2026-02-28T09:00:00.000Z",
+        "reading_time": "3분 읽기",
+        "author_name": "관리자",
+        "categories_html": "<a href=\"/categories/%EB%94%94%EC%9E%90%EC%9D%B8/\" class=\"category-link\">디자인</a>",
+        "tags_html": "<a href=\"/tags/%ED%95%9C%EA%B8%80/\" class=\"tag-link\">한글</a> <a href=\"/tags/deep-dive/\" class=\"tag-link\">Deep Dive</a>",
+        "comments_html": "<section id=\"comments\"></section>",
+        "status": "published"
+      },
+      {
+        "id": "post-en-1",
+        "public_id": 203,
+        "title": "April Release Notes",
+        "slug": "april-release-notes",
+        "html": "<p>Release updates for April.</p>",
+        "excerpt": "April product updates",
+        "published_at": "2026-02-27 09:00",
+        "updated_at": "2026-02-27 09:00",
+        "published_at_iso": "2026-02-27T09:00:00.000Z",
+        "updated_at_iso": "2026-02-27T09:00:00.000Z",
+        "reading_time": "2 min read",
+        "author_name": "Admin",
+        "categories_html": "<a href=\"/categories/updates/\" class=\"category-link\">Updates</a>",
+        "tags_html": "<a href=\"/tags/release-notes/\" class=\"tag-link\">Release Notes</a>",
+        "comments_html": "<section id=\"comments\"></section>",
+        "status": "published"
+      },
+      {
+        "id": "post-en-2",
+        "public_id": 204,
+        "title": "Taxonomy Coverage Check",
+        "slug": "taxonomy-coverage-check",
+        "html": "<p>Checks category and tag pagination coverage.</p>",
+        "excerpt": "Taxonomy coverage summary",
+        "published_at": "2026-02-26 09:00",
+        "updated_at": "2026-02-26 09:00",
+        "published_at_iso": "2026-02-26T09:00:00.000Z",
+        "updated_at_iso": "2026-02-26T09:00:00.000Z",
+        "reading_time": "4 min read",
+        "author_name": "Admin",
+        "categories_html": "<a href=\"/categories/%EB%94%94%EC%9E%90%EC%9D%B8/\" class=\"category-link\">디자인</a>",
+        "tags_html": "<a href=\"/tags/%ED%95%9C%EA%B8%80/\" class=\"tag-link\">한글</a> <a href=\"/tags/release-notes/\" class=\"tag-link\">Release Notes</a>",
+        "comments_html": "<section id=\"comments\"></section>",
+        "status": "published"
+      }
+    ],
+    "pages": [
+      {
+        "id": "page-ko-1",
+        "title": "회사 소개",
+        "slug": "회사소개",
+        "html": "<p>ZeroPress 소개 페이지입니다.</p>",
+        "status": "published"
+      }
+    ],
+    "categories": [
+      {
+        "id": "cat-1",
+        "name": "디자인",
+        "slug": "디자인",
+        "description": "디자인 관련 글",
+        "postCount": 3
+      },
+      {
+        "id": "cat-2",
+        "name": "Updates",
+        "slug": "updates",
+        "description": "Product updates",
+        "postCount": 1
+      }
+    ],
+    "tags": [
+      {
+        "id": "tag-1",
+        "name": "한글",
+        "slug": "한글",
+        "postCount": 3
+      },
+      {
+        "id": "tag-2",
+        "name": "Release Notes",
+        "slug": "release-notes",
+        "postCount": 2
+      },
+      {
+        "id": "tag-3",
+        "name": "Deep Dive",
+        "slug": "deep-dive",
+        "postCount": 1
+      }
+    ]
+  },
+  "routes": {
+    "index": [
+      {
+        "path": "/",
+        "page": 1,
+        "totalPages": 2,
+        "posts": "<article><h2><a href=\"/posts/%EC%95%88%EB%85%95%ED%95%98%EC%84%B8%EC%9A%94-%EC%A0%9C%EB%A1%9C%ED%94%84%EB%A0%88%EC%8A%A4/\">안녕하세요 제로프레스</a></h2><div>한글 소개 글</div></article><article><h2><a href=\"/posts/%EB%94%94%EC%9E%90%EC%9D%B8-%EC%8B%9C%EC%8A%A4%ED%85%9C-%EA%B0%80%EC%9D%B4%EB%93%9C/\">디자인 시스템 가이드</a></h2><div>디자인 시스템 요약</div></article>",
+        "categories": "<a href=\"/categories/%EB%94%94%EC%9E%90%EC%9D%B8/\" class=\"category-link\">디자인 (3)</a> <a href=\"/categories/updates/\" class=\"category-link\">Updates (1)</a>",
+        "tags": "<a href=\"/tags/%ED%95%9C%EA%B8%80/\" class=\"tag-link\">한글 (3)</a> <a href=\"/tags/release-notes/\" class=\"tag-link\">Release Notes (2)</a> <a href=\"/tags/deep-dive/\" class=\"tag-link\">Deep Dive (1)</a>",
+        "pagination": "<nav class=\"pagination\"><span class=\"current\">1</span><a href=\"/page/2/\">2</a></nav>"
+      },
+      {
+        "path": "/page/2/",
+        "page": 2,
+        "totalPages": 2,
+        "posts": "<article><h2><a href=\"/posts/april-release-notes/\">April Release Notes</a></h2><div>April product updates</div></article><article><h2><a href=\"/posts/taxonomy-coverage-check/\">Taxonomy Coverage Check</a></h2><div>Taxonomy coverage summary</div></article>",
+        "categories": "<a href=\"/categories/%EB%94%94%EC%9E%90%EC%9D%B8/\" class=\"category-link\">디자인 (3)</a> <a href=\"/categories/updates/\" class=\"category-link\">Updates (1)</a>",
+        "tags": "<a href=\"/tags/%ED%95%9C%EA%B8%80/\" class=\"tag-link\">한글 (3)</a> <a href=\"/tags/release-notes/\" class=\"tag-link\">Release Notes (2)</a> <a href=\"/tags/deep-dive/\" class=\"tag-link\">Deep Dive (1)</a>",
+        "pagination": "<nav class=\"pagination\"><a href=\"/\">1</a><span class=\"current\">2</span></nav>"
+      }
+    ],
+    "archive": [
+      {
+        "path": "/archive/",
+        "page": 1,
+        "totalPages": 2,
+        "posts": "<article><h2><a href=\"/posts/%EC%95%88%EB%85%95%ED%95%98%EC%84%B8%EC%9A%94-%EC%A0%9C%EB%A1%9C%ED%94%84%EB%A0%88%EC%8A%A4/\">안녕하세요 제로프레스</a></h2><div>한글 소개 글</div></article><article><h2><a href=\"/posts/%EB%94%94%EC%9E%90%EC%9D%B8-%EC%8B%9C%EC%8A%A4%ED%85%9C-%EA%B0%80%EC%9D%B4%EB%93%9C/\">디자인 시스템 가이드</a></h2><div>디자인 시스템 요약</div></article>",
+        "pagination": "<nav class=\"pagination\"><span class=\"current\">1</span><a href=\"/archive/page/2/\">2</a></nav>"
+      },
+      {
+        "path": "/archive/page/2/",
+        "page": 2,
+        "totalPages": 2,
+        "posts": "<article><h2><a href=\"/posts/april-release-notes/\">April Release Notes</a></h2><div>April product updates</div></article><article><h2><a href=\"/posts/taxonomy-coverage-check/\">Taxonomy Coverage Check</a></h2><div>Taxonomy coverage summary</div></article>",
+        "pagination": "<nav class=\"pagination\"><a href=\"/archive/\">1</a><span class=\"current\">2</span></nav>"
+      }
+    ],
+    "categories": [
+      {
+        "path": "/categories/%EB%94%94%EC%9E%90%EC%9D%B8/",
+        "slug": "디자인",
+        "page": 1,
+        "totalPages": 2,
+        "posts": "<article><h2><a href=\"/posts/%EC%95%88%EB%85%95%ED%95%98%EC%84%B8%EC%9A%94-%EC%A0%9C%EB%A1%9C%ED%94%84%EB%A0%88%EC%8A%A4/\">안녕하세요 제로프레스</a></h2><div>한글 소개 글</div></article><article><h2><a href=\"/posts/%EB%94%94%EC%9E%90%EC%9D%B8-%EC%8B%9C%EC%8A%A4%ED%85%9C-%EA%B0%80%EC%9D%B4%EB%93%9C/\">디자인 시스템 가이드</a></h2><div>디자인 시스템 요약</div></article>",
+        "pagination": "<nav class=\"pagination\"><span class=\"current\">1</span><a href=\"/categories/%EB%94%94%EC%9E%90%EC%9D%B8/page/2/\">2</a></nav>",
+        "categories": "<a href=\"/categories/%EB%94%94%EC%9E%90%EC%9D%B8/\" class=\"category-link\">디자인 (3)</a>"
+      },
+      {
+        "path": "/categories/%EB%94%94%EC%9E%90%EC%9D%B8/page/2/",
+        "slug": "디자인",
+        "page": 2,
+        "totalPages": 2,
+        "posts": "<article><h2><a href=\"/posts/taxonomy-coverage-check/\">Taxonomy Coverage Check</a></h2><div>Taxonomy coverage summary</div></article>",
+        "pagination": "<nav class=\"pagination\"><a href=\"/categories/%EB%94%94%EC%9E%90%EC%9D%B8/\">1</a><span class=\"current\">2</span></nav>",
+        "categories": "<a href=\"/categories/%EB%94%94%EC%9E%90%EC%9D%B8/\" class=\"category-link\">디자인 (3)</a>"
+      },
+      {
+        "path": "/categories/updates/",
+        "slug": "updates",
+        "page": 1,
+        "totalPages": 1,
+        "posts": "<article><h2><a href=\"/posts/april-release-notes/\">April Release Notes</a></h2><div>April product updates</div></article>",
+        "pagination": "",
+        "categories": "<a href=\"/categories/updates/\" class=\"category-link\">Updates (1)</a>"
+      }
+    ],
+    "tags": [
+      {
+        "path": "/tags/%ED%95%9C%EA%B8%80/",
+        "slug": "한글",
+        "page": 1,
+        "totalPages": 2,
+        "posts": "<article><h2><a href=\"/posts/%EC%95%88%EB%85%95%ED%95%98%EC%84%B8%EC%9A%94-%EC%A0%9C%EB%A1%9C%ED%94%84%EB%A0%88%EC%8A%A4/\">안녕하세요 제로프레스</a></h2><div>한글 소개 글</div></article><article><h2><a href=\"/posts/%EB%94%94%EC%9E%90%EC%9D%B8-%EC%8B%9C%EC%8A%A4%ED%85%9C-%EA%B0%80%EC%9D%B4%EB%93%9C/\">디자인 시스템 가이드</a></h2><div>디자인 시스템 요약</div></article>",
+        "pagination": "<nav class=\"pagination\"><span class=\"current\">1</span><a href=\"/tags/%ED%95%9C%EA%B8%80/page/2/\">2</a></nav>",
+        "tags": "<a href=\"/tags/%ED%95%9C%EA%B8%80/\" class=\"tag-link\">한글 (3)</a>"
+      },
+      {
+        "path": "/tags/%ED%95%9C%EA%B8%80/page/2/",
+        "slug": "한글",
+        "page": 2,
+        "totalPages": 2,
+        "posts": "<article><h2><a href=\"/posts/taxonomy-coverage-check/\">Taxonomy Coverage Check</a></h2><div>Taxonomy coverage summary</div></article>",
+        "pagination": "<nav class=\"pagination\"><a href=\"/tags/%ED%95%9C%EA%B8%80/\">1</a><span class=\"current\">2</span></nav>",
+        "tags": "<a href=\"/tags/%ED%95%9C%EA%B8%80/\" class=\"tag-link\">한글 (3)</a>"
+      },
+      {
+        "path": "/tags/release-notes/",
+        "slug": "release-notes",
+        "page": 1,
+        "totalPages": 1,
+        "posts": "<article><h2><a href=\"/posts/april-release-notes/\">April Release Notes</a></h2><div>April product updates</div></article><article><h2><a href=\"/posts/taxonomy-coverage-check/\">Taxonomy Coverage Check</a></h2><div>Taxonomy coverage summary</div></article>",
+        "pagination": "",
+        "tags": "<a href=\"/tags/release-notes/\" class=\"tag-link\">Release Notes (2)</a>"
+      },
+      {
+        "path": "/tags/deep-dive/",
+        "slug": "deep-dive",
+        "page": 1,
+        "totalPages": 1,
+        "posts": "<article><h2><a href=\"/posts/%EB%94%94%EC%9E%90%EC%9D%B8-%EC%8B%9C%EC%8A%A4%ED%85%9C-%EA%B0%80%EC%9D%B4%EB%93%9C/\">디자인 시스템 가이드</a></h2><div>디자인 시스템 요약</div></article>",
+        "pagination": "",
+        "tags": "<a href=\"/tags/deep-dive/\" class=\"tag-link\">Deep Dive (1)</a>"
+      }
+    ]
+  }
+}

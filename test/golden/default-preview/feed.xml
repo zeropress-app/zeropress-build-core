@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>ZeroPress Preview</title>
+    <link>https://example.com</link>
+    <description>Default preview data</description>
+    <language>en</language>
+    <lastBuildDate>__LAST_BUILD_DATE__</lastBuildDate>
+    <atom:link href="https://example.com/feed.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Hello ZeroPress</title>
+      <link>https://example.com/posts/hello-zeropress/</link>
+      <guid>https://example.com/posts/hello-zeropress/</guid>
+      <pubDate>Sat, 14 Feb 2026 09:00:00 GMT</pubDate>
+      <description>Preview excerpt</description>
+    </item>
+    <item>
+      <title>Theme Blocks Deep Dive</title>
+      <link>https://example.com/posts/theme-blocks-deep-dive/</link>
+      <guid>https://example.com/posts/theme-blocks-deep-dive/</guid>
+      <pubDate>Fri, 13 Feb 2026 09:00:00 GMT</pubDate>
+      <description>Second preview excerpt</description>
+    </item>
+    <item>
+      <title>Archive Patterns</title>
+      <link>https://example.com/posts/archive-patterns/</link>
+      <guid>https://example.com/posts/archive-patterns/</guid>
+      <pubDate>Thu, 12 Feb 2026 09:00:00 GMT</pubDate>
+      <description>Third preview excerpt</description>
+    </item>
+  </channel>
+</rss>

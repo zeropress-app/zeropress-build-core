@@ -1,0 +1,39 @@
+{
+  "name": "@zeropress/build-core",
+  "version": "0.1.0",
+  "description": "Shared ZeroPress build and partial-render core",
+  "type": "module",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "types": "./src/index.d.ts",
+  "files": [
+    "src"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zeropress-app/zeropress-build-core.git"
+  },
+  "bugs": {
+    "url": "https://github.com/zeropress-app/zeropress-build-core/issues"
+  },
+  "homepage": "https://github.com/zeropress-app/zeropress-build-core#readme",
+  "keywords": [
+    "zeropress",
+    "ssg",
+    "static-site-generator",
+    "build-core",
+    "theme"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.18.0"
+  },
+  "dependencies": {
+    "@zeropress/preview-data-validator": "^0.2.0",
+    "@zeropress/theme-validator": "^0.2.2"
+  }
+}
