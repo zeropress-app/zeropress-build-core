@@ -44,6 +44,7 @@ export async function buildSite(input) {
   }
 
   if (options.generateSpecialFiles) {
+    await maybeRenderNotFoundPage(state);
     await writeOutput(state.writer, state.summaries, 'sitemap.xml', buildSitemapXml(input.previewData), 'application/xml');
     await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(input.previewData), 'application/rss+xml');
     await writeOutput(state.writer, state.summaries, 'robots.txt', buildRobotsTxt(input.previewData), 'text/plain');
@@ -189,6 +190,20 @@ async function renderPage(state, page) {
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   await writeOutput(state.writer, state.summaries, `${encodeSlugSegment(page.slug)}/index.html`, html, 'text/html');
+}
+
+async function maybeRenderNotFoundPage(state) {
+  if (!state.engine.themePackage?.templates?.has('404')) {
+    return;
+  }
+
+  let html = await state.engine.render(
+    '404',
+    {},
+    createRenderContext(state.previewData.site, '/404.html'),
+  );
+  html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
+  await writeOutput(state.writer, state.summaries, '404.html', html, 'text/html');
 }
 
 function validateSelection(selection) {

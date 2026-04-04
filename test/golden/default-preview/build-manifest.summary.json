@@ -53,6 +53,10 @@
       "contentType": "text/css"
     },
     {
+      "path": "404.html",
+      "contentType": "text/html"
+    },
+    {
       "path": "sitemap.xml",
       "contentType": "application/xml"
     },

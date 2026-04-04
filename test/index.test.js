@@ -20,7 +20,7 @@ async function loadMediumPreviewData() {
 }
 
 async function loadGoldenThemePackage() {
-  const templateNames = ['layout', 'index', 'archive', 'category', 'tag', 'post', 'page'];
+  const templateNames = ['layout', 'index', 'archive', 'category', 'tag', 'post', 'page', '404'];
   const partialNames = ['header', 'footer'];
   const templates = new Map();
   const partials = new Map();
@@ -124,6 +124,7 @@ test('buildSite matches the golden fixture for the default preview payload', asy
     ['tags/intro/index.html', getFileContent(files, 'tags/intro/index.html')],
     ['posts/hello-zeropress/index.html', getFileContent(files, 'posts/hello-zeropress/index.html')],
     ['about/index.html', getFileContent(files, 'about/index.html')],
+    ['404.html', getFileContent(files, '404.html')],
     ['robots.txt', getFileContent(files, 'robots.txt')],
     ['feed.xml', normalizeFeedXml(getFileContent(files, 'feed.xml'))],
     ['sitemap.xml', normalizeSitemapXml(getFileContent(files, 'sitemap.xml'))],
