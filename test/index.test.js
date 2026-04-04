@@ -48,6 +48,23 @@ async function loadGoldenThemePackage() {
   };
 }
 
+function cloneThemePackage(themePackage) {
+  return {
+    metadata: { ...themePackage.metadata },
+    templates: new Map(themePackage.templates),
+    partials: new Map(themePackage.partials),
+    assets: new Map(themePackage.assets),
+  };
+}
+
+function withoutTemplates(themePackage, templateNames) {
+  const next = cloneThemePackage(themePackage);
+  for (const templateName of templateNames) {
+    next.templates.delete(templateName);
+  }
+  return next;
+}
+
 function getFileContent(files, outputPath) {
   const file = files.find((entry) => entry.path === outputPath);
   assert.ok(file, `Expected output file ${outputPath} to exist`);
@@ -76,6 +93,10 @@ function normalizeManifestSummary(jsonText) {
 
 function normalizeSitemapXml(xml) {
   return xml
+    .replace(
+      /(<loc>https:\/\/example\.com\/archive\/<\/loc>\n\s*<lastmod>)[^<]+(<\/lastmod>)/,
+      '$1__TODAY__$2',
+    )
     .replace(
       /(<loc>https:\/\/example\.com\/<\/loc>\n\s*<lastmod>)[^<]+(<\/lastmod>)/,
       '$1__TODAY__$2',
@@ -330,4 +351,137 @@ test('buildSelectedRoutes keeps parity for medium fixture raw Unicode routes and
   assert.equal(files.some((file) => file.path === 'feed.xml'), false);
   assert.equal(files.some((file) => file.path.startsWith('assets/')), false);
   assert.equal(files.some((file) => file.path === '회사소개/index.html'), false);
+});
+
+test('buildSite skips archive routes when archive template is missing', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = withoutTemplates(await loadGoldenThemePackage(), ['archive']);
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { writeManifest: true },
+  });
+
+  const files = writer.getFiles();
+  assert.equal(files.some((file) => file.path === 'archive/index.html'), false);
+
+  const sitemapXml = getFileContent(files, 'sitemap.xml');
+  assert.equal(sitemapXml.includes('https://example.com/archive/'), false);
+});
+
+test('buildSite skips category routes and sitemap entries when category template is missing', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = withoutTemplates(await loadGoldenThemePackage(), ['category']);
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { writeManifest: true },
+  });
+
+  const files = writer.getFiles();
+  assert.equal(files.some((file) => file.path.startsWith('categories/')), false);
+
+  const sitemapXml = getFileContent(files, 'sitemap.xml');
+  assert.equal(sitemapXml.includes('https://example.com/categories/general/'), false);
+});
+
+test('buildSite skips tag routes and sitemap entries when tag template is missing', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = withoutTemplates(await loadGoldenThemePackage(), ['tag']);
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { writeManifest: true },
+  });
+
+  const files = writer.getFiles();
+  assert.equal(files.some((file) => file.path.startsWith('tags/')), false);
+
+  const sitemapXml = getFileContent(files, 'sitemap.xml');
+  assert.equal(sitemapXml.includes('https://example.com/tags/intro/'), false);
+});
+
+test('buildSite emits only renderable special-file URLs when optional route templates are missing', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = withoutTemplates(await loadGoldenThemePackage(), ['archive', 'category', 'tag']);
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { writeManifest: true },
+  });
+
+  const files = writer.getFiles();
+  assert.equal(files.some((file) => file.path === 'index.html'), true);
+  assert.equal(files.some((file) => file.path === 'posts/hello-zeropress/index.html'), true);
+  assert.equal(files.some((file) => file.path === 'about/index.html'), true);
+  assert.equal(files.some((file) => file.path === 'robots.txt'), true);
+  assert.equal(files.some((file) => file.path === 'archive/index.html'), false);
+  assert.equal(files.some((file) => file.path.startsWith('categories/')), false);
+  assert.equal(files.some((file) => file.path.startsWith('tags/')), false);
+
+  const sitemapXml = getFileContent(files, 'sitemap.xml');
+  assert.equal(sitemapXml.includes('https://example.com/archive/'), false);
+  assert.equal(sitemapXml.includes('https://example.com/categories/general/'), false);
+  assert.equal(sitemapXml.includes('https://example.com/tags/intro/'), false);
+  assert.equal(sitemapXml.includes('https://example.com/posts/hello-zeropress/'), true);
+  assert.equal(sitemapXml.includes('https://example.com/about/'), true);
+
+  const metaJson = JSON.parse(getFileContent(files, 'meta.json'));
+  assert.equal(metaJson.pages.some((page) => page.url === '/posts/hello-zeropress/'), true);
+  assert.equal(metaJson.pages.some((page) => page.url === '/about/'), true);
+});
+
+test('buildSite skips 404.html when the theme does not provide a 404 template', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = withoutTemplates(await loadGoldenThemePackage(), ['404']);
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  assert.equal(writer.getFiles().some((file) => file.path === '404.html'), false);
+});
+
+test('buildSelectedRoutes skips optional route outputs when templates are missing', async () => {
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = withoutTemplates(await loadGoldenThemePackage(), ['archive', 'category', 'tag']);
+  const writer = new MemoryWriter();
+
+  const result = await buildSelectedRoutes({
+    previewData,
+    themePackage,
+    writer,
+    selection: {
+      posts: ['hello-zeropress'],
+      indexRoutes: ['/'],
+      archiveRoutes: ['/archive/'],
+      categoryRoutes: ['/categories/general/'],
+      tagRoutes: ['/tags/intro/'],
+      includeAssets: false,
+    },
+    options: { generateSpecialFiles: false, injectHtmx: true },
+  });
+
+  const expectedPaths = [
+    'index.html',
+    'posts/hello-zeropress/index.html',
+  ];
+
+  assert.deepEqual(writer.getFiles().map((file) => file.path).sort(), expectedPaths);
+  assert.equal(result.files.map((file) => file.path).sort().join('|'), expectedPaths.join('|'));
 });

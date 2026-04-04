@@ -27,16 +27,22 @@ export async function buildSite(input) {
     await renderPage(state, page);
   }
 
-  for (const route of input.previewData.routes.categories) {
-    await renderRoute(state, 'category', route);
+  if (hasTemplate(state, 'category')) {
+    for (const route of input.previewData.routes.categories) {
+      await renderRoute(state, 'category', route);
+    }
   }
 
-  for (const route of input.previewData.routes.tags) {
-    await renderRoute(state, 'tag', route);
+  if (hasTemplate(state, 'tag')) {
+    for (const route of input.previewData.routes.tags) {
+      await renderRoute(state, 'tag', route);
+    }
   }
 
-  for (const route of input.previewData.routes.archive) {
-    await renderRoute(state, 'archive', route);
+  if (hasTemplate(state, 'archive')) {
+    for (const route of input.previewData.routes.archive) {
+      await renderRoute(state, 'archive', route);
+    }
   }
 
   for (const assetOutput of state.assetOutputs) {
@@ -45,10 +51,10 @@ export async function buildSite(input) {
 
   if (options.generateSpecialFiles) {
     await maybeRenderNotFoundPage(state);
-    await writeOutput(state.writer, state.summaries, 'sitemap.xml', buildSitemapXml(input.previewData), 'application/xml');
-    await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(input.previewData), 'application/rss+xml');
+    await writeOutput(state.writer, state.summaries, 'sitemap.xml', buildSitemapXml(state.previewData.site, state.emitted, state.generatedAt), 'application/xml');
+    await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.generatedAt), 'application/rss+xml');
     await writeOutput(state.writer, state.summaries, 'robots.txt', buildRobotsTxt(input.previewData), 'text/plain');
-    await writeOutput(state.writer, state.summaries, 'meta.json', buildMetaJson(input.previewData), 'application/json');
+    await writeOutput(state.writer, state.summaries, 'meta.json', buildMetaJson(state.previewData.site, state.emitted, state.generatedAt), 'application/json');
   }
 
   return finalizeBuildResult(state.writer, state.summaries, options);
@@ -77,21 +83,27 @@ export async function buildSelectedRoutes(input) {
     }
   }
 
-  for (const route of input.previewData.routes.archive) {
-    if (selectedArchiveRoutes.has(normalizeRoutePath(route.path))) {
-      await renderRoute(state, 'archive', route);
+  if (hasTemplate(state, 'archive')) {
+    for (const route of input.previewData.routes.archive) {
+      if (selectedArchiveRoutes.has(normalizeRoutePath(route.path))) {
+        await renderRoute(state, 'archive', route);
+      }
     }
   }
 
-  for (const route of input.previewData.routes.categories) {
-    if (selectedCategoryRoutes.has(normalizeRoutePath(route.path))) {
-      await renderRoute(state, 'category', route);
+  if (hasTemplate(state, 'category')) {
+    for (const route of input.previewData.routes.categories) {
+      if (selectedCategoryRoutes.has(normalizeRoutePath(route.path))) {
+        await renderRoute(state, 'category', route);
+      }
     }
   }
 
-  for (const route of input.previewData.routes.tags) {
-    if (selectedTagRoutes.has(normalizeRoutePath(route.path))) {
-      await renderRoute(state, 'tag', route);
+  if (hasTemplate(state, 'tag')) {
+    for (const route of input.previewData.routes.tags) {
+      if (selectedTagRoutes.has(normalizeRoutePath(route.path))) {
+        await renderRoute(state, 'tag', route);
+      }
     }
   }
 
@@ -133,6 +145,15 @@ async function createBuildState(input, options) {
     assetOutputs,
     assetMap,
     options,
+    generatedAt: new Date(),
+    emitted: {
+      indexRoutes: [],
+      archiveRoutes: [],
+      categoryRoutes: [],
+      tagRoutes: [],
+      posts: [],
+      pages: [],
+    },
   };
 }
 
@@ -167,6 +188,7 @@ async function renderRoute(state, templateName, route) {
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   await writeOutput(state.writer, state.summaries, routePathToOutputPath(route.path), html, 'text/html');
+  recordRouteEmission(state, templateName, route, currentUrl);
 }
 
 async function renderPost(state, post) {
@@ -180,6 +202,14 @@ async function renderPost(state, post) {
     html = injectHtmxScript(html);
   }
   await writeOutput(state.writer, state.summaries, `posts/${encodeSlugSegment(post.slug)}/index.html`, html, 'text/html');
+  state.emitted.posts.push({
+    url: `/posts/${encodeSlugSegment(post.slug)}/`,
+    title: post.title,
+    description: post.excerpt,
+    publishedAt: post.published_at_iso,
+    updatedAt: post.updated_at_iso,
+    status: post.status,
+  });
 }
 
 async function renderPage(state, page) {
@@ -190,6 +220,11 @@ async function renderPage(state, page) {
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   await writeOutput(state.writer, state.summaries, `${encodeSlugSegment(page.slug)}/index.html`, html, 'text/html');
+  state.emitted.pages.push({
+    url: `/${encodeSlugSegment(page.slug)}/`,
+    title: page.title,
+    status: page.status,
+  });
 }
 
 async function maybeRenderNotFoundPage(state) {
@@ -221,6 +256,30 @@ function validateSelection(selection) {
   if (typeof selection.includeAssets !== 'boolean') {
     throw new Error('buildSelectedRoutes selection.includeAssets must be a boolean');
   }
+}
+
+function hasTemplate(state, templateName) {
+  return state.engine.themePackage?.templates?.has(templateName) === true;
+}
+
+function recordRouteEmission(state, templateName, route, currentUrl) {
+  const targetMap = {
+    index: state.emitted.indexRoutes,
+    archive: state.emitted.archiveRoutes,
+    category: state.emitted.categoryRoutes,
+    tag: state.emitted.tagRoutes,
+  }[templateName];
+
+  if (!targetMap) {
+    return;
+  }
+
+  targetMap.push({
+    url: currentUrl,
+    page: route.page,
+    totalPages: route.totalPages,
+    slug: route.slug,
+  });
 }
 
 async function assertValidThemePackage(themePackage) {
@@ -343,37 +402,44 @@ function injectHtmxScript(html) {
   return html.replace('</body>', '<script src="https://unpkg.com/htmx.org@2.0.4" crossorigin="anonymous"></script>\n</body>');
 }
 
-function buildSitemapXml(previewData) {
+function buildSitemapXml(site, emitted, generatedAt) {
   const entries = [
-    { url: '/', lastmod: new Date(), changefreq: 'daily', priority: 1.0 },
-    ...previewData.content.posts.map((post) => ({
-      url: `/posts/${encodeSlugSegment(post.slug)}/`,
-      lastmod: toDate(post.updated_at_iso),
+    ...emitted.indexRoutes
+      .filter((route) => route.url === '/')
+      .map((route) => ({
+      url: route.url,
+      lastmod: generatedAt,
+      changefreq: 'daily',
+      priority: 1.0,
+    })),
+    ...emitted.posts.map((post) => ({
+      url: post.url,
+      lastmod: toDate(post.updatedAt),
       changefreq: 'weekly',
       priority: 0.8,
     })),
-    ...previewData.content.pages.map((page) => ({
-      url: `/${encodeSlugSegment(page.slug)}/`,
-      lastmod: new Date(),
+    ...emitted.pages.map((page) => ({
+      url: page.url,
+      lastmod: generatedAt,
       changefreq: 'monthly',
       priority: 0.7,
     })),
-    ...previewData.content.categories.filter((category) => category.postCount > 0).map((category) => ({
-      url: `/categories/${encodeSlugSegment(category.slug)}/`,
-      lastmod: new Date(),
+    ...emitted.categoryRoutes.filter((route) => route.page === 1).map((route) => ({
+      url: route.url,
+      lastmod: generatedAt,
       changefreq: 'weekly',
       priority: 0.6,
     })),
-    ...previewData.content.tags.filter((tag) => tag.postCount > 0).map((tag) => ({
-      url: `/tags/${encodeSlugSegment(tag.slug)}/`,
-      lastmod: new Date(),
+    ...emitted.tagRoutes.filter((route) => route.page === 1).map((route) => ({
+      url: route.url,
+      lastmod: generatedAt,
       changefreq: 'weekly',
       priority: 0.5,
     })),
   ];
 
   const body = entries.map((entry) => {
-    const loc = escapeXml(resolveSiteUrl(previewData.site.url, entry.url));
+    const loc = escapeXml(resolveSiteUrl(site.url, entry.url));
     const lastmod = entry.lastmod.toISOString().split('T')[0];
     return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>${entry.changefreq}</changefreq>\n    <priority>${entry.priority.toFixed(1)}</priority>\n  </url>`;
   }).join('\n');
@@ -381,36 +447,36 @@ function buildSitemapXml(previewData) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>`;
 }
 
-function buildFeedXml(previewData) {
-  const items = [...previewData.content.posts]
-    .sort((a, b) => toDate(b.published_at_iso).getTime() - toDate(a.published_at_iso).getTime())
+function buildFeedXml(site, emitted, generatedAt) {
+  const items = [...emitted.posts]
+    .sort((a, b) => toDate(b.publishedAt).getTime() - toDate(a.publishedAt).getTime())
     .slice(0, 20)
     .map((post) => {
-      const url = resolveSiteUrl(previewData.site.url, `/posts/${encodeSlugSegment(post.slug)}/`);
-      return `    <item>\n      <title>${escapeXml(post.title)}</title>\n      <link>${escapeXml(url)}</link>\n      <guid>${escapeXml(url)}</guid>\n      <pubDate>${toDate(post.published_at_iso).toUTCString()}</pubDate>\n      <description>${escapeXml(post.excerpt)}</description>\n    </item>`;
+      const url = resolveSiteUrl(site.url, post.url);
+      return `    <item>\n      <title>${escapeXml(post.title)}</title>\n      <link>${escapeXml(url)}</link>\n      <guid>${escapeXml(url)}</guid>\n      <pubDate>${toDate(post.publishedAt).toUTCString()}</pubDate>\n      <description>${escapeXml(post.description)}</description>\n    </item>`;
     })
     .join('\n');
 
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n  <channel>\n    <title>${escapeXml(previewData.site.title)}</title>\n    <link>${escapeXml(previewData.site.url)}</link>\n    <description>${escapeXml(previewData.site.description)}</description>\n    <language>${previewData.site.language}</language>\n    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>\n    <atom:link href="${escapeXml(new URL('/feed.xml', previewData.site.url).toString())}" rel="self" type="application/rss+xml" />\n${items}\n  </channel>\n</rss>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n  <channel>\n    <title>${escapeXml(site.title)}</title>\n    <link>${escapeXml(site.url)}</link>\n    <description>${escapeXml(site.description)}</description>\n    <language>${site.language}</language>\n    <lastBuildDate>${generatedAt.toUTCString()}</lastBuildDate>\n    <atom:link href="${escapeXml(new URL('/feed.xml', site.url).toString())}" rel="self" type="application/rss+xml" />\n${items}\n  </channel>\n</rss>`;
 }
 
 function buildRobotsTxt(previewData) {
   return `User-agent: *\nAllow: /\n\nSitemap: ${previewData.site.url}/sitemap.xml\n`;
 }
 
-function buildMetaJson(previewData) {
+function buildMetaJson(site, emitted, generatedAt) {
   const pages = [
-    ...previewData.content.posts.map((post) => ({
-      url: `/posts/${encodeSlugSegment(post.slug)}/`,
+    ...emitted.posts.map((post) => ({
+      url: post.url,
       title: post.title,
-      description: post.excerpt,
-      publishedAt: post.published_at_iso,
-      updatedAt: post.updated_at_iso,
+      description: post.description,
+      publishedAt: post.publishedAt,
+      updatedAt: post.updatedAt,
       type: 'post',
       metadata: { status: post.status },
     })),
-    ...previewData.content.pages.map((page) => ({
-      url: `/${encodeSlugSegment(page.slug)}/`,
+    ...emitted.pages.map((page) => ({
+      url: page.url,
       title: page.title,
       type: 'page',
       metadata: { status: page.status },
@@ -418,12 +484,12 @@ function buildMetaJson(previewData) {
   ];
 
   return JSON.stringify({
-    generated: new Date().toISOString(),
+    generated: generatedAt.toISOString(),
     site: {
-      title: previewData.site.title,
-      description: previewData.site.description,
-      url: previewData.site.url,
-      language: previewData.site.language,
+      title: site.title,
+      description: site.description,
+      url: site.url,
+      language: site.language,
     },
     pages,
   }, null, 2);

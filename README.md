@@ -13,6 +13,11 @@ This package is the deterministic rendering engine used by:
 
 It accepts canonical preview-data plus a validated theme package and produces static HTML artifacts through a writer interface.
 
+`preview-data` stays the canonical input graph. Actual artifact output is the intersection of:
+
+- renderable preview-data entries
+- theme template capability
+
 ---
 
 ## Install
@@ -109,6 +114,15 @@ Renders only selected post and list routes while preserving full-build parity fo
 
 This is intended for selective publish and other partial-render workflows.
 
+Optional route templates are respected during both full and partial renders:
+
+- missing `archive.html` skips archive outputs
+- missing `category.html` skips category outputs
+- missing `tag.html` skips tag outputs
+- missing `404.html` skips `404.html` emission
+
+These cases do not fail the build.
+
 ```js
 await buildSelectedRoutes({
   previewData,
@@ -176,6 +190,15 @@ Best for:
 Theme validation is enforced through:
 
 - [`@zeropress/theme-validator`](https://www.npmjs.com/package/@zeropress/theme-validator)
+
+Optional route templates behave as rendering capabilities, not guaranteed outputs:
+
+- `archive.html`
+- `category.html`
+- `tag.html`
+- `404.html`
+
+If preview-data includes archive/category/tag route arrays but the theme omits the matching optional template, build-core skips those outputs. Special files are derived from emitted outputs rather than raw preview-data alone.
 
 ---
 
