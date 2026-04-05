@@ -58,8 +58,10 @@ export async function buildSite(input) {
 
   if (options.generateSpecialFiles) {
     await maybeRenderNotFoundPage(state);
-    await writeOutput(state.writer, state.summaries, 'sitemap.xml', buildSitemapXml(state.previewData.site, state.emitted, state.generatedAt), 'application/xml');
-    await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.generatedAt), 'application/rss+xml');
+    if (hasCanonicalSiteUrl(state.previewData.site.url)) {
+      await writeOutput(state.writer, state.summaries, 'sitemap.xml', buildSitemapXml(state.previewData.site, state.emitted, state.generatedAt), 'application/xml');
+      await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.generatedAt), 'application/rss+xml');
+    }
     await writeOutput(state.writer, state.summaries, 'robots.txt', buildRobotsTxt(state.previewData.site), 'text/plain');
     await writeOutput(state.writer, state.summaries, 'meta.json', buildMetaJson(state.previewData.site, state.emitted, state.generatedAt), 'application/json');
   }
@@ -981,6 +983,10 @@ function resolveSiteUrl(siteUrl, relativePath) {
   }
 
   return decodeURI(new URL(relativePath, siteUrl).toString());
+}
+
+function hasCanonicalSiteUrl(siteUrl) {
+  return typeof siteUrl === 'string' && siteUrl.trim() !== '';
 }
 
 function toDate(value) {

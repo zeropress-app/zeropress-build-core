@@ -353,6 +353,34 @@ test('buildSelectedRoutes keeps parity for medium fixture raw Unicode routes and
   assert.equal(files.some((file) => file.path === '회사소개/index.html'), false);
 });
 
+test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.site.url = '';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { writeManifest: true },
+  });
+
+  const files = writer.getFiles();
+  assert.equal(files.some((file) => file.path === 'sitemap.xml'), false);
+  assert.equal(files.some((file) => file.path === 'feed.xml'), false);
+  assert.equal(files.some((file) => file.path === 'robots.txt'), true);
+  assert.equal(files.some((file) => file.path === 'meta.json'), true);
+
+  const robotsTxt = getFileContent(files, 'robots.txt');
+  assert.equal(robotsTxt.trim(), 'User-agent: *\nAllow: /');
+
+  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
+  assert.equal(manifest.files.some((file) => file.path === 'sitemap.xml'), false);
+  assert.equal(manifest.files.some((file) => file.path === 'feed.xml'), false);
+});
+
 test('buildSite skips archive routes when archive template is missing', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
