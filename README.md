@@ -13,7 +13,7 @@ This package is the deterministic rendering engine used by:
 
 It accepts canonical preview-data plus a validated theme package and produces static HTML artifacts through a writer interface.
 
-`preview-data` stays the canonical input graph. Actual artifact output is the intersection of:
+`preview-data` stays canonical and data-only. Build-core computes the render-ready route state that themes consume at render time. Actual artifact output is the intersection of:
 
 - renderable preview-data entries
 - theme template capability
@@ -48,6 +48,8 @@ import {
 
 - validating preview-data input
 - validating in-memory theme packages
+- computing paginated routes from content data
+- computing theme-facing render data such as post lists, taxonomy links, pagination, and formatted timestamps
 - rendering route HTML
 - processing theme assets
 - generating special files such as:
@@ -191,6 +193,18 @@ Theme validation is enforced through:
 
 - [`@zeropress/theme-validator`](https://www.npmjs.com/package/@zeropress/theme-validator)
 
+As of `preview-data v0.4`, the payload no longer carries `routes` arrays or raw HTML fragments such as `categories_html`.
+
+Build-core now derives:
+
+- index/archive/category/tag routes
+- post list HTML blocks
+- pagination HTML
+- taxonomy link HTML
+- formatted `published_at` / `updated_at`
+- `reading_time`
+- `comments_html`
+
 Optional route templates behave as rendering capabilities, not guaranteed outputs:
 
 - `archive.html`
@@ -198,7 +212,7 @@ Optional route templates behave as rendering capabilities, not guaranteed output
 - `tag.html`
 - `404.html`
 
-If preview-data includes archive/category/tag route arrays but the theme omits the matching optional template, build-core skips those outputs. Special files are derived from emitted outputs rather than raw preview-data alone.
+If preview-data includes content that could produce archive/category/tag pages but the theme omits the matching optional template, build-core skips those outputs. Special files are derived from emitted outputs rather than raw preview-data alone.
 
 ---
 

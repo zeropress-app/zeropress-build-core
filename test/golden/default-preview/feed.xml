@@ -2,7 +2,7 @@
 <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
     <title>ZeroPress Preview</title>
-    <link>https://example.com</link>
+    <link>https://example.com/</link>
     <description>Default preview data</description>
     <language>en</language>
     <lastBuildDate>__LAST_BUILD_DATE__</lastBuildDate>
