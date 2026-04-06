@@ -4,7 +4,7 @@
     "title": "ZeroPress Preview",
     "description": "Default preview data",
     "url": "https://example.com",
-    "language": "en"
+    "locale": "en-US"
   },
   "pages": [
     {

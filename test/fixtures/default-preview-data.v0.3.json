@@ -6,12 +6,12 @@
     "title": "ZeroPress Preview",
     "description": "Default preview data",
     "url": "https://example.com",
-    "language": "en",
+    "locale": "en-US",
     "postsPerPage": 2,
     "dateFormat": "YYYY-MM-DD",
     "timeFormat": "HH:mm",
-    "siteTimezone": "UTC",
-    "siteLocale": "en"
+    "timezone": "UTC",
+    "disallowComments": false
   },
   "content": {
     "posts": [
@@ -26,6 +26,7 @@
         "updated_at_iso": "2026-02-14T09:00:00.000Z",
         "author_name": "Admin",
         "status": "published",
+        "allow_comments": true,
         "category_slugs": [
           "general"
         ],
@@ -44,6 +45,7 @@
         "updated_at_iso": "2026-02-13T09:00:00.000Z",
         "author_name": "Admin",
         "status": "published",
+        "allow_comments": true,
         "category_slugs": [
           "general"
         ],
@@ -62,6 +64,7 @@
         "updated_at_iso": "2026-02-12T09:00:00.000Z",
         "author_name": "Admin",
         "status": "published",
+        "allow_comments": true,
         "category_slugs": [
           "general"
         ],

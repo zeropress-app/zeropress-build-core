@@ -6,12 +6,12 @@
     "title": "ZeroPress Medium Preview",
     "description": "Medium preview data",
     "url": "https://example.kr",
-    "language": "ko",
+    "locale": "ko-KR",
     "postsPerPage": 2,
     "dateFormat": "YYYY-MM-DD",
     "timeFormat": "HH:mm",
-    "siteTimezone": "UTC",
-    "siteLocale": "ko"
+    "timezone": "UTC",
+    "disallowComments": false
   },
   "content": {
     "posts": [
@@ -26,6 +26,7 @@
         "updated_at_iso": "2026-03-01T09:00:00.000Z",
         "author_name": "관리자",
         "status": "published",
+        "allow_comments": true,
         "category_slugs": [
           "디자인"
         ],
@@ -44,6 +45,7 @@
         "updated_at_iso": "2026-02-28T09:00:00.000Z",
         "author_name": "관리자",
         "status": "published",
+        "allow_comments": true,
         "category_slugs": [
           "디자인"
         ],
@@ -63,6 +65,7 @@
         "updated_at_iso": "2026-02-27T09:00:00.000Z",
         "author_name": "Admin",
         "status": "published",
+        "allow_comments": true,
         "category_slugs": [
           "updates"
         ],
@@ -81,6 +84,7 @@
         "updated_at_iso": "2026-02-26T09:00:00.000Z",
         "author_name": "Admin",
         "status": "published",
+        "allow_comments": true,
         "category_slugs": [
           "디자인"
         ],

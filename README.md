@@ -205,6 +205,17 @@ Build-core now derives:
 - `reading_time`
 - `comments_html`
 
+Comment shell rendering is derived from preview-data policy:
+
+- `site.disallowComments`
+- `content.posts[].allow_comments`
+
+The canonical `preview-data v0.4` site contract uses:
+
+- `site.locale`
+- `site.timezone`
+- `site.disallowComments`
+
 Optional route templates behave as rendering capabilities, not guaranteed outputs:
 
 - `archive.html`

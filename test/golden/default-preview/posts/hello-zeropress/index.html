@@ -11,7 +11,40 @@
   <h1>Hello ZeroPress</h1>
   <div class="content"><p>Preview post content</p></div>
   <footer class="taxonomy"><a href="/categories/general/" class="category-link">General</a> <a href="/tags/intro/" class="tag-link">Intro</a></footer>
-  <section id="comments"></section>
+  <section id="comments" class="zp-comments">
+  <h2>댓글</h2>
+  <div id="comment-list"
+       hx-get="/api/comments/post-1"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <p class="zp-comments-loading">댓글을 불러오는 중...</p>
+  </div>
+  <form id="comment-form"
+        hx-post="/api/comments/post-1"
+        hx-target="#comment-form-result"
+        hx-swap="innerHTML">
+    <div id="comment-form-result"></div>
+    <div>
+      <label for="author_name">이름</label>
+      <input type="text" id="author_name" name="author_name" required>
+    </div>
+    <div>
+      <label for="author_email">이메일</label>
+      <input type="email" id="author_email" name="author_email" required>
+    </div>
+    <div>
+      <label for="content">댓글</label>
+      <textarea id="content" name="content" required minlength="1" maxlength="5000"></textarea>
+    </div>
+    <div style="position:absolute;left:-9999px;" aria-hidden="true">
+      <input type="text" name="website" tabindex="-1" autocomplete="off">
+    </div>
+    <button type="submit">댓글 작성</button>
+  </form>
+  <noscript>
+    <p>댓글 기능을 사용하려면 JavaScript를 활성화해 주세요.</p>
+  </noscript>
+</section>
 </article>
 </main>
     <footer>Golden Footer</footer>

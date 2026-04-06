@@ -284,6 +284,7 @@ test('buildSite supports medium fixture with raw Unicode slugs and paginated tax
   assert.ok(sitemapXml.includes(`https://example.kr/tags/${tagSlug}/`));
 
   const metaJson = JSON.parse(getFileContent(files, 'meta.json'));
+  assert.equal(metaJson.site.locale, 'ko-KR');
   assert.equal(metaJson.pages.some((page) => page.url === `/posts/${postSlug}/`), true);
   assert.equal(metaJson.pages.some((page) => page.url === `/${pageSlug}/`), true);
 
@@ -483,6 +484,58 @@ test('buildSite skips 404.html when the theme does not provide a 404 template', 
   });
 
   assert.equal(writer.getFiles().some((file) => file.path === '404.html'), false);
+});
+
+test('buildSite omits comment container markup when site.disallowComments is true', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.site.disallowComments = true;
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  assert.equal(postHtml.includes('hx-get="/api/comments/post-1"'), false);
+  assert.equal(postHtml.includes('<section id="comments" class="zp-comments">'), false);
+});
+
+test('buildSite omits comment container markup when post.allow_comments is false', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.content.posts[0].allow_comments = false;
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  assert.equal(postHtml.includes('hx-get="/api/comments/post-1"'), false);
+  assert.equal(postHtml.includes('<section id="comments" class="zp-comments">'), false);
+});
+
+test('buildSite renders comment shell with worker-compatible endpoints when comments are enabled', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  assert.equal(postHtml.includes('hx-get="/api/comments/post-1"'), true);
+  assert.equal(postHtml.includes('hx-post="/api/comments/post-1"'), true);
 });
 
 test('buildSelectedRoutes skips optional route outputs when templates are missing', async () => {

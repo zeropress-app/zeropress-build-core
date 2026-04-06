@@ -16,8 +16,6 @@ const DEFAULT_DATE_FORMAT = 'YYYY-MM-DD';
 const DEFAULT_TIME_FORMAT = 'HH:mm';
 const DEFAULT_TIMEZONE = 'UTC';
 const DEFAULT_LOCALE = 'en-US';
-const COMMENTS_HTML = '<section id="comments"></section>';
-
 export async function buildSite(input) {
   const options = { ...DEFAULT_OPTIONS, ...(input.options || {}) };
   const state = await createBuildState(input, options);
@@ -280,8 +278,9 @@ function normalizePreviewData(previewData) {
         : DEFAULT_POSTS_PER_PAGE,
       dateFormat: normalizeNonEmptyString(previewData.site.dateFormat, DEFAULT_DATE_FORMAT),
       timeFormat: typeof previewData.site.timeFormat === 'string' ? previewData.site.timeFormat : DEFAULT_TIME_FORMAT,
-      siteTimezone: normalizeNonEmptyString(previewData.site.siteTimezone, DEFAULT_TIMEZONE),
-      siteLocale: normalizeLocale(previewData.site.siteLocale || previewData.site.language || DEFAULT_LOCALE),
+      timezone: normalizeNonEmptyString(previewData.site.timezone, DEFAULT_TIMEZONE),
+      locale: normalizeLocale(previewData.site.locale || DEFAULT_LOCALE),
+      disallowComments: previewData.site.disallowComments === true,
     },
     content: {
       ...previewData.content,
@@ -372,8 +371,50 @@ function preparePost(post, site, categoriesBySlug, tagsBySlug) {
     reading_time: calculateReadingTime(post.html),
     categories_html: renderInlineTaxonomyLinks(post.category_slugs, categoriesBySlug, 'category'),
     tags_html: renderInlineTaxonomyLinks(post.tag_slugs, tagsBySlug, 'tag'),
-    comments_html: COMMENTS_HTML,
+    comments_html: renderCommentsContainer(site, post),
   };
+}
+
+function renderCommentsContainer(site, post) {
+  if (site.disallowComments === true || post.allow_comments !== true) {
+    return '';
+  }
+
+  const safePostId = encodeURIComponent(post.id);
+  return `<section id="comments" class="zp-comments">
+  <h2>댓글</h2>
+  <div id="comment-list"
+       hx-get="/api/comments/${safePostId}"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <p class="zp-comments-loading">댓글을 불러오는 중...</p>
+  </div>
+  <form id="comment-form"
+        hx-post="/api/comments/${safePostId}"
+        hx-target="#comment-form-result"
+        hx-swap="innerHTML">
+    <div id="comment-form-result"></div>
+    <div>
+      <label for="author_name">이름</label>
+      <input type="text" id="author_name" name="author_name" required>
+    </div>
+    <div>
+      <label for="author_email">이메일</label>
+      <input type="email" id="author_email" name="author_email" required>
+    </div>
+    <div>
+      <label for="content">댓글</label>
+      <textarea id="content" name="content" required minlength="1" maxlength="5000"></textarea>
+    </div>
+    <div style="position:absolute;left:-9999px;" aria-hidden="true">
+      <input type="text" name="website" tabindex="-1" autocomplete="off">
+    </div>
+    <button type="submit">댓글 작성</button>
+  </form>
+  <noscript>
+    <p>댓글 기능을 사용하려면 JavaScript를 활성화해 주세요.</p>
+  </noscript>
+</section>`;
 }
 
 function buildTaxonomyRoutes(options) {
@@ -592,10 +633,10 @@ function renderPagination(paginationData) {
 
 function formatTimestamp(value, site) {
   const date = toDate(value);
-  const locale = normalizeLocale(site.siteLocale || site.language || DEFAULT_LOCALE);
+  const locale = normalizeLocale(site.locale || DEFAULT_LOCALE);
   const dateFormat = normalizeNonEmptyString(site.dateFormat, DEFAULT_DATE_FORMAT);
   const timeFormat = typeof site.timeFormat === 'string' ? site.timeFormat : DEFAULT_TIME_FORMAT;
-  const siteTimezone = normalizeNonEmptyString(site.siteTimezone, DEFAULT_TIMEZONE);
+  const siteTimezone = normalizeNonEmptyString(site.timezone, DEFAULT_TIMEZONE);
 
   const dateParts = new Intl.DateTimeFormat(locale, {
     timeZone: siteTimezone,
@@ -775,7 +816,7 @@ function createRenderContext(site, currentUrl) {
   return {
     site,
     currentUrl,
-    language: site.language,
+    language: site.locale,
   };
 }
 
@@ -881,7 +922,7 @@ function buildFeedXml(site, emitted, generatedAt) {
     })
     .join('\n');
 
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n  <channel>\n    <title>${escapeXml(site.title)}</title>\n    <link>${escapeXml(channelLink)}</link>\n    <description>${escapeXml(site.description)}</description>\n    <language>${site.language}</language>\n    <lastBuildDate>${generatedAt.toUTCString()}</lastBuildDate>\n    <atom:link href="${escapeXml(selfLink)}" rel="self" type="application/rss+xml" />\n${items}\n  </channel>\n</rss>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n  <channel>\n    <title>${escapeXml(site.title)}</title>\n    <link>${escapeXml(channelLink)}</link>\n    <description>${escapeXml(site.description)}</description>\n    <language>${site.locale}</language>\n    <lastBuildDate>${generatedAt.toUTCString()}</lastBuildDate>\n    <atom:link href="${escapeXml(selfLink)}" rel="self" type="application/rss+xml" />\n${items}\n  </channel>\n</rss>`;
 }
 
 function buildRobotsTxt(site) {
@@ -917,7 +958,7 @@ function buildMetaJson(site, emitted, generatedAt) {
       title: site.title,
       description: site.description,
       url: site.url,
-      language: site.language,
+      locale: site.locale,
     },
     pages,
   }, null, 2);
