@@ -1,9 +1,9 @@
 <html>
   <head>
     <meta charset="utf-8">
-    <title>{{site.title}}</title>
-    <meta name="description" content="{{meta.description}}">
+    <title>{{meta.title}}</title>
     <link rel="stylesheet" href="/assets/style.css">
+    {{meta.head_tags}}
   </head>
   <body>
     {{slot:header}}

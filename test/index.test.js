@@ -313,7 +313,138 @@ test('buildSite uses escaped post excerpt for meta description on post pages', a
   const pageHtml = getFileContent(writer.getFiles(), 'about/index.html');
 
   assert.match(postHtml, /<meta name="description" content="Post &quot;excerpt&quot; &amp; summary">/);
-  assert.match(pageHtml, /<meta name="description" content="Site &quot;description&quot; fallback">/);
+  assert.doesNotMatch(pageHtml, /<meta name="description"/);
+});
+
+test('buildSite renders SEO meta for post and page routes', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.site.mediaBaseUrl = 'https://media.example.com';
+  previewData.content.posts[0].featured_image = '/images/post-share.png';
+  previewData.content.pages[0].excerpt = 'About page summary';
+  previewData.content.pages[0].featured_image = 'images/page-share.png';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false, injectHtmx: false },
+  });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  const pageHtml = getFileContent(writer.getFiles(), 'about/index.html');
+
+  assert.match(postHtml, /<title>Hello ZeroPress - ZeroPress Preview<\/title>/);
+  assert.match(postHtml, /property="og:type" content="article"/);
+  assert.match(postHtml, /property="og:url" content="https:\/\/example\.com\/posts\/hello-zeropress\/"/);
+  assert.match(postHtml, /property="og:image" content="https:\/\/media\.example\.com\/images\/post-share\.png"/);
+  assert.match(postHtml, /property="article:published_time" content="2026-02-14T09:00:00\.000Z"/);
+  assert.match(postHtml, /property="article:modified_time" content="2026-02-14T09:00:00\.000Z"/);
+
+  assert.match(pageHtml, /<title>About - ZeroPress Preview<\/title>/);
+  assert.match(pageHtml, /<meta name="description" content="About page summary">/);
+  assert.match(pageHtml, /property="og:type" content="website"/);
+  assert.match(pageHtml, /property="og:image" content="https:\/\/media\.example\.com\/images\/page-share\.png"/);
+  assert.doesNotMatch(pageHtml, /property="article:published_time"/);
+  assert.doesNotMatch(pageHtml, /property="article:modified_time"/);
+});
+
+test('buildSite omits canonical and og:url when site.url is empty and still emits og:image from mediaBaseUrl', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.site.url = '';
+  previewData.site.mediaBaseUrl = 'https://media.example.com';
+  previewData.content.posts[0].featured_image = '/images/post-share.png';
+  previewData.content.pages[0].featured_image = 'https://cdn.example.com/page-share.png';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false, injectHtmx: false },
+  });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  const pageHtml = getFileContent(writer.getFiles(), 'about/index.html');
+
+  assert.doesNotMatch(postHtml, /rel="canonical"/);
+  assert.doesNotMatch(postHtml, /property="og:url"/);
+  assert.match(postHtml, /property="og:image" content="https:\/\/media\.example\.com\/images\/post-share\.png"/);
+  assert.doesNotMatch(pageHtml, /rel="canonical"/);
+  assert.doesNotMatch(pageHtml, /property="og:url"/);
+  assert.match(pageHtml, /property="og:image" content="https:\/\/cdn\.example\.com\/page-share\.png"/);
+});
+
+test('buildSite normalizes media fields against site.mediaBaseUrl before rendering', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.site.mediaBaseUrl = 'https://media.example.com/base/';
+  previewData.content.posts[0].author_avatar = '/avatars/author.png?size=96';
+  previewData.content.posts[0].featured_image = 'images/post-share.png?fit=cover';
+  previewData.content.pages[0].featured_image = '/images/page-share.png?format=webp';
+
+  themePackage.templates.set('post', [
+    '<article',
+    ' data-author-avatar="{{post.author_avatar}}"',
+    ' data-featured-image="{{post.featured_image}}">',
+    '{{post.title}}',
+    '</article>',
+  ].join(''));
+  themePackage.templates.set('page', '<section data-featured-image="{{page.featured_image}}">{{page.title}}</section>');
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false, injectHtmx: false },
+  });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  const pageHtml = getFileContent(writer.getFiles(), 'about/index.html');
+
+  assert.match(postHtml, /data-author-avatar="https:\/\/media\.example\.com\/avatars\/author\.png\?size=96"/);
+  assert.match(postHtml, /data-featured-image="https:\/\/media\.example\.com\/base\/images\/post-share\.png\?fit=cover"/);
+  assert.match(pageHtml, /data-featured-image="https:\/\/media\.example\.com\/images\/page-share\.png\?format=webp"/);
+});
+
+test('buildSite blanks unresolved relative media fields when site.mediaBaseUrl is missing', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.content.posts[0].author_avatar = '/avatars/author.png';
+  previewData.content.posts[0].featured_image = 'images/post-share.png';
+  previewData.content.pages[0].featured_image = '/images/page-share.png';
+
+  themePackage.templates.set('post', [
+    '<article',
+    ' data-author-avatar="{{post.author_avatar}}"',
+    ' data-featured-image="{{post.featured_image}}">',
+    '{{post.title}}',
+    '</article>',
+  ].join(''));
+  themePackage.templates.set('page', '<section data-featured-image="{{page.featured_image}}">{{page.title}}</section>');
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false, injectHtmx: false },
+  });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  const pageHtml = getFileContent(writer.getFiles(), 'about/index.html');
+
+  assert.match(postHtml, /data-author-avatar=""/);
+  assert.match(postHtml, /data-featured-image=""/);
+  assert.match(pageHtml, /data-featured-image=""/);
+  assert.doesNotMatch(postHtml, /property="og:image"/);
 });
 
 test('buildSelectedRoutes keeps parity for medium fixture raw Unicode routes and second-page taxonomy outputs', async () => {

@@ -194,7 +194,12 @@ async function renderRoute(state, templateName, route) {
     templateName,
     {
       ...route,
-      meta: buildPageMeta(state.previewData.site),
+      meta: buildPageMeta(state.previewData.site, {
+        currentUrl,
+        title: state.previewData.site.title,
+        description: state.previewData.site.description,
+        ogType: 'website',
+      }),
     },
     createRenderContext(state.previewData.site, currentUrl),
   );
@@ -209,7 +214,15 @@ async function renderPost(state, post) {
     'post',
     {
       post,
-      meta: buildPageMeta(state.previewData.site, post.excerpt),
+      meta: buildPageMeta(state.previewData.site, {
+        currentUrl,
+        title: buildDocumentTitle(post.title, state.previewData.site.title),
+        description: post.excerpt,
+        ogType: 'article',
+        image: post.featured_image,
+        publishedTime: post.published_at_iso,
+        modifiedTime: post.updated_at_iso,
+      }),
     },
     createRenderContext(state.previewData.site, currentUrl),
   );
@@ -229,19 +242,27 @@ async function renderPost(state, post) {
 }
 
 async function renderPage(state, page) {
+  const currentUrl = `/${encodeSlugSegment(page.slug)}/`;
   let html = await state.engine.render(
     'page',
     {
       page,
-      meta: buildPageMeta(state.previewData.site),
+      meta: buildPageMeta(state.previewData.site, {
+        currentUrl,
+        title: buildDocumentTitle(page.title, state.previewData.site.title),
+        description: page.excerpt,
+        ogType: 'website',
+        image: page.featured_image,
+      }),
     },
-    createRenderContext(state.previewData.site, `/${encodeSlugSegment(page.slug)}/`),
+    createRenderContext(state.previewData.site, currentUrl),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   await writeOutput(state.writer, state.summaries, `${encodeSlugSegment(page.slug)}/index.html`, html, 'text/html');
   state.emitted.pages.push({
-    url: `/${encodeSlugSegment(page.slug)}/`,
+    url: currentUrl,
     title: page.title,
+    description: page.excerpt,
     status: page.status,
   });
 }
@@ -254,7 +275,12 @@ async function maybeRenderNotFoundPage(state) {
   let html = await state.engine.render(
     '404',
     {
-      meta: buildPageMeta(state.previewData.site),
+      meta: buildPageMeta(state.previewData.site, {
+        currentUrl: '/404.html',
+        title: state.previewData.site.title,
+        description: state.previewData.site.description,
+        ogType: 'website',
+      }),
     },
     createRenderContext(state.previewData.site, '/404.html'),
   );
@@ -280,23 +306,35 @@ function validateSelection(selection) {
 }
 
 function normalizePreviewData(previewData) {
+  const normalizedSite = {
+    ...previewData.site,
+    mediaBaseUrl: normalizeOptionalString(previewData.site.mediaBaseUrl),
+    postsPerPage: Number.isInteger(previewData.site.postsPerPage) && previewData.site.postsPerPage > 0
+      ? previewData.site.postsPerPage
+      : DEFAULT_POSTS_PER_PAGE,
+    dateFormat: normalizeNonEmptyString(previewData.site.dateFormat, DEFAULT_DATE_FORMAT),
+    timeFormat: typeof previewData.site.timeFormat === 'string' ? previewData.site.timeFormat : DEFAULT_TIME_FORMAT,
+    timezone: normalizeNonEmptyString(previewData.site.timezone, DEFAULT_TIMEZONE),
+    locale: normalizeLocale(previewData.site.locale || DEFAULT_LOCALE),
+    disallowComments: previewData.site.disallowComments === true,
+  };
+
   return {
     ...previewData,
-    site: {
-      ...previewData.site,
-      postsPerPage: Number.isInteger(previewData.site.postsPerPage) && previewData.site.postsPerPage > 0
-        ? previewData.site.postsPerPage
-        : DEFAULT_POSTS_PER_PAGE,
-      dateFormat: normalizeNonEmptyString(previewData.site.dateFormat, DEFAULT_DATE_FORMAT),
-      timeFormat: typeof previewData.site.timeFormat === 'string' ? previewData.site.timeFormat : DEFAULT_TIME_FORMAT,
-      timezone: normalizeNonEmptyString(previewData.site.timezone, DEFAULT_TIMEZONE),
-      locale: normalizeLocale(previewData.site.locale || DEFAULT_LOCALE),
-      disallowComments: previewData.site.disallowComments === true,
-    },
+    site: normalizedSite,
     content: {
       ...previewData.content,
-      posts: [...previewData.content.posts].sort((left, right) => toDate(right.published_at_iso).getTime() - toDate(left.published_at_iso).getTime()),
-      pages: [...previewData.content.pages],
+      posts: previewData.content.posts
+        .map((post) => ({
+          ...post,
+          author_avatar: normalizeMediaField(post.author_avatar, normalizedSite.mediaBaseUrl),
+          featured_image: normalizeMediaField(post.featured_image, normalizedSite.mediaBaseUrl),
+        }))
+        .sort((left, right) => toDate(right.published_at_iso).getTime() - toDate(left.published_at_iso).getTime()),
+      pages: previewData.content.pages.map((page) => ({
+        ...page,
+        featured_image: normalizeMediaField(page.featured_image, normalizedSite.mediaBaseUrl),
+      })),
       categories: [...previewData.content.categories],
       tags: [...previewData.content.tags],
     },
@@ -708,6 +746,10 @@ function normalizeNonEmptyString(value, fallback) {
   return typeof value === 'string' && value.trim() ? value : fallback;
 }
 
+function normalizeOptionalString(value) {
+  return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
 function normalizeLocale(value) {
   if (typeof value !== 'string' || !value.trim()) {
     return DEFAULT_LOCALE;
@@ -831,11 +873,127 @@ function createRenderContext(site, currentUrl) {
   };
 }
 
-function buildPageMeta(site, description = site.description) {
-  const resolvedDescription = normalizeNonEmptyString(description, site.description);
-  return {
-    description: escapeHtml(resolvedDescription),
+function buildPageMeta(site, options = {}) {
+  const resolvedTitle = normalizeNonEmptyString(options.title, site.title);
+  const resolvedDescription = normalizeOptionalString(options.description);
+  const canonicalUrl = resolveMetaCanonicalUrl(site, options.currentUrl);
+  const ogImage = resolveMetaImageUrl(options.image);
+  const ogType = normalizeNonEmptyString(options.ogType, 'website');
+  const publishedTime = normalizeOptionalString(options.publishedTime);
+  const modifiedTime = normalizeOptionalString(options.modifiedTime);
+
+  const meta = {
+    title: escapeHtml(resolvedTitle),
+    description: resolvedDescription ? escapeHtml(resolvedDescription) : '',
+    canonical_url: canonicalUrl ? escapeHtml(canonicalUrl) : '',
+    og_title: escapeHtml(resolvedTitle),
+    og_description: resolvedDescription ? escapeHtml(resolvedDescription) : '',
+    og_type: escapeHtml(ogType),
+    og_url: canonicalUrl ? escapeHtml(canonicalUrl) : '',
+    og_site_name: escapeHtml(site.title),
+    og_image: ogImage ? escapeHtml(ogImage) : '',
+    article_published_time: publishedTime ? escapeHtml(publishedTime) : '',
+    article_modified_time: modifiedTime ? escapeHtml(modifiedTime) : '',
   };
+
+  return {
+    ...meta,
+    head_tags: buildMetaHeadTags(meta),
+  };
+}
+
+function buildDocumentTitle(contentTitle, siteTitle) {
+  const resolvedContentTitle = normalizeNonEmptyString(contentTitle, siteTitle);
+  const resolvedSiteTitle = normalizeNonEmptyString(siteTitle, resolvedContentTitle);
+  return `${resolvedContentTitle} - ${resolvedSiteTitle}`;
+}
+
+function buildMetaHeadTags(meta) {
+  const tags = [];
+
+  if (meta.description) {
+    tags.push(`<meta name="description" content="${meta.description}">`);
+  }
+  if (meta.canonical_url) {
+    tags.push(`<link rel="canonical" href="${meta.canonical_url}">`);
+  }
+
+  tags.push(`<meta property="og:title" content="${meta.og_title}">`);
+  if (meta.og_description) {
+    tags.push(`<meta property="og:description" content="${meta.og_description}">`);
+  }
+  tags.push(`<meta property="og:type" content="${meta.og_type}">`);
+  if (meta.og_url) {
+    tags.push(`<meta property="og:url" content="${meta.og_url}">`);
+  }
+  tags.push(`<meta property="og:site_name" content="${meta.og_site_name}">`);
+  if (meta.og_image) {
+    tags.push(`<meta property="og:image" content="${meta.og_image}">`);
+  }
+  if (meta.article_published_time) {
+    tags.push(`<meta property="article:published_time" content="${meta.article_published_time}">`);
+  }
+  if (meta.article_modified_time) {
+    tags.push(`<meta property="article:modified_time" content="${meta.article_modified_time}">`);
+  }
+
+  return tags.length ? `${tags.join('\n')}\n` : '';
+}
+
+function resolveMetaCanonicalUrl(site, currentUrl) {
+  if (!hasCanonicalSiteUrl(site.url) || !normalizeOptionalString(currentUrl)) {
+    return '';
+  }
+
+  return resolveSiteUrl(site.url, currentUrl);
+}
+
+function resolveMetaImageUrl(image) {
+  const normalizedImage = normalizeOptionalString(image);
+  if (!normalizedImage) {
+    return '';
+  }
+
+  if (isAbsoluteUrl(normalizedImage)) {
+    return normalizedImage;
+  }
+
+  return '';
+}
+
+function normalizeMediaField(value, mediaBaseUrl) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const normalizedValue = normalizeOptionalString(value);
+  if (!normalizedValue) {
+    return '';
+  }
+
+  if (isAbsoluteUrl(normalizedValue)) {
+    return normalizedValue;
+  }
+
+  const normalizedBaseUrl = normalizeOptionalString(mediaBaseUrl);
+  if (!normalizedBaseUrl) {
+    return '';
+  }
+
+  try {
+    return decodeURI(new URL(normalizedValue, normalizedBaseUrl).toString());
+  } catch {
+    return '';
+  }
+}
+
+function isAbsoluteUrl(value) {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 async function writeOutput(writer, summaries, path, content, contentType) {
@@ -965,6 +1123,7 @@ function buildMetaJson(site, emitted, generatedAt) {
     ...emitted.pages.map((page) => ({
       url: page.url,
       title: page.title,
+      description: page.description,
       type: 'page',
       metadata: { status: page.status },
     })),
