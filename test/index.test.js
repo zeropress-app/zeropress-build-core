@@ -294,6 +294,28 @@ test('buildSite supports medium fixture with raw Unicode slugs and paginated tax
   }
 });
 
+test('buildSite uses escaped post excerpt for meta description on post pages', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.site.description = 'Site "description" fallback';
+  previewData.content.posts[0].excerpt = 'Post "excerpt" & summary';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false, injectHtmx: false },
+  });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  const pageHtml = getFileContent(writer.getFiles(), 'about/index.html');
+
+  assert.match(postHtml, /<meta name="description" content="Post &quot;excerpt&quot; &amp; summary">/);
+  assert.match(pageHtml, /<meta name="description" content="Site &quot;description&quot; fallback">/);
+});
+
 test('buildSelectedRoutes keeps parity for medium fixture raw Unicode routes and second-page taxonomy outputs', async () => {
   const previewData = await loadMediumPreviewData();
   const themePackage = await loadGoldenThemePackage();

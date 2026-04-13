@@ -192,7 +192,10 @@ async function renderRoute(state, templateName, route) {
   const currentUrl = normalizeRoutePath(route.path);
   let html = await state.engine.render(
     templateName,
-    { ...route },
+    {
+      ...route,
+      meta: buildPageMeta(state.previewData.site),
+    },
     createRenderContext(state.previewData.site, currentUrl),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
@@ -204,7 +207,10 @@ async function renderPost(state, post) {
   const currentUrl = `/posts/${encodeSlugSegment(post.slug)}/`;
   let html = await state.engine.render(
     'post',
-    { post },
+    {
+      post,
+      meta: buildPageMeta(state.previewData.site, post.excerpt),
+    },
     createRenderContext(state.previewData.site, currentUrl),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
@@ -225,7 +231,10 @@ async function renderPost(state, post) {
 async function renderPage(state, page) {
   let html = await state.engine.render(
     'page',
-    { page },
+    {
+      page,
+      meta: buildPageMeta(state.previewData.site),
+    },
     createRenderContext(state.previewData.site, `/${encodeSlugSegment(page.slug)}/`),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
@@ -244,7 +253,9 @@ async function maybeRenderNotFoundPage(state) {
 
   let html = await state.engine.render(
     '404',
-    {},
+    {
+      meta: buildPageMeta(state.previewData.site),
+    },
     createRenderContext(state.previewData.site, '/404.html'),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
@@ -817,6 +828,13 @@ function createRenderContext(site, currentUrl) {
     site,
     currentUrl,
     language: site.locale,
+  };
+}
+
+function buildPageMeta(site, description = site.description) {
+  const resolvedDescription = normalizeNonEmptyString(description, site.description);
+  return {
+    description: escapeHtml(resolvedDescription),
   };
 }
 
