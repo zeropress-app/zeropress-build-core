@@ -4,7 +4,7 @@
 ![license](https://img.shields.io/npm/l/%40zeropress%2Fbuild-core)
 ![node](https://img.shields.io/node/v/%40zeropress%2Fbuild-core)
 
-Shared build and partial-render core for ZeroPress.
+Shared build core for ZeroPress.
 
 This package is the deterministic rendering engine used by:
 
@@ -33,7 +33,6 @@ npm install @zeropress/build-core
 ```js
 import {
   buildSite,
-  buildSelectedRoutes,
   buildSiteFromThemeDir,
   MemoryWriter,
   FilesystemWriter,
@@ -122,47 +121,6 @@ Notes:
 - `themePackage` must already be a validated in-memory theme package
 - `sitemap.xml` and `feed.xml` are emitted only when `site.url` is a non-empty canonical URL
 - `robots.txt` and `meta.json` are still emitted when `generateSpecialFiles` is enabled
-
-### `buildSelectedRoutes(input)`
-
-Renders only selected post and list routes while preserving full-build parity for those outputs.
-
-This is intended for targeted rebuilds, output parity checks, and other partial-render workflows.
-
-Current selection scope is limited to:
-
-- post detail routes
-- index pagination routes
-- archive routes
-- category routes
-- tag routes
-
-It does not currently support selecting individual page routes.
-
-Optional route templates are respected during both full and partial renders:
-
-- missing `archive.html` skips archive outputs
-- missing `category.html` skips category outputs
-- missing `tag.html` skips tag outputs
-- missing `404.html` skips `404.html` emission
-
-These cases do not fail the build.
-
-```js
-await buildSelectedRoutes({
-  previewData,
-  themePackage,
-  writer,
-  selection: {
-    posts: ['hello-zeropress'],
-    indexRoutes: ['/'],
-    archiveRoutes: ['/archive/'],
-    categoryRoutes: ['/categories/general/'],
-    tagRoutes: ['/tags/intro/'],
-    includeAssets: false,
-  },
-});
-```
 
 ### `buildSiteFromThemeDir(input)`
 

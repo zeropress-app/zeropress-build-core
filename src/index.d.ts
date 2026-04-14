@@ -35,15 +35,6 @@ export interface BuildOptions {
   writeManifest?: boolean;
 }
 
-export interface BuildSelection {
-  posts: string[];
-  indexRoutes: string[];
-  archiveRoutes: string[];
-  categoryRoutes: string[];
-  tagRoutes: string[];
-  includeAssets: boolean;
-}
-
 export interface BuildSummaryFile {
   path: string;
   contentType: string;
@@ -65,14 +56,6 @@ export function buildSite(input: {
   previewData: PreviewDataV05;
   themePackage: ThemePackage;
   writer: BuildWriter;
-  options?: BuildOptions;
-}): Promise<BuildSiteResult>;
-
-export function buildSelectedRoutes(input: {
-  previewData: PreviewDataV05;
-  themePackage: ThemePackage;
-  writer: BuildWriter;
-  selection: BuildSelection;
   options?: BuildOptions;
 }): Promise<BuildSiteResult>;
 

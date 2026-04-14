@@ -68,62 +68,6 @@ export async function buildSite(input) {
   return finalizeBuildResult(state.writer, state.summaries, options);
 }
 
-export async function buildSelectedRoutes(input) {
-  const options = { ...DEFAULT_OPTIONS, ...(input.options || {}) };
-  validateSelection(input.selection);
-
-  const state = await createBuildState(input, options);
-  const selectedPostSlugs = new Set((input.selection.posts || []).map((slug) => String(slug)));
-  const selectedIndexRoutes = new Set((input.selection.indexRoutes || []).map((route) => normalizeRoutePath(route)));
-  const selectedArchiveRoutes = new Set((input.selection.archiveRoutes || []).map((route) => normalizeRoutePath(route)));
-  const selectedCategoryRoutes = new Set((input.selection.categoryRoutes || []).map((route) => normalizeRoutePath(route)));
-  const selectedTagRoutes = new Set((input.selection.tagRoutes || []).map((route) => normalizeRoutePath(route)));
-
-  for (const post of state.renderData.posts) {
-    if (selectedPostSlugs.has(post.slug)) {
-      await renderPost(state, post);
-    }
-  }
-
-  for (const route of state.renderData.indexRoutes) {
-    if (selectedIndexRoutes.has(normalizeRoutePath(route.path))) {
-      await renderRoute(state, 'index', route);
-    }
-  }
-
-  if (hasTemplate(state, 'archive')) {
-    for (const route of state.renderData.archiveRoutes) {
-      if (selectedArchiveRoutes.has(normalizeRoutePath(route.path))) {
-        await renderRoute(state, 'archive', route);
-      }
-    }
-  }
-
-  if (hasTemplate(state, 'category')) {
-    for (const route of state.renderData.categoryRoutes) {
-      if (selectedCategoryRoutes.has(normalizeRoutePath(route.path))) {
-        await renderRoute(state, 'category', route);
-      }
-    }
-  }
-
-  if (hasTemplate(state, 'tag')) {
-    for (const route of state.renderData.tagRoutes) {
-      if (selectedTagRoutes.has(normalizeRoutePath(route.path))) {
-        await renderRoute(state, 'tag', route);
-      }
-    }
-  }
-
-  if (input.selection.includeAssets) {
-    for (const assetOutput of state.assetOutputs) {
-      await writeOutput(state.writer, state.summaries, assetOutput.path, assetOutput.content, assetOutput.contentType);
-    }
-  }
-
-  return finalizeBuildResult(state.writer, state.summaries, options);
-}
-
 async function createBuildState(input, options) {
   if (!input?.writer || typeof input.writer.write !== 'function') {
     throw new Error('buildSite requires a writer with an async write(file) method');
@@ -287,23 +231,6 @@ async function maybeRenderNotFoundPage(state) {
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   await writeOutput(state.writer, state.summaries, '404.html', html, 'text/html');
-}
-
-function validateSelection(selection) {
-  if (!selection || typeof selection !== 'object') {
-    throw new Error('buildSelectedRoutes requires a selection object');
-  }
-
-  const keys = ['posts', 'indexRoutes', 'archiveRoutes', 'categoryRoutes', 'tagRoutes'];
-  for (const key of keys) {
-    if (!Array.isArray(selection[key])) {
-      throw new Error(`buildSelectedRoutes selection.${key} must be an array`);
-    }
-  }
-
-  if (typeof selection.includeAssets !== 'boolean') {
-    throw new Error('buildSelectedRoutes selection.includeAssets must be a boolean');
-  }
 }
 
 function normalizePreviewData(previewData) {

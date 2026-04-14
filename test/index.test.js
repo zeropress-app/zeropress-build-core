@@ -4,7 +4,7 @@ import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { buildSelectedRoutes, buildSite, buildSiteFromThemeDir, FilesystemWriter, MemoryWriter } from '../src/index.js';
+import { buildSite, buildSiteFromThemeDir, FilesystemWriter, MemoryWriter } from '../src/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, 'fixtures');
@@ -158,59 +158,6 @@ test('buildSiteFromThemeDir loads the golden fixture theme directory and Filesys
   } finally {
     await fs.rm(outDir, { recursive: true, force: true });
   }
-});
-
-test('buildSelectedRoutes renders only selected outputs with full-build parity', async () => {
-  const previewData = await loadDefaultPreviewData();
-  const themePackage = await loadGoldenThemePackage();
-
-  const fullWriter = new MemoryWriter();
-  await buildSite({
-    previewData,
-    themePackage,
-    writer: fullWriter,
-    options: { generateSpecialFiles: false, injectHtmx: true },
-  });
-
-  const selectedWriter = new MemoryWriter();
-  const result = await buildSelectedRoutes({
-    previewData,
-    themePackage,
-    writer: selectedWriter,
-    selection: {
-      posts: ['hello-zeropress'],
-      indexRoutes: ['/'],
-      archiveRoutes: ['/archive/'],
-      categoryRoutes: ['/categories/general/'],
-      tagRoutes: ['/tags/intro/'],
-      includeAssets: false,
-    },
-    options: { generateSpecialFiles: false, injectHtmx: true },
-  });
-
-  const files = selectedWriter.getFiles();
-  const selectedPaths = files.map((file) => file.path).sort();
-  const expectedPaths = [
-    'archive/index.html',
-    'categories/general/index.html',
-    'index.html',
-    'posts/hello-zeropress/index.html',
-    'tags/intro/index.html',
-  ];
-
-  assert.deepEqual(selectedPaths, expectedPaths);
-  assert.equal(result.files.map((file) => file.path).sort().join('|'), [...expectedPaths].sort().join('|'));
-
-  for (const outputPath of expectedPaths) {
-    assert.equal(
-      getFileContent(files, outputPath),
-      getFileContent(fullWriter.getFiles(), outputPath),
-      `Partial render mismatch for ${outputPath}`,
-    );
-  }
-
-  assert.equal(files.some((file) => file.path.startsWith('assets/')), false);
-  assert.equal(files.some((file) => file.path === 'about/index.html'), false);
 });
 
 test('buildSite supports medium fixture with raw Unicode slugs and paginated taxonomy routes', async () => {
@@ -425,66 +372,6 @@ test('buildSite blanks unresolved relative media fields when site.mediaBaseUrl i
   assert.match(postHtml, /data-featured-image=""/);
   assert.match(pageHtml, /data-featured-image=""/);
   assert.doesNotMatch(postHtml, /property="og:image"/);
-});
-
-test('buildSelectedRoutes keeps parity for medium fixture raw Unicode routes and second-page taxonomy outputs', async () => {
-  const previewData = await loadMediumPreviewData();
-  const themePackage = await loadGoldenThemePackage();
-  const categorySlug = '디자인';
-  const tagSlug = '한글';
-
-  const fullWriter = new MemoryWriter();
-  await buildSite({
-    previewData,
-    themePackage,
-    writer: fullWriter,
-    options: { generateSpecialFiles: false, injectHtmx: true },
-  });
-
-  const selectedWriter = new MemoryWriter();
-  const result = await buildSelectedRoutes({
-    previewData,
-    themePackage,
-    writer: selectedWriter,
-    selection: {
-      posts: ['안녕하세요-제로프레스', 'taxonomy-coverage-check'],
-      indexRoutes: ['/', '/page/2/'],
-      archiveRoutes: ['/archive/', '/archive/page/2/'],
-      categoryRoutes: [`/categories/${categorySlug}/`, `/categories/${categorySlug}/page/2/`],
-      tagRoutes: [`/tags/${tagSlug}/`, `/tags/${tagSlug}/page/2/`],
-      includeAssets: false,
-    },
-    options: { generateSpecialFiles: false, injectHtmx: true },
-  });
-
-  const files = selectedWriter.getFiles();
-  const expectedPaths = [
-    'archive/index.html',
-    'archive/page/2/index.html',
-    `categories/${categorySlug}/index.html`,
-    `categories/${categorySlug}/page/2/index.html`,
-    'index.html',
-    'page/2/index.html',
-    'posts/안녕하세요-제로프레스/index.html',
-    'posts/taxonomy-coverage-check/index.html',
-    `tags/${tagSlug}/index.html`,
-    `tags/${tagSlug}/page/2/index.html`,
-  ];
-
-  assert.deepEqual(files.map((file) => file.path).sort(), [...expectedPaths].sort());
-  assert.equal(result.files.map((file) => file.path).sort().join('|'), [...expectedPaths].sort().join('|'));
-
-  for (const outputPath of expectedPaths) {
-    assert.equal(
-      getFileContent(files, outputPath),
-      getFileContent(fullWriter.getFiles(), outputPath),
-      `Partial render mismatch for ${outputPath}`,
-    );
-  }
-
-  assert.equal(files.some((file) => file.path === 'feed.xml'), false);
-  assert.equal(files.some((file) => file.path.startsWith('assets/')), false);
-  assert.equal(files.some((file) => file.path === '회사소개/index.html'), false);
 });
 
 test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async () => {
@@ -747,33 +634,4 @@ test('buildSite renders v0.5 raw content and resolves post author data from auth
   assert.match(postHtml, /<p>Paragraph text\.<\/p>/);
   assert.match(pageHtml, /<p>First paragraph\.<\/p>/);
   assert.match(pageHtml, /<p>Second paragraph\.<\/p>/);
-});
-
-test('buildSelectedRoutes skips optional route outputs when templates are missing', async () => {
-  const previewData = await loadDefaultPreviewData();
-  const themePackage = withoutTemplates(await loadGoldenThemePackage(), ['archive', 'category', 'tag']);
-  const writer = new MemoryWriter();
-
-  const result = await buildSelectedRoutes({
-    previewData,
-    themePackage,
-    writer,
-    selection: {
-      posts: ['hello-zeropress'],
-      indexRoutes: ['/'],
-      archiveRoutes: ['/archive/'],
-      categoryRoutes: ['/categories/general/'],
-      tagRoutes: ['/tags/intro/'],
-      includeAssets: false,
-    },
-    options: { generateSpecialFiles: false, injectHtmx: true },
-  });
-
-  const expectedPaths = [
-    'index.html',
-    'posts/hello-zeropress/index.html',
-  ];
-
-  assert.deepEqual(writer.getFiles().map((file) => file.path).sort(), expectedPaths);
-  assert.equal(result.files.map((file) => file.path).sort().join('|'), expectedPaths.join('|'));
 });
