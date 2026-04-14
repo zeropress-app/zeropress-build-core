@@ -85,7 +85,6 @@
     ],
     "pages": [
       {
-        "id": "page-1",
         "title": "About",
         "slug": "about",
         "content": "<p>About page</p>",
@@ -95,7 +94,6 @@
     ],
     "categories": [
       {
-        "id": "cat-1",
         "name": "General",
         "slug": "general",
         "description": "General posts"
@@ -103,7 +101,6 @@
     ],
     "tags": [
       {
-        "id": "tag-1",
         "name": "Intro",
         "slug": "intro"
       }

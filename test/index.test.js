@@ -722,7 +722,6 @@ test('buildSite renders v0.5 raw content and resolves post author data from auth
         ],
         pages: [
           {
-            id: 'page-1',
             title: 'Plaintext Page',
             slug: 'plaintext-page',
             content: 'First paragraph.\n\nSecond paragraph.',

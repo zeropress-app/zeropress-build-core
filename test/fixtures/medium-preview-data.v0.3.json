@@ -111,7 +111,6 @@
     ],
     "pages": [
       {
-        "id": "page-ko-1",
         "title": "회사 소개",
         "slug": "회사소개",
         "content": "<p>ZeroPress 소개 페이지입니다.</p>",
@@ -121,13 +120,11 @@
     ],
     "categories": [
       {
-        "id": "cat-1",
         "name": "디자인",
         "slug": "디자인",
         "description": "디자인 관련 글"
       },
       {
-        "id": "cat-2",
         "name": "Updates",
         "slug": "updates",
         "description": "Product updates"
@@ -135,17 +132,14 @@
     ],
     "tags": [
       {
-        "id": "tag-1",
         "name": "한글",
         "slug": "한글"
       },
       {
-        "id": "tag-2",
         "name": "Release Notes",
         "slug": "release-notes"
       },
       {
-        "id": "tag-3",
         "name": "Deep Dive",
         "slug": "deep-dive"
       }
