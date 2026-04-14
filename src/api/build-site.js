@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { assertPreviewData } from '@zeropress/preview-data-validator';
 import { validateThemeFiles } from '@zeropress/theme-validator';
 import { AssetProcessor } from '../assets/asset-processor.js';
+import { renderDocumentContent } from '../render/content-renderer.js';
 import { ZeroPressEngine } from '../render/zeropress-engine.js';
 
 const DEFAULT_OPTIONS = {
@@ -28,7 +29,7 @@ export async function buildSite(input) {
     await renderPost(state, post);
   }
 
-  for (const page of state.previewData.content.pages) {
+  for (const page of state.renderData.pages) {
     await renderPage(state, page);
   }
 
@@ -324,12 +325,15 @@ function normalizePreviewData(previewData) {
     site: normalizedSite,
     content: {
       ...previewData.content,
+      authors: previewData.content.authors.map((author) => ({
+        ...author,
+        avatar: normalizeMediaField(author.avatar, normalizedSite.mediaBaseUrl),
+      })),
       posts: previewData.content.posts
         .map((post) => ({
           ...post,
           published_at_iso: normalizeIsoTimestamp(post.published_at_iso),
           updated_at_iso: normalizeIsoTimestamp(post.updated_at_iso),
-          author_avatar: normalizeMediaField(post.author_avatar, normalizedSite.mediaBaseUrl),
           featured_image: normalizeMediaField(post.featured_image, normalizedSite.mediaBaseUrl),
         }))
         .sort((left, right) => toDate(right.published_at_iso).getTime() - toDate(left.published_at_iso).getTime()),
@@ -344,6 +348,7 @@ function normalizePreviewData(previewData) {
 }
 
 function createRenderData(previewData) {
+  const authorsById = new Map(previewData.content.authors.map((author) => [author.id, author]));
   const categoriesBySlug = new Map(previewData.content.categories.map((category) => [category.slug, category]));
   const tagsBySlug = new Map(previewData.content.tags.map((tag) => [tag.slug, tag]));
   const categoryPostsBySlug = new Map();
@@ -363,13 +368,15 @@ function createRenderData(previewData) {
     }
   }
 
-  const posts = previewData.content.posts.map((post) => preparePost(post, previewData.site, categoriesBySlug, tagsBySlug));
+  const posts = previewData.content.posts.map((post) => preparePost(post, previewData.site, authorsById, categoriesBySlug, tagsBySlug));
+  const pages = previewData.content.pages.map((page) => preparePage(page));
   const postBySlug = new Map(posts.map((post) => [post.slug, post]));
   const categoryLinks = renderCategoryLinks(previewData.content.categories, categoryCountBySlug);
   const tagLinks = renderTagLinks(previewData.content.tags, tagCountBySlug);
 
   return {
     posts,
+    pages,
     postBySlug,
     indexRoutes: buildPaginatedCollection({
       items: previewData.content.posts,
@@ -414,12 +421,30 @@ function createRenderData(previewData) {
   };
 }
 
-function preparePost(post, site, categoriesBySlug, tagsBySlug) {
+function preparePage(page) {
+  const documentType = normalizeDocumentType(page.document_type);
+
+  return {
+    ...page,
+    document_type: documentType,
+    html: renderDocumentContent(page.content, documentType),
+  };
+}
+
+function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug) {
+  const documentType = normalizeDocumentType(post.document_type);
+  const html = renderDocumentContent(post.content, documentType);
+  const author = authorsById.get(post.author_id);
+
   return {
     ...post,
+    document_type: documentType,
+    html,
+    author_name: normalizeNonEmptyString(author?.display_name, post.author_id),
+    author_avatar: author?.avatar,
     published_at: formatTimestamp(post.published_at_iso, site),
     updated_at: formatTimestamp(post.updated_at_iso, site),
-    reading_time: calculateReadingTime(post.html),
+    reading_time: calculateReadingTime(html),
     categories_html: renderInlineTaxonomyLinks(post.category_slugs, categoriesBySlug, 'category'),
     tags_html: renderInlineTaxonomyLinks(post.tag_slugs, tagsBySlug, 'tag'),
     comments_html: renderCommentsContainer(site, post),
@@ -774,6 +799,10 @@ function normalizeLocale(value) {
     }
     return part.toLowerCase();
   }).join('-');
+}
+
+function normalizeDocumentType(value) {
+  return value === 'plaintext' || value === 'html' ? value : 'markdown';
 }
 
 function hasTemplate(state, templateName) {

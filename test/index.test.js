@@ -304,7 +304,7 @@ test('buildSite renders SEO meta for post and page routes', async () => {
   previewData.site.mediaBaseUrl = 'https://media.example.com';
   previewData.content.posts[0].featured_image = '/images/post-share.png';
   previewData.content.pages[0].excerpt = 'About page summary';
-  previewData.content.pages[0].featured_image = 'images/page-share.png';
+  previewData.content.pages[0].featured_image = './images/page-share.png';
 
   await buildSite({
     previewData,
@@ -365,8 +365,8 @@ test('buildSite normalizes media fields against site.mediaBaseUrl before renderi
   const themePackage = await loadGoldenThemePackage();
 
   previewData.site.mediaBaseUrl = 'https://media.example.com/base/';
-  previewData.content.posts[0].author_avatar = '/avatars/author.png?size=96';
-  previewData.content.posts[0].featured_image = 'images/post-share.png?fit=cover';
+  previewData.content.authors[0].avatar = '/avatars/author.png?size=96';
+  previewData.content.posts[0].featured_image = './images/post-share.png?fit=cover';
   previewData.content.pages[0].featured_image = '/images/page-share.png?format=webp';
 
   themePackage.templates.set('post', [
@@ -398,8 +398,8 @@ test('buildSite blanks unresolved relative media fields when site.mediaBaseUrl i
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.content.posts[0].author_avatar = '/avatars/author.png';
-  previewData.content.posts[0].featured_image = 'images/post-share.png';
+  previewData.content.authors[0].avatar = '/avatars/author.png';
+  previewData.content.posts[0].featured_image = './images/post-share.png';
   previewData.content.pages[0].featured_image = '/images/page-share.png';
 
   themePackage.templates.set('post', [
@@ -669,6 +669,85 @@ test('buildSite renders comment shell with worker-compatible endpoints when comm
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
   assert.equal(postHtml.includes('hx-get="/api/comments/post-1"'), true);
   assert.equal(postHtml.includes('hx-post="/api/comments/post-1"'), true);
+});
+
+test('buildSite renders v0.5 raw content and resolves post author data from authors', async () => {
+  const writer = new MemoryWriter();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.templates.set('post', '<article class="post-entry">{{post.author_name}}|{{post.author_avatar}}|{{post.html}}</article>');
+  themePackage.templates.set('page', '<article class="page-entry">{{page.html}}</article>');
+
+  await buildSite({
+    previewData: {
+      version: '0.5',
+      generator: 'test-suite',
+      generated_at: '2026-04-02T00:00:00Z',
+      site: {
+        title: 'ZeroPress',
+        description: 'Test preview data',
+        url: 'https://example.com',
+        mediaBaseUrl: 'https://media.example.com',
+        locale: 'en-US',
+        postsPerPage: 10,
+        dateFormat: 'YYYY-MM-DD',
+        timeFormat: 'HH:mm',
+        timezone: 'UTC',
+        disallowComments: true,
+      },
+      content: {
+        authors: [
+          {
+            id: 'author-1',
+            display_name: 'Admin',
+            avatar: '/avatars/admin.webp',
+          },
+        ],
+        posts: [
+          {
+            id: 'post-1',
+            public_id: 1,
+            title: 'Markdown Post',
+            slug: 'markdown-post',
+            content: '# Markdown Heading\n\nParagraph text.',
+            document_type: 'markdown',
+            excerpt: 'Markdown excerpt',
+            published_at_iso: '2026-04-02T00:00:00Z',
+            updated_at_iso: '2026-04-02T00:00:00Z',
+            author_id: 'author-1',
+            status: 'published',
+            allow_comments: true,
+            category_slugs: [],
+            tag_slugs: [],
+          },
+        ],
+        pages: [
+          {
+            id: 'page-1',
+            title: 'Plaintext Page',
+            slug: 'plaintext-page',
+            content: 'First paragraph.\n\nSecond paragraph.',
+            document_type: 'plaintext',
+            status: 'published',
+          },
+        ],
+        categories: [],
+        tags: [],
+      },
+    },
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false, injectHtmx: false },
+  });
+
+  const files = writer.getFiles();
+  const postHtml = getFileContent(files, 'posts/markdown-post/index.html');
+  const pageHtml = getFileContent(files, 'plaintext-page/index.html');
+
+  assert.match(postHtml, /Admin\|https:\/\/media\.example\.com\/avatars\/admin\.webp\|/);
+  assert.match(postHtml, /<h1 id="markdown-heading">/);
+  assert.match(postHtml, /<p>Paragraph text\.<\/p>/);
+  assert.match(pageHtml, /<p>First paragraph\.<\/p>/);
+  assert.match(pageHtml, /<p>Second paragraph\.<\/p>/);
 });
 
 test('buildSelectedRoutes skips optional route outputs when templates are missing', async () => {

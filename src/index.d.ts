@@ -1,4 +1,4 @@
-import type { PreviewDataV04 } from '@zeropress/preview-data-validator';
+import type { PreviewDataV05 } from '@zeropress/preview-data-validator';
 
 export interface ThemePackage {
   metadata: {
@@ -62,14 +62,14 @@ export interface BuildSiteResult {
 }
 
 export function buildSite(input: {
-  previewData: PreviewDataV04;
+  previewData: PreviewDataV05;
   themePackage: ThemePackage;
   writer: BuildWriter;
   options?: BuildOptions;
 }): Promise<BuildSiteResult>;
 
 export function buildSelectedRoutes(input: {
-  previewData: PreviewDataV04;
+  previewData: PreviewDataV05;
   themePackage: ThemePackage;
   writer: BuildWriter;
   selection: BuildSelection;
@@ -77,7 +77,7 @@ export function buildSelectedRoutes(input: {
 }): Promise<BuildSiteResult>;
 
 export function buildSiteFromThemeDir(input: {
-  previewData: PreviewDataV04;
+  previewData: PreviewDataV05;
   themeDir: string;
   writer: BuildWriter;
   options?: BuildOptions;
