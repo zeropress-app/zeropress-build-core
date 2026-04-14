@@ -92,27 +92,7 @@ function normalizeManifestSummary(jsonText) {
 }
 
 function normalizeSitemapXml(xml) {
-  return xml
-    .replace(
-      /(<loc>https:\/\/example\.com\/archive\/<\/loc>\n\s*<lastmod>)[^<]+(<\/lastmod>)/,
-      '$1__TODAY__$2',
-    )
-    .replace(
-      /(<loc>https:\/\/example\.com\/<\/loc>\n\s*<lastmod>)[^<]+(<\/lastmod>)/,
-      '$1__TODAY__$2',
-    )
-    .replace(
-      /(<loc>https:\/\/example\.com\/about\/<\/loc>\n\s*<lastmod>)[^<]+(<\/lastmod>)/,
-      '$1__TODAY__$2',
-    )
-    .replace(
-      /(<loc>https:\/\/example\.com\/categories\/general\/<\/loc>\n\s*<lastmod>)[^<]+(<\/lastmod>)/,
-      '$1__TODAY__$2',
-    )
-    .replace(
-      /(<loc>https:\/\/example\.com\/tags\/intro\/<\/loc>\n\s*<lastmod>)[^<]+(<\/lastmod>)/,
-      '$1__TODAY__$2',
-    );
+  return xml;
 }
 
 async function readGolden(relativePath) {
@@ -280,8 +260,8 @@ test('buildSite supports medium fixture with raw Unicode slugs and paginated tax
   const sitemapXml = getFileContent(files, 'sitemap.xml');
   assert.ok(sitemapXml.includes(`https://example.kr/posts/${postSlug}/`));
   assert.ok(sitemapXml.includes(`https://example.kr/${pageSlug}/`));
-  assert.ok(sitemapXml.includes(`https://example.kr/categories/${categorySlug}/`));
-  assert.ok(sitemapXml.includes(`https://example.kr/tags/${tagSlug}/`));
+  assert.equal(sitemapXml.includes(`https://example.kr/categories/${categorySlug}/`), false);
+  assert.equal(sitemapXml.includes(`https://example.kr/tags/${tagSlug}/`), false);
 
   const metaJson = JSON.parse(getFileContent(files, 'meta.json'));
   assert.equal(metaJson.site.locale, 'ko-KR');

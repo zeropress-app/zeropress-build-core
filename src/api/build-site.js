@@ -1047,7 +1047,6 @@ function buildSitemapXml(site, emitted, generatedAt) {
       .filter((route) => route.url === '/')
       .map((route) => ({
         url: route.url,
-        lastmod: generatedAt,
         changefreq: 'daily',
         priority: 1.0,
       })),
@@ -1059,28 +1058,17 @@ function buildSitemapXml(site, emitted, generatedAt) {
     })),
     ...emitted.pages.map((page) => ({
       url: page.url,
-      lastmod: generatedAt,
       changefreq: 'monthly',
       priority: 0.7,
-    })),
-    ...emitted.categoryRoutes.filter((route) => route.page === 1).map((route) => ({
-      url: route.url,
-      lastmod: generatedAt,
-      changefreq: 'weekly',
-      priority: 0.6,
-    })),
-    ...emitted.tagRoutes.filter((route) => route.page === 1).map((route) => ({
-      url: route.url,
-      lastmod: generatedAt,
-      changefreq: 'weekly',
-      priority: 0.5,
     })),
   ];
 
   const body = entries.map((entry) => {
     const loc = escapeXml(resolveSiteUrl(site.url, entry.url));
-    const lastmod = entry.lastmod.toISOString().split('T')[0];
-    return `  <url>\n    <loc>${loc}</loc>\n    <lastmod>${lastmod}</lastmod>\n    <changefreq>${entry.changefreq}</changefreq>\n    <priority>${entry.priority.toFixed(1)}</priority>\n  </url>`;
+    const lastmod = entry.lastmod
+      ? `\n    <lastmod>${entry.lastmod.toISOString()}</lastmod>`
+      : '';
+    return `  <url>\n    <loc>${loc}</loc>${lastmod}\n    <changefreq>${entry.changefreq}</changefreq>\n    <priority>${entry.priority.toFixed(1)}</priority>\n  </url>`;
   }).join('\n');
 
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>`;
