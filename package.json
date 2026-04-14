@@ -33,7 +33,7 @@
     "node": ">=18.18.0"
   },
   "dependencies": {
-    "@zeropress/preview-data-validator": "^0.3.3",
+    "@zeropress/preview-data-validator": "^0.4.0",
     "@zeropress/theme-validator": "^0.2.4"
   }
 }
