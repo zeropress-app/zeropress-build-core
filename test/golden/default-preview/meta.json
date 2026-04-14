@@ -11,8 +11,8 @@
       "url": "/posts/hello-zeropress/",
       "title": "Hello ZeroPress",
       "description": "Preview excerpt",
-      "publishedAt": "2026-02-14T09:00:00.000Z",
-      "updatedAt": "2026-02-14T09:00:00.000Z",
+      "publishedAt": "2026-02-14T09:00:00Z",
+      "updatedAt": "2026-02-14T09:00:00Z",
       "type": "post",
       "metadata": {
         "status": "published"
@@ -22,8 +22,8 @@
       "url": "/posts/theme-blocks-deep-dive/",
       "title": "Theme Blocks Deep Dive",
       "description": "Second preview excerpt",
-      "publishedAt": "2026-02-13T09:00:00.000Z",
-      "updatedAt": "2026-02-13T09:00:00.000Z",
+      "publishedAt": "2026-02-13T09:00:00Z",
+      "updatedAt": "2026-02-13T09:00:00Z",
       "type": "post",
       "metadata": {
         "status": "published"
@@ -33,8 +33,8 @@
       "url": "/posts/archive-patterns/",
       "title": "Archive Patterns",
       "description": "Third preview excerpt",
-      "publishedAt": "2026-02-12T09:00:00.000Z",
-      "updatedAt": "2026-02-12T09:00:00.000Z",
+      "publishedAt": "2026-02-12T09:00:00Z",
+      "updatedAt": "2026-02-12T09:00:00Z",
       "type": "post",
       "metadata": {
         "status": "published"

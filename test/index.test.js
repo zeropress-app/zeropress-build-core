@@ -320,8 +320,8 @@ test('buildSite renders SEO meta for post and page routes', async () => {
   assert.match(postHtml, /property="og:type" content="article"/);
   assert.match(postHtml, /property="og:url" content="https:\/\/example\.com\/posts\/hello-zeropress\/"/);
   assert.match(postHtml, /property="og:image" content="https:\/\/media\.example\.com\/images\/post-share\.png"/);
-  assert.match(postHtml, /property="article:published_time" content="2026-02-14T09:00:00\.000Z"/);
-  assert.match(postHtml, /property="article:modified_time" content="2026-02-14T09:00:00\.000Z"/);
+  assert.match(postHtml, /property="article:published_time" content="2026-02-14T09:00:00Z"/);
+  assert.match(postHtml, /property="article:modified_time" content="2026-02-14T09:00:00Z"/);
 
   assert.match(pageHtml, /<title>About - ZeroPress Preview<\/title>/);
   assert.match(pageHtml, /<meta name="description" content="About page summary">/);

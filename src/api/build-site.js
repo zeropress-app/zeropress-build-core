@@ -170,7 +170,7 @@ async function finalizeBuildResult(writer, summaries, options) {
   let manifest;
   if (options.writeManifest) {
     manifest = {
-      generatedAt: new Date().toISOString(),
+      generatedAt: formatUtcIsoSeconds(new Date()),
       files: summaries.map((file) => ({ ...file })),
     };
     await writeOutput(
@@ -327,6 +327,8 @@ function normalizePreviewData(previewData) {
       posts: previewData.content.posts
         .map((post) => ({
           ...post,
+          published_at_iso: normalizeIsoTimestamp(post.published_at_iso),
+          updated_at_iso: normalizeIsoTimestamp(post.updated_at_iso),
           author_avatar: normalizeMediaField(post.author_avatar, normalizedSite.mediaBaseUrl),
           featured_image: normalizeMediaField(post.featured_image, normalizedSite.mediaBaseUrl),
         }))
@@ -1066,7 +1068,7 @@ function buildSitemapXml(site, emitted, generatedAt) {
   const body = entries.map((entry) => {
     const loc = escapeXml(resolveSiteUrl(site.url, entry.url));
     const lastmod = entry.lastmod
-      ? `\n    <lastmod>${entry.lastmod.toISOString()}</lastmod>`
+      ? `\n    <lastmod>${formatUtcIsoSeconds(entry.lastmod)}</lastmod>`
       : '';
     return `  <url>\n    <loc>${loc}</loc>${lastmod}\n    <changefreq>${entry.changefreq}</changefreq>\n    <priority>${entry.priority.toFixed(1)}</priority>\n  </url>`;
   }).join('\n');
@@ -1118,7 +1120,7 @@ function buildMetaJson(site, emitted, generatedAt) {
   ];
 
   return JSON.stringify({
-    generated: generatedAt.toISOString(),
+    generated: formatUtcIsoSeconds(generatedAt),
     site: {
       title: site.title,
       description: site.description,
@@ -1197,6 +1199,14 @@ function hasCanonicalSiteUrl(siteUrl) {
 
 function toDate(value) {
   return value ? new Date(value) : new Date();
+}
+
+function formatUtcIsoSeconds(value) {
+  return toDate(value).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+function normalizeIsoTimestamp(value) {
+  return value ? formatUtcIsoSeconds(value) : '';
 }
 
 function escapeXml(str) {

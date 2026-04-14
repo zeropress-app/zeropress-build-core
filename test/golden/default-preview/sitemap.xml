@@ -7,19 +7,19 @@
   </url>
   <url>
     <loc>https://example.com/posts/hello-zeropress/</loc>
-    <lastmod>2026-02-14T09:00:00.000Z</lastmod>
+    <lastmod>2026-02-14T09:00:00Z</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://example.com/posts/theme-blocks-deep-dive/</loc>
-    <lastmod>2026-02-13T09:00:00.000Z</lastmod>
+    <lastmod>2026-02-13T09:00:00Z</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
   <url>
     <loc>https://example.com/posts/archive-patterns/</loc>
-    <lastmod>2026-02-12T09:00:00.000Z</lastmod>
+    <lastmod>2026-02-12T09:00:00Z</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.8</priority>
   </url>
