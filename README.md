@@ -9,7 +9,7 @@ Shared build and partial-render core for ZeroPress.
 This package is the deterministic rendering engine used by:
 
 - `zeropress-admin-api-v2`
-- future `@zeropress/build` CLI flows
+- [`@zeropress/build`](https://www.npmjs.com/package/@zeropress/build) package
 
 It accepts canonical preview-data plus a validated theme package and produces static HTML artifacts through a writer interface.
 
@@ -59,7 +59,12 @@ import {
   - `meta.json`
 - writing outputs through a pluggable writer
 
-It does not talk to databases, queues, KV, Durable Objects, R2, or deployment infrastructure directly.
+It does not:
+
+- fetch content from databases or APIs
+- package or validate theme directories on its own unless the caller uses `buildSiteFromThemeDir`
+- watch files, run a dev server, or perform deployment
+- talk to queues, KV, Durable Objects, R2, GitHub, or other infrastructure directly
 
 ---
 
@@ -97,7 +102,7 @@ Returns:
     }
   ],
   manifest: {
-    generatedAt: '2026-04-02T00:00:00.000Z',
+    generatedAt: '2026-04-02T00:00:00Z',
     files: [
       {
         path: 'index.html',
@@ -110,11 +115,29 @@ Returns:
 }
 ```
 
+Notes:
+
+- `writer` is required
+- `previewData` must already satisfy the canonical preview-data contract
+- `themePackage` must already be a validated in-memory theme package
+- `sitemap.xml` and `feed.xml` are emitted only when `site.url` is a non-empty canonical URL
+- `robots.txt` and `meta.json` are still emitted when `generateSpecialFiles` is enabled
+
 ### `buildSelectedRoutes(input)`
 
 Renders only selected post and list routes while preserving full-build parity for those outputs.
 
-This is intended for selective publish and other partial-render workflows.
+This is intended for targeted rebuilds, output parity checks, and other partial-render workflows.
+
+Current selection scope is limited to:
+
+- post detail routes
+- index pagination routes
+- archive routes
+- category routes
+- tag routes
+
+It does not currently support selecting individual page routes.
 
 Optional route templates are respected during both full and partial renders:
 
@@ -145,7 +168,7 @@ await buildSelectedRoutes({
 
 Loads a theme directory from disk and renders it using the same core pipeline.
 
-This is useful for local tooling and CLI flows.
+This is useful for local tooling that wants filesystem theme loading but still uses the same deterministic core renderer.
 
 ---
 
@@ -193,6 +216,8 @@ Theme validation is enforced through:
 
 - [`@zeropress/theme-validator`](https://www.npmjs.com/package/@zeropress/theme-validator)
 
+`buildSiteFromThemeDir()` is the convenience entry point that loads a theme directory and converts it into the required in-memory `themePackage`.
+
 As of `preview-data v0.4`, the payload no longer carries `routes` arrays or raw HTML fragments such as `categories_html`.
 
 Build-core now derives:
@@ -238,6 +263,13 @@ Supported options:
 
 These options apply to both full builds and partial renders where relevant.
 
+Defaults:
+
+- `assetHashing: true`
+- `generateSpecialFiles: true`
+- `injectHtmx: true`
+- `writeManifest: false`
+
 ---
 
 ## Requirements
@@ -251,7 +283,7 @@ These options apply to both full builds and partial renders where relevant.
 
 - [@zeropress/preview-data-validator](https://www.npmjs.com/package/@zeropress/preview-data-validator)
 - [@zeropress/theme-validator](https://www.npmjs.com/package/@zeropress/theme-validator)
-- [zeropress-theme](https://www.npmjs.com/package/zeropress-theme)
+- [@zeropress/theme](https://www.npmjs.com/package/@zeropress/theme)
 
 ---
 
