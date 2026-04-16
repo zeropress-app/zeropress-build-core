@@ -139,6 +139,40 @@ test('buildSite matches the golden fixture for the default preview payload', asy
   }
 });
 
+test('buildSite renders menu helpers from preview-data menus', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  themePackage.partials.set('header', '<header>{{menu:primary}}</header>');
+  themePackage.partials.set('footer', '<footer>{{menu:footer}}</footer>');
+
+  previewData.menus.footer = {
+    name: 'Footer Menu',
+    items: [
+      {
+        title: 'Docs',
+        url: '/docs/',
+        type: 'custom',
+        target: '_blank',
+        children: [],
+      },
+    ],
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false, injectHtmx: false },
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+
+  assert.match(indexHtml, /<header><ul><li><a href="\/" target="_self">Home<\/a><\/li><li><a href="\/archive\/" target="_self">Archive<\/a><\/li><\/ul><\/header>/);
+  assert.match(indexHtml, /<footer><ul><li><a href="\/docs\/" target="_blank" rel="noreferrer noopener">Docs<\/a><\/li><\/ul><\/footer>/);
+});
+
 test('buildSiteFromThemeDir loads the golden fixture theme directory and FilesystemWriter writes files to disk', async () => {
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-out-'));
 
@@ -619,6 +653,7 @@ test('buildSite renders v0.5 raw content and resolves post author data from auth
         categories: [],
         tags: [],
       },
+      menus: {},
     },
     themePackage,
     writer,

@@ -8,10 +8,14 @@ export interface ThemePackage {
     description?: string;
     thumbnail?: string;
     settings?: Record<string, unknown>;
+    menuSlots?: Record<string, {
+      title: string;
+      description?: string;
+    }>;
     namespace?: string;
     slug?: string;
     license?: 'MIT' | 'Apache-2.0' | 'BSD-3-Clause' | 'GPL-3.0-only' | 'GPL-3.0-or-later';
-    runtime?: '0.2';
+    runtime?: '0.3';
   };
   templates: Map<string, string>;
   partials: Map<string, string>;

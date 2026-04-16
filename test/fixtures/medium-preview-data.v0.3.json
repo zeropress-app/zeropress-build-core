@@ -144,5 +144,26 @@
         "slug": "deep-dive"
       }
     ]
+  },
+  "menus": {
+    "primary": {
+      "name": "Primary Menu",
+      "items": [
+        {
+          "title": "홈",
+          "url": "/",
+          "type": "custom",
+          "target": "_self",
+          "children": []
+        },
+        {
+          "title": "아카이브",
+          "url": "/archive/",
+          "type": "custom",
+          "target": "_self",
+          "children": []
+        }
+      ]
+    }
   }
 }

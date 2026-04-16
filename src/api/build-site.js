@@ -138,6 +138,7 @@ async function renderRoute(state, templateName, route) {
   let html = await state.engine.render(
     templateName,
     {
+      menus: state.previewData.menus,
       ...route,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
@@ -158,6 +159,7 @@ async function renderPost(state, post) {
   let html = await state.engine.render(
     'post',
     {
+      menus: state.previewData.menus,
       post,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
@@ -191,6 +193,7 @@ async function renderPage(state, page) {
   let html = await state.engine.render(
     'page',
     {
+      menus: state.previewData.menus,
       page,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
@@ -220,6 +223,7 @@ async function maybeRenderNotFoundPage(state) {
   let html = await state.engine.render(
     '404',
     {
+      menus: state.previewData.menus,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl: '/404.html',
         title: state.previewData.site.title,

@@ -105,5 +105,26 @@
         "slug": "intro"
       }
     ]
+  },
+  "menus": {
+    "primary": {
+      "name": "Primary Menu",
+      "items": [
+        {
+          "title": "Home",
+          "url": "/",
+          "type": "custom",
+          "target": "_self",
+          "children": []
+        },
+        {
+          "title": "Archive",
+          "url": "/archive/",
+          "type": "custom",
+          "target": "_self",
+          "children": []
+        }
+      ]
+    }
   }
 }
