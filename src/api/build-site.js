@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { assertPreviewData } from '@zeropress/preview-data-validator';
+import { isSafeSlugSegment, normalizeStoredSlug } from '@zeropress/slug-policy';
 import { validateThemeFiles } from '@zeropress/theme-validator';
 import { AssetProcessor } from '../assets/asset-processor.js';
 import { renderDocumentContent } from '../render/content-renderer.js';
@@ -1047,28 +1048,7 @@ function assertSafeSlugDerivedOutputPath(rawSlug, outputPath) {
 }
 
 function isSafeSlugPathSegment(value) {
-  if (typeof value !== 'string') {
-    return false;
-  }
-
-  if (value.trim() === '' || value !== value.trim()) {
-    return false;
-  }
-
-  if (value === '.' || value === '..') {
-    return false;
-  }
-
-  if (
-    value.includes('/') ||
-    value.includes('\\') ||
-    value.includes('%') ||
-    OUTPUT_PATH_CONTROL_CHAR_PATTERN.test(value)
-  ) {
-    return false;
-  }
-
-  return true;
+  return isSafeSlugSegment(value);
 }
 
 function assertSafeRelativeOutputPath(rawPath, normalizedPath = normalizeOutputPath(rawPath)) {
@@ -1232,23 +1212,6 @@ function getContentType(assetPath) {
 
 function encodeSlugSegment(slug) {
   return normalizeStoredSlug(slug);
-}
-
-function normalizeStoredSlug(slug) {
-  if (typeof slug !== 'string') {
-    return '';
-  }
-
-  const trimmed = slug.trim();
-  if (!trimmed.includes('%')) {
-    return trimmed;
-  }
-
-  try {
-    return decodeURIComponent(trimmed);
-  } catch {
-    return trimmed;
-  }
 }
 
 function decodeRoutePath(routePath) {

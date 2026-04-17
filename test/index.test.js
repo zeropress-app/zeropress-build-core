@@ -325,6 +325,25 @@ test('buildSite rejects a post slug containing a slash', async () => {
   assert.equal(writer.getFiles().length, 0);
 });
 
+test('buildSite rejects a post slug containing whitespace', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.content.posts[0].slug = 'hello world';
+
+  await assert.rejects(
+    buildSite({
+      previewData,
+      themePackage,
+      writer,
+      options: { generateSpecialFiles: false, injectHtmx: false },
+    }),
+    /Unsafe output path detected: posts\/hello world\/index\.html/,
+  );
+  assert.equal(writer.getFiles().length, 0);
+});
+
 test('buildSite rejects a category slug that would create traversal-looking taxonomy paths', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
