@@ -99,6 +99,10 @@ async function readGolden(relativePath) {
   return fs.readFile(path.join(goldenDir, relativePath), 'utf8');
 }
 
+function createAssetBuffer(source = 'body { color: red; }') {
+  return Buffer.from(source, 'utf8');
+}
+
 test('buildSite matches the golden fixture for the default preview payload', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -194,6 +198,34 @@ test('buildSiteFromThemeDir loads the golden fixture theme directory and Filesys
   }
 });
 
+test('buildSite fails closed before FilesystemWriter can escape the output directory', async () => {
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-out-'));
+  const escapedFileName = `${path.basename(outDir)}-escape.css`;
+  const escapedPath = path.join(path.dirname(outDir), escapedFileName);
+
+  try {
+    const writer = new FilesystemWriter({ outDir });
+    const previewData = await loadDefaultPreviewData();
+    const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+    themePackage.assets.set(`../../${escapedFileName}`, createAssetBuffer());
+
+    await assert.rejects(
+      buildSite({
+        previewData,
+        themePackage,
+        writer,
+        options: { assetHashing: false, generateSpecialFiles: false, injectHtmx: false },
+      }),
+      /Unsafe output path detected:/,
+    );
+
+    await assert.rejects(fs.access(escapedPath));
+  } finally {
+    await fs.rm(outDir, { recursive: true, force: true });
+    await fs.rm(escapedPath, { force: true });
+  }
+});
+
 test('buildSite supports medium fixture with raw Unicode slugs and paginated taxonomy routes', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadMediumPreviewData();
@@ -252,6 +284,103 @@ test('buildSite supports medium fixture with raw Unicode slugs and paginated tax
   const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
   for (const outputPath of expectedPaths) {
     assert.equal(manifest.files.some((file) => file.path === outputPath), true, `Expected ${outputPath} in manifest`);
+  }
+});
+
+test('buildSite rejects a page slug with traversal segments', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.content.pages[0].slug = '../escape';
+
+  await assert.rejects(
+    buildSite({
+      previewData,
+      themePackage,
+      writer,
+      options: { generateSpecialFiles: false, injectHtmx: false },
+    }),
+    /Unsafe output path detected: \.\.\/escape\/index\.html/,
+  );
+  assert.equal(writer.getFiles().length, 0);
+});
+
+test('buildSite rejects a post slug containing a slash', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.content.posts[0].slug = 'a/b';
+
+  await assert.rejects(
+    buildSite({
+      previewData,
+      themePackage,
+      writer,
+      options: { generateSpecialFiles: false, injectHtmx: false },
+    }),
+    /Unsafe output path detected: posts\/a\/b\/index\.html/,
+  );
+  assert.equal(writer.getFiles().length, 0);
+});
+
+test('buildSite rejects a category slug that would create traversal-looking taxonomy paths', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.content.categories[0].slug = '../x';
+  previewData.content.posts[0].category_slugs = ['../x'];
+
+  await assert.rejects(
+    buildSite({
+      previewData,
+      themePackage,
+      writer,
+      options: { generateSpecialFiles: false, injectHtmx: false },
+    }),
+    /Unsafe output path detected: categories\/\.\.\/x\/index\.html/,
+  );
+  assert.equal(writer.getFiles().length, 0);
+});
+
+test('buildSite rejects a percent-encoded dangerous post slug', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.content.posts[0].slug = '%2e%2e';
+
+  await assert.rejects(
+    buildSite({
+      previewData,
+      themePackage,
+      writer,
+      options: { generateSpecialFiles: false, injectHtmx: false },
+    }),
+    /Unsafe output path detected: posts\/\.\.\/index\.html/,
+  );
+  assert.equal(writer.getFiles().length, 0);
+});
+
+test('buildSite rejects unsafe asset output paths before MemoryWriter records files', async () => {
+  for (const assetPath of ['../../escape.css', '%2e%2e/escape.css']) {
+    const writer = new MemoryWriter();
+    const previewData = await loadDefaultPreviewData();
+    const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+    themePackage.assets.set(assetPath, createAssetBuffer());
+
+    await assert.rejects(
+      buildSite({
+        previewData,
+        themePackage,
+        writer,
+        options: { assetHashing: false, generateSpecialFiles: false, injectHtmx: false },
+      }),
+      /Unsafe output path detected:/,
+    );
+    assert.equal(writer.getFiles().length, 0, `Expected no files to be recorded for ${assetPath}`);
   }
 });
 

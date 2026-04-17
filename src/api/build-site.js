@@ -17,9 +17,11 @@ const DEFAULT_DATE_FORMAT = 'YYYY-MM-DD';
 const DEFAULT_TIME_FORMAT = 'HH:mm';
 const DEFAULT_TIMEZONE = 'UTC';
 const DEFAULT_LOCALE = 'en-US';
+const OUTPUT_PATH_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
 export async function buildSite(input) {
   const options = { ...DEFAULT_OPTIONS, ...(input.options || {}) };
   const state = await createBuildState(input, options);
+  assertPlannedOutputPathsSafe(state);
 
   for (const route of state.renderData.indexRoutes) {
     await renderRoute(state, 'index', route);
@@ -959,7 +961,9 @@ function isAbsoluteUrl(value) {
 }
 
 async function writeOutput(writer, summaries, path, content, contentType) {
-  const normalizedPath = normalizeOutputPath(path);
+  const rawPath = String(path || '');
+  const normalizedPath = normalizeOutputPath(rawPath);
+  assertSafeRelativeOutputPath(rawPath, normalizedPath);
   await writer.write({ path: normalizedPath, content, contentType });
   summaries.push({
     path: normalizedPath,
@@ -987,6 +991,116 @@ function normalizeRoutePath(routePath) {
 
 function normalizeOutputPath(filePath) {
   return String(filePath || '').replace(/^\/+/, '');
+}
+
+function assertPlannedOutputPathsSafe(state) {
+  for (const post of state.renderData.posts) {
+    assertSafeSlugDerivedOutputPath(post.slug, `posts/${encodeSlugSegment(post.slug)}/index.html`);
+  }
+
+  for (const page of state.renderData.pages) {
+    assertSafeSlugDerivedOutputPath(page.slug, `${encodeSlugSegment(page.slug)}/index.html`);
+  }
+
+  for (const category of state.previewData.content.categories) {
+    assertSafeSlugDerivedOutputPath(category.slug, `categories/${encodeSlugSegment(category.slug)}/index.html`);
+  }
+
+  for (const tag of state.previewData.content.tags) {
+    assertSafeSlugDerivedOutputPath(tag.slug, `tags/${encodeSlugSegment(tag.slug)}/index.html`);
+  }
+
+  const plannedPaths = [
+    ...state.renderData.indexRoutes.map((route) => routePathToOutputPath(route.path)),
+    ...state.renderData.archiveRoutes.map((route) => routePathToOutputPath(route.path)),
+    ...state.renderData.categoryRoutes.map((route) => routePathToOutputPath(route.path)),
+    ...state.renderData.tagRoutes.map((route) => routePathToOutputPath(route.path)),
+    ...state.renderData.posts.map((post) => `posts/${encodeSlugSegment(post.slug)}/index.html`),
+    ...state.renderData.pages.map((page) => `${encodeSlugSegment(page.slug)}/index.html`),
+    ...state.assetOutputs.map((assetOutput) => assetOutput.path),
+  ];
+
+  if (state.options.generateSpecialFiles) {
+    plannedPaths.push('404.html', 'robots.txt', 'meta.json');
+    if (hasCanonicalSiteUrl(state.previewData.site.url)) {
+      plannedPaths.push('sitemap.xml', 'feed.xml');
+    }
+  }
+
+  for (const plannedPath of plannedPaths) {
+    const rawPath = String(plannedPath || '');
+    const normalizedPath = normalizeOutputPath(rawPath);
+    assertSafeRelativeOutputPath(rawPath, normalizedPath);
+  }
+}
+
+function assertSafeSlugDerivedOutputPath(rawSlug, outputPath) {
+  const originalSlug = typeof rawSlug === 'string' ? rawSlug : '';
+  const decodedSlug = encodeSlugSegment(rawSlug);
+
+  if (
+    !isSafeSlugPathSegment(originalSlug) ||
+    !isSafeSlugPathSegment(decodedSlug)
+  ) {
+    throw new Error(`Unsafe output path detected: ${outputPath}`);
+  }
+}
+
+function isSafeSlugPathSegment(value) {
+  if (typeof value !== 'string') {
+    return false;
+  }
+
+  if (value.trim() === '' || value !== value.trim()) {
+    return false;
+  }
+
+  if (value === '.' || value === '..') {
+    return false;
+  }
+
+  if (
+    value.includes('/') ||
+    value.includes('\\') ||
+    value.includes('%') ||
+    OUTPUT_PATH_CONTROL_CHAR_PATTERN.test(value)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+function assertSafeRelativeOutputPath(rawPath, normalizedPath = normalizeOutputPath(rawPath)) {
+  const originalPath = String(rawPath || '');
+  const candidatePath = String(normalizedPath || '');
+  const normalizedSeparators = candidatePath.replace(/\\/g, '/');
+
+  if (originalPath.trim() === '' || candidatePath.trim() === '') {
+    throw new Error(`Unsafe output path detected: ${originalPath || candidatePath || '<empty>'}`);
+  }
+
+  if (OUTPUT_PATH_CONTROL_CHAR_PATTERN.test(originalPath) || OUTPUT_PATH_CONTROL_CHAR_PATTERN.test(candidatePath)) {
+    throw new Error(`Unsafe output path detected: ${originalPath}`);
+  }
+
+  if (candidatePath.includes('%')) {
+    throw new Error(`Unsafe output path detected: ${originalPath}`);
+  }
+
+  if (
+    originalPath.startsWith('/') ||
+    originalPath.startsWith('\\') ||
+    /^[A-Za-z]:[\\/]/.test(originalPath) ||
+    normalizedSeparators.startsWith('//')
+  ) {
+    throw new Error(`Unsafe output path detected: ${originalPath}`);
+  }
+
+  const segments = normalizedSeparators.split('/');
+  if (segments.some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    throw new Error(`Unsafe output path detected: ${originalPath}`);
+  }
 }
 
 function getContentSize(content) {
