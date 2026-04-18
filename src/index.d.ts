@@ -12,6 +12,10 @@ export interface ThemePackage {
       title: string;
       description?: string;
     }>;
+    widgetAreas?: Record<string, {
+      title: string;
+      description?: string;
+    }>;
     namespace?: string;
     slug?: string;
     license?: 'MIT' | 'Apache-2.0' | 'BSD-3-Clause' | 'GPL-3.0-only' | 'GPL-3.0-or-later';

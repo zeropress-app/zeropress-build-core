@@ -84,10 +84,15 @@ async function createBuildState(input, options) {
   const summaries = [];
   const themePackage = input.themePackage;
   const previewData = normalizePreviewData(input.previewData);
+  const renderData = createRenderData(previewData);
 
   engine.initialize(themePackage);
 
   const assetOutputs = await buildAssetOutputs(themePackage.assets, assetProcessor, options);
+  const customCssAsset = await buildCustomCssAsset(previewData.custom_css, assetProcessor, options);
+  if (customCssAsset) {
+    assetOutputs.push(customCssAsset);
+  }
   const assetMap = new Map(
     assetOutputs.map((asset) => [`/assets/${asset.originalPath}`, `/${asset.path}`]),
   );
@@ -95,12 +100,14 @@ async function createBuildState(input, options) {
   return {
     writer: input.writer,
     previewData,
-    renderData: createRenderData(previewData),
+    renderData,
+    renderedWidgets: renderWidgetAreas(previewData, renderData),
     engine,
     assetProcessor,
     summaries,
     assetOutputs,
     assetMap,
+    customCssHref: customCssAsset ? `/${customCssAsset.path}` : '',
     options,
     generatedAt: new Date(),
     emitted: {
@@ -142,6 +149,7 @@ async function renderRoute(state, templateName, route) {
     templateName,
     {
       menus: state.previewData.menus,
+      widgets: state.renderedWidgets,
       ...route,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
@@ -153,6 +161,7 @@ async function renderRoute(state, templateName, route) {
     createRenderContext(state.previewData.site, currentUrl),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
+  html = injectCustomCssAssetLink(html, state.customCssHref);
   await writeOutput(state.writer, state.summaries, routePathToOutputPath(route.path), html, 'text/html');
   recordRouteEmission(state, templateName, route, currentUrl);
 }
@@ -163,6 +172,7 @@ async function renderPost(state, post) {
     'post',
     {
       menus: state.previewData.menus,
+      widgets: state.renderedWidgets,
       post,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
@@ -177,6 +187,7 @@ async function renderPost(state, post) {
     createRenderContext(state.previewData.site, currentUrl),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
+  html = injectCustomCssAssetLink(html, state.customCssHref);
   if (state.options.injectHtmx) {
     html = injectHtmxScript(html);
   }
@@ -197,6 +208,7 @@ async function renderPage(state, page) {
     'page',
     {
       menus: state.previewData.menus,
+      widgets: state.renderedWidgets,
       page,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
@@ -209,6 +221,7 @@ async function renderPage(state, page) {
     createRenderContext(state.previewData.site, currentUrl),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
+  html = injectCustomCssAssetLink(html, state.customCssHref);
   await writeOutput(state.writer, state.summaries, `${encodeSlugSegment(page.slug)}/index.html`, html, 'text/html');
   state.emitted.pages.push({
     url: currentUrl,
@@ -227,6 +240,7 @@ async function maybeRenderNotFoundPage(state) {
     '404',
     {
       menus: state.previewData.menus,
+      widgets: state.renderedWidgets,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl: '/404.html',
         title: state.previewData.site.title,
@@ -237,6 +251,7 @@ async function maybeRenderNotFoundPage(state) {
     createRenderContext(state.previewData.site, '/404.html'),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
+  html = injectCustomCssAssetLink(html, state.customCssHref);
   await writeOutput(state.writer, state.summaries, '404.html', html, 'text/html');
 }
 
@@ -257,6 +272,8 @@ function normalizePreviewData(previewData) {
   return {
     ...previewData,
     site: normalizedSite,
+    widgets: normalizeWidgetAreas(previewData.widgets),
+    custom_css: normalizeCustomCss(previewData.custom_css),
     content: {
       ...previewData.content,
       authors: previewData.content.authors.map((author) => ({
@@ -279,6 +296,33 @@ function normalizePreviewData(previewData) {
       tags: [...previewData.content.tags],
     },
   };
+}
+
+function normalizeWidgetAreas(widgetAreas) {
+  if (!widgetAreas || typeof widgetAreas !== 'object') {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(widgetAreas).map(([widgetAreaId, widgetArea]) => [
+      widgetAreaId,
+      {
+        ...widgetArea,
+        name: normalizeNonEmptyString(widgetArea?.name, widgetAreaId),
+        items: Array.isArray(widgetArea?.items)
+          ? widgetArea.items.map((item) => ({
+            ...item,
+            title: normalizeNonEmptyString(item?.title, 'Widget'),
+          }))
+          : [],
+      },
+    ]),
+  );
+}
+
+function normalizeCustomCss(customCss) {
+  const content = normalizeOptionalString(customCss?.content);
+  return content ? { content } : undefined;
 }
 
 function createRenderData(previewData) {
@@ -353,6 +397,253 @@ function createRenderData(previewData) {
       renderExtras: () => ({ tags: tagLinks }),
     }),
   };
+}
+
+function renderWidgetAreas(previewData, renderData) {
+  if (!previewData.widgets || typeof previewData.widgets !== 'object') {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(previewData.widgets).map(([widgetAreaId, widgetArea]) => [
+      widgetAreaId,
+      renderWidgetArea(widgetArea, previewData, renderData, widgetAreaId),
+    ]),
+  );
+}
+
+function renderWidgetArea(widgetArea, previewData, renderData, widgetAreaId) {
+  if (!widgetArea || !Array.isArray(widgetArea.items) || widgetArea.items.length === 0) {
+    return '';
+  }
+
+  return widgetArea.items
+    .map((item, index) => renderWidgetItem(item, previewData, renderData, widgetAreaId, index))
+    .filter(Boolean)
+    .join('\n');
+}
+
+function renderWidgetItem(item, previewData, renderData, widgetAreaId, index) {
+  if (!item || typeof item !== 'object') {
+    return '';
+  }
+
+  const title = normalizeNonEmptyString(item.title, 'Widget');
+
+  switch (item.type) {
+    case 'recent-posts':
+      return renderRecentPostsWidget(title, item.settings, renderData);
+    case 'categories':
+      return renderCategoriesWidget(title, item.settings, previewData);
+    case 'tags':
+      return renderTagsWidget(title, item.settings, previewData);
+    case 'archives':
+      return renderArchivesWidget(title, item.settings, previewData);
+    case 'image':
+      return renderImageWidget(title, item.settings);
+    case 'text':
+      return renderTextWidget(title, item.settings);
+    case 'link-list':
+      return renderLinkListWidget(title, item.settings);
+    case 'search':
+      return renderSearchWidget(title, item.settings, widgetAreaId, index);
+    case 'profile':
+      return renderProfileWidget(title, item.settings);
+    default:
+      return '';
+  }
+}
+
+function renderRecentPostsWidget(title, settings, renderData) {
+  const limit = clampInteger(settings?.limit, 5, 1, 20);
+  const showDate = settings?.show_date !== false;
+  const items = renderData.posts
+    .slice(0, limit)
+    .map((post) => {
+      const dateMeta = showDate
+        ? `<span class="widget-list__meta">${escapeHtml(post.published_at)}</span>`
+        : '';
+
+      return `<li class="widget-list__item"><a href="/posts/${escapeHtml(encodeSlugSegment(post.slug))}/">${escapeHtml(post.title)}</a>${dateMeta}</li>`;
+    })
+    .join('');
+
+  if (!items) {
+    return '';
+  }
+
+  return renderWidgetCard(title, 'recent-posts', `<ul class="widget-list">${items}</ul>`);
+}
+
+function renderCategoriesWidget(title, settings, previewData) {
+  const countBySlug = buildTaxonomyCountMap(previewData.content.posts, 'category_slugs');
+  const items = previewData.content.categories
+    .map((category) => {
+      const count = countBySlug.get(category.slug) || 0;
+      if (count === 0) {
+        return '';
+      }
+
+      const suffix = settings?.show_count === true ? ` <span class="widget-taxonomy__count">(${count})</span>` : '';
+      return `<a href="/categories/${escapeHtml(encodeSlugSegment(category.slug))}/" class="category-link">${escapeHtml(category.name)}${suffix}</a>`;
+    })
+    .filter(Boolean)
+    .join('');
+
+  if (!items) {
+    return '';
+  }
+
+  return renderWidgetCard(title, 'categories', `<div class="taxonomy-list taxonomy-list--stack widget-taxonomy">${items}</div>`);
+}
+
+function renderTagsWidget(title, settings, previewData) {
+  const countBySlug = buildTaxonomyCountMap(previewData.content.posts, 'tag_slugs');
+  const limit = clampInteger(settings?.limit, 20, 1, 100);
+  const items = previewData.content.tags
+    .map((tag) => ({
+      ...tag,
+      count: countBySlug.get(tag.slug) || 0,
+    }))
+    .filter((tag) => tag.count > 0)
+    .slice(0, limit)
+    .map((tag) => {
+      const suffix = settings?.show_count === true ? ` <span class="widget-taxonomy__count">(${tag.count})</span>` : '';
+      return `<a href="/tags/${escapeHtml(encodeSlugSegment(tag.slug))}/" class="tag-link">${escapeHtml(tag.name)}${suffix}</a>`;
+    })
+    .join('');
+
+  if (!items) {
+    return '';
+  }
+
+  return renderWidgetCard(title, 'tags', `<div class="taxonomy-list widget-taxonomy">${items}</div>`);
+}
+
+function renderArchivesWidget(title, settings, previewData) {
+  const limit = clampInteger(settings?.limit, 12, 1, 120);
+  const archiveEntries = buildArchiveEntries(previewData.content.posts, previewData.site).slice(0, limit);
+  const items = archiveEntries
+    .map((entry) => `<li class="widget-list__item"><a href="/archive/">${escapeHtml(entry.label)}</a><span class="widget-list__meta">${entry.count} posts</span></li>`)
+    .join('');
+
+  if (!items) {
+    return '';
+  }
+
+  return renderWidgetCard(title, 'archives', `<ul class="widget-list">${items}</ul>`);
+}
+
+function renderImageWidget(title, settings) {
+  const src = normalizeOptionalString(settings?.src);
+  if (!src) {
+    return '';
+  }
+
+  const alt = escapeHtml(normalizeOptionalString(settings?.alt));
+  const caption = normalizeOptionalString(settings?.caption);
+  const href = normalizeOptionalString(settings?.href);
+  const target = normalizeLinkTarget(settings?.target);
+  const rel = target === '_blank' ? ' rel="noreferrer noopener"' : '';
+  const image = `<img class="widget-image__media" src="${escapeHtml(src)}" alt="${alt}">`;
+  const linkedImage = href ? `<a href="${escapeHtml(href)}" target="${target}"${rel}>${image}</a>` : image;
+  const captionHtml = caption ? `<figcaption class="widget-image__caption">${escapeHtml(caption)}</figcaption>` : '';
+
+  return renderWidgetCard(title, 'image', `<figure class="widget-image">${linkedImage}${captionHtml}</figure>`);
+}
+
+function renderTextWidget(title, settings) {
+  const content = typeof settings?.content === 'string' ? settings.content : '';
+  const html = renderDocumentContent(content, normalizeDocumentType(settings?.document_type));
+  if (!normalizeOptionalString(html)) {
+    return '';
+  }
+
+  return renderWidgetCard(title, 'text', `<div class="widget-copy">${html}</div>`);
+}
+
+function renderLinkListWidget(title, settings) {
+  const links = Array.isArray(settings?.links) ? settings.links : [];
+  const items = links
+    .map((link) => {
+      const label = normalizeOptionalString(link?.label);
+      const url = normalizeOptionalString(link?.url);
+      if (!label || !url) {
+        return '';
+      }
+
+      const target = normalizeLinkTarget(link?.target);
+      const rel = target === '_blank' ? ' rel="noreferrer noopener"' : '';
+      return `<a href="${escapeHtml(url)}" target="${target}"${rel}>${escapeHtml(label)}</a>`;
+    })
+    .filter(Boolean)
+    .join('');
+
+  if (!items) {
+    return '';
+  }
+
+  return renderWidgetCard(title, 'link-list', `<div class="taxonomy-list taxonomy-list--stack widget-link-list">${items}</div>`);
+}
+
+function renderSearchWidget(title, settings, widgetAreaId, index) {
+  const placeholder = escapeHtml(normalizeNonEmptyString(settings?.placeholder, 'Search...'));
+  const buttonLabel = escapeHtml(normalizeNonEmptyString(settings?.button_label, 'Search'));
+  const searchId = `widget-search-${widgetAreaId}-${index + 1}`;
+
+  return renderWidgetCard(title, 'search', [
+    '<div class="widget-search" data-search-root>',
+    `  <label class="sr-only" for="${escapeHtml(searchId)}">${escapeHtml(title)}</label>`,
+    '  <form class="search-theme-wrapper" data-search-form>',
+    `    <input id="${escapeHtml(searchId)}" class="search-input" data-theme-search type="search" placeholder="${placeholder}" autocomplete="off" enterkeyhint="search">`,
+    `    <button class="widget-search-button" type="submit">${buttonLabel}</button>`,
+    '  </form>',
+    '  <div class="search-results" data-search-results hidden></div>',
+    '  <p class="search-feedback search-feedback--sidebar" data-search-feedback aria-live="polite"></p>',
+    '</div>',
+  ].join('\n'));
+}
+
+function renderProfileWidget(title, settings) {
+  const displayName = normalizeOptionalString(settings?.display_name);
+  const affiliation = normalizeOptionalString(settings?.affiliation);
+  const bioShort = normalizeOptionalString(settings?.bio_short);
+  const avatar = normalizeOptionalString(settings?.avatar);
+
+  if (!displayName && !bioShort && !avatar) {
+    return '';
+  }
+
+  const avatarHtml = avatar
+    ? `<img class="widget-profile__avatar" src="${escapeHtml(avatar)}" alt="${escapeHtml(displayName || title)}">`
+    : '';
+  const affiliationHtml = affiliation ? `<p class="widget-profile__affiliation">${escapeHtml(affiliation)}</p>` : '';
+  const bioHtml = bioShort ? `<p class="sidebar-copy">${escapeHtml(bioShort)}</p>` : '';
+
+  return renderWidgetCard(title, 'profile', [
+    '<div class="widget-profile">',
+    avatarHtml,
+    '  <div class="widget-profile__body">',
+    displayName ? `    <p class="widget-profile__name">${escapeHtml(displayName)}</p>` : '',
+    affiliationHtml ? `    ${affiliationHtml}` : '',
+    bioHtml ? `    ${bioHtml}` : '',
+    '  </div>',
+    '</div>',
+  ].filter(Boolean).join('\n'));
+}
+
+function renderWidgetCard(title, modifier, body) {
+  if (!normalizeOptionalString(body)) {
+    return '';
+  }
+
+  return [
+    `<section class="content-card sidebar-card widget-card widget-card--${escapeHtml(modifier)}">`,
+    '  <p class="section-kicker">Widget</p>',
+    `  <h2>${escapeHtml(title)}</h2>`,
+    `  ${body}`,
+    '</section>',
+  ].join('\n');
 }
 
 function preparePage(page) {
@@ -641,6 +932,51 @@ function renderPagination(paginationData) {
   return `<nav class="pagination">\n  ${prevLink}\n  <span class="pages">${pageLinks}</span>\n  ${nextLink}\n</nav>`;
 }
 
+function buildTaxonomyCountMap(posts, fieldName) {
+  const counts = new Map();
+
+  for (const post of posts) {
+    const values = Array.isArray(post?.[fieldName]) ? post[fieldName] : [];
+    for (const value of values) {
+      counts.set(value, (counts.get(value) || 0) + 1);
+    }
+  }
+
+  return counts;
+}
+
+function buildArchiveEntries(posts, site) {
+  const entries = new Map();
+
+  for (const post of posts) {
+    const publishedAt = normalizeIsoTimestamp(post?.published_at_iso);
+    if (!publishedAt) {
+      continue;
+    }
+
+    const date = toDate(publishedAt);
+    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+    const current = entries.get(key) || { date, count: 0 };
+    current.count += 1;
+    entries.set(key, current);
+  }
+
+  return Array.from(entries.values())
+    .sort((left, right) => right.date.getTime() - left.date.getTime())
+    .map((entry) => ({
+      label: formatArchiveLabel(entry.date, site),
+      count: entry.count,
+    }));
+}
+
+function formatArchiveLabel(date, site) {
+  return new Intl.DateTimeFormat(normalizeLocale(site.locale || DEFAULT_LOCALE), {
+    timeZone: normalizeNonEmptyString(site.timezone, DEFAULT_TIMEZONE),
+    year: 'numeric',
+    month: 'long',
+  }).format(date);
+}
+
 function formatTimestamp(value, site) {
   const date = toDate(value);
   const locale = normalizeLocale(site.locale || DEFAULT_LOCALE);
@@ -779,6 +1115,8 @@ async function assertValidThemePackage(themePackage) {
     ...(themePackage.metadata.author ? { author: themePackage.metadata.author } : {}),
     ...(themePackage.metadata.description ? { description: themePackage.metadata.description } : {}),
     ...(themePackage.metadata.thumbnail ? { thumbnail: themePackage.metadata.thumbnail } : {}),
+    ...(themePackage.metadata.menuSlots ? { menuSlots: themePackage.metadata.menuSlots } : {}),
+    ...(themePackage.metadata.widgetAreas ? { widgetAreas: themePackage.metadata.widgetAreas } : {}),
     settings: themePackage.metadata.settings || {},
   }));
 
@@ -828,6 +1166,24 @@ async function buildAssetOutputs(assets, assetProcessor, options) {
   }
 
   return outputs;
+}
+
+async function buildCustomCssAsset(customCss, assetProcessor, options) {
+  const content = normalizeOptionalString(customCss?.content);
+  if (!content) {
+    return null;
+  }
+
+  const sourceBuffer = new TextEncoder().encode(content);
+  const processedContent = await assetProcessor.processCSS(content);
+  const hash = options.assetHashing ? `.${assetProcessor.generateAssetHash(sourceBuffer)}` : '';
+
+  return {
+    originalPath: '__zeropress_custom.css',
+    path: `assets/zeropress-custom${hash}.css`,
+    content: processedContent,
+    contentType: 'text/css',
+  };
 }
 
 function createRenderContext(site, currentUrl) {
@@ -1097,6 +1453,14 @@ function injectHtmxScript(html) {
   return html.replace('</body>', '<script src="https://unpkg.com/htmx.org@2.0.4" crossorigin="anonymous"></script>\n</body>');
 }
 
+function injectCustomCssAssetLink(html, href) {
+  if (!normalizeOptionalString(href)) {
+    return html;
+  }
+
+  return html.replace('</head>', `  <link rel="stylesheet" href="${escapeHtml(href)}">\n</head>`);
+}
+
 function buildSitemapXml(site, emitted, generatedAt) {
   const entries = [
     ...emitted.indexRoutes
@@ -1262,4 +1626,13 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function clampInteger(value, fallback, min, max) {
+  const normalized = Number.isInteger(value) ? value : fallback;
+  return Math.min(max, Math.max(min, normalized));
+}
+
+function normalizeLinkTarget(value) {
+  return value === '_blank' ? '_blank' : '_self';
 }

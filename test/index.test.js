@@ -177,6 +177,79 @@ test('buildSite renders menu helpers from preview-data menus', async () => {
   assert.match(indexHtml, /<footer><ul><li><a href="\/docs\/" target="_blank" rel="noreferrer noopener">Docs<\/a><\/li><\/ul><\/footer>/);
 });
 
+test('buildSite renders widget areas and injects preview-data custom CSS assets', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  themePackage.templates.set('index', '<section class="index-page">{{widgets.sidebar}}</section>');
+
+  previewData.widgets = {
+    sidebar: {
+      name: 'Sidebar Widgets',
+      items: [
+        {
+          type: 'profile',
+          title: 'About',
+          settings: {
+            display_name: 'Admin',
+            affiliation: 'ZeroPress Dev Team',
+            bio_short: 'Preview profile',
+            avatar: 'https://cdn.example.com/avatar.webp',
+          },
+        },
+        {
+          type: 'recent-posts',
+          title: 'Recent Posts',
+          settings: {
+            limit: 2,
+            show_date: true,
+          },
+        },
+        {
+          type: 'search',
+          title: 'Search',
+          settings: {
+            placeholder: 'Search articles',
+            button_label: 'Go',
+          },
+        },
+        {
+          type: 'text',
+          title: 'Note',
+          settings: {
+            document_type: 'markdown',
+            content: 'Sidebar **markdown**',
+          },
+        },
+      ],
+    },
+  };
+  previewData.custom_css = {
+    content: 'body { color: rgb(10, 20, 30); }',
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false, injectHtmx: false },
+  });
+
+  const files = writer.getFiles();
+  const indexHtml = getFileContent(files, 'index.html');
+  const customCssAsset = files.find((file) => /^assets\/zeropress-custom\.[a-f0-9]{8}\.css$/.test(file.path));
+
+  assert.ok(customCssAsset, 'Expected a hashed custom CSS asset to be emitted');
+  assert.match(indexHtml, /<link rel="stylesheet" href="\/assets\/zeropress-custom\.[a-f0-9]{8}\.css">/);
+  assert.match(indexHtml, /widget-card--profile/);
+  assert.match(indexHtml, /Preview profile/);
+  assert.match(indexHtml, /Hello ZeroPress/);
+  assert.match(indexHtml, /placeholder="Search articles"/);
+  assert.match(indexHtml, /<button class="widget-search-button" type="submit">Go<\/button>/);
+  assert.match(indexHtml, /Sidebar <strong>markdown<\/strong>/);
+});
+
 test('buildSiteFromThemeDir loads the golden fixture theme directory and FilesystemWriter writes files to disk', async () => {
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-out-'));
 
@@ -301,7 +374,7 @@ test('buildSite rejects a page slug with traversal segments', async () => {
       writer,
       options: { generateSpecialFiles: false, injectHtmx: false },
     }),
-    /Unsafe output path detected: \.\.\/escape\/index\.html/,
+    /INVALID_PAGE_SLUG/,
   );
   assert.equal(writer.getFiles().length, 0);
 });
@@ -320,7 +393,7 @@ test('buildSite rejects a post slug containing a slash', async () => {
       writer,
       options: { generateSpecialFiles: false, injectHtmx: false },
     }),
-    /Unsafe output path detected: posts\/a\/b\/index\.html/,
+    /INVALID_POST_SLUG/,
   );
   assert.equal(writer.getFiles().length, 0);
 });
@@ -339,7 +412,7 @@ test('buildSite rejects a post slug containing whitespace', async () => {
       writer,
       options: { generateSpecialFiles: false, injectHtmx: false },
     }),
-    /Unsafe output path detected: posts\/hello world\/index\.html/,
+    /INVALID_POST_SLUG/,
   );
   assert.equal(writer.getFiles().length, 0);
 });
@@ -359,7 +432,7 @@ test('buildSite rejects a category slug that would create traversal-looking taxo
       writer,
       options: { generateSpecialFiles: false, injectHtmx: false },
     }),
-    /Unsafe output path detected: categories\/\.\.\/x\/index\.html/,
+    /INVALID_POST_CATEGORY_SLUGS/,
   );
   assert.equal(writer.getFiles().length, 0);
 });
@@ -378,7 +451,7 @@ test('buildSite rejects a percent-encoded dangerous post slug', async () => {
       writer,
       options: { generateSpecialFiles: false, injectHtmx: false },
     }),
-    /Unsafe output path detected: posts\/\.\.\/index\.html/,
+    /INVALID_POST_SLUG/,
   );
   assert.equal(writer.getFiles().length, 0);
 });
@@ -802,6 +875,7 @@ test('buildSite renders v0.5 raw content and resolves post author data from auth
         tags: [],
       },
       menus: {},
+      widgets: {},
     },
     themePackage,
     writer,
