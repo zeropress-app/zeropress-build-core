@@ -5,6 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSite, buildSiteFromThemeDir, FilesystemWriter, MemoryWriter } from '../src/index.js';
+import { ControlFlowRenderer } from '../src/render/control-flow-renderer.js';
+import { loadThemePackageFromDir } from '../src/theme/load-theme-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, 'fixtures');
@@ -103,6 +105,44 @@ function createAssetBuffer(source = 'body { color: red; }') {
   return Buffer.from(source, 'utf8');
 }
 
+test('ControlFlowRenderer renders nested if/if_eq/for blocks and strips comments', () => {
+  const renderer = new ControlFlowRenderer();
+  const output = renderer.render(`
+{{! inline note }}
+{{#if widget.title}}
+<section>
+  {{#if_eq widget.type "profile"}}
+    <h2>{{widget.title}}</h2>
+    <ul>
+      {{#for item in widget.items}}<li>{{item.label}}</li>{{/for}}
+    </ul>
+  {{#else}}
+    <p>fallback</p>
+  {{/if_eq}}
+</section>
+{{/if}}
+{{!-- block note --}}
+`, {
+    widget: {
+      title: 'About',
+      type: 'profile',
+      items: [{ label: 'One' }, { label: 'Two' }],
+    },
+  });
+
+  assert.match(output, /<h2>\{\{widget\.title\}\}<\/h2>/);
+  assert.match(output, /<li>\{\{item\.label\}\}<\/li><li>\{\{item\.label\}\}<\/li>/);
+  assert.doesNotMatch(output, /inline note|block note|fallback/);
+});
+
+test('ControlFlowRenderer rejects duplicate else blocks', () => {
+  const renderer = new ControlFlowRenderer();
+  assert.throws(
+    () => renderer.render('{{#if widget.title}}A{{#else}}B{{#else}}C{{/if}}', { widget: { title: 'x' } }),
+    /Unexpected else tag/,
+  );
+});
+
 test('buildSite matches the golden fixture for the default preview payload', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -168,7 +208,7 @@ test('buildSite renders menu helpers from preview-data menus', async () => {
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false, injectHtmx: false },
+    options: { generateSpecialFiles: false },
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -182,7 +222,33 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  themePackage.templates.set('index', '<section class="index-page">{{widgets.sidebar}}</section>');
+  themePackage.templates.set('index', `
+<section class="index-page">
+  <aside class="sidebar-stack">
+    {{#for widget in widgets.sidebar.items}}
+      {{#if_eq widget.type "profile"}}
+        <section class="widget-card widget-card--profile">
+          {{#if widget.avatar_url}}<img class="widget-profile__avatar" src="{{widget.avatar_url}}" alt="{{widget.display_name}}">{{/if}}
+          <div class="widget-profile__body">
+            <p class="widget-profile__name">{{widget.display_name}}</p>
+            {{#if widget.bio_text}}<p class="sidebar-copy">{{widget.bio_text}}</p>{{/if}}
+          </div>
+        </section>
+      {{/if_eq}}
+      {{#if_eq widget.type "recent-posts"}}
+        <ul class="widget-list">
+          {{#for item in widget.items}}<li><a href="{{item.url}}">{{item.title}}</a></li>{{/for}}
+        </ul>
+      {{/if_eq}}
+      {{#if_eq widget.type "search"}}
+        <form class="widget-search"><input class="search-input" type="search" placeholder="{{widget.placeholder}}"><button class="widget-search-button" type="submit">{{widget.button_label}}</button></form>
+      {{/if_eq}}
+      {{#if_eq widget.type "text"}}
+        <div class="widget-copy">{{widget.html}}</div>
+      {{/if_eq}}
+    {{/for}}
+  </aside>
+</section>`);
   previewData.site.mediaBaseUrl = 'https://media.example.com';
 
   previewData.widgets = {
@@ -234,7 +300,7 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false, injectHtmx: false },
+    options: { generateSpecialFiles: false },
   });
 
   const files = writer.getFiles();
@@ -252,6 +318,103 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
   assert.match(indexHtml, /Sidebar <strong>markdown<\/strong>/);
 });
 
+test('buildSite runtime 0.4 renders resolved widgets with escaping and safe URL filtering', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  themePackage.metadata.runtime = '0.4';
+  themePackage.templates.set('index', `
+<section class="index-page">
+  <aside class="sidebar-stack">
+    {{#for widget in widgets.sidebar.items}}
+      {{#if_eq widget.type "link-list"}}
+        {{#if widget.title}}
+          <a class="widget-title-link" href="https://demo.zeropress.app" title="{{widget.title}}" target="_blank">{{widget.title}}</a>
+        {{/if}}
+        <div class="taxonomy-list taxonomy-list--stack widget-link-list">
+          {{#for item in widget.items}}
+            <a href="{{item.url}}" target="{{item.target}}">{{item.label}}</a>
+          {{/for}}
+        </div>
+      {{/if_eq}}
+      {{#if_eq widget.type "text"}}
+        <div class="widget-copy">{{widget.html}}</div>
+      {{/if_eq}}
+      {{#if_eq widget.type "profile"}}
+        <section class="widget-card widget-card--profile">
+          {{#if widget.avatar_url}}<img class="widget-profile__avatar" src="{{widget.avatar_url}}" alt="{{widget.display_name}}">{{/if}}
+          {{#if widget.bio_text}}<p class="sidebar-copy">{{widget.bio_text}}</p>{{/if}}
+        </section>
+      {{/if_eq}}
+    {{/for}}
+  </aside>
+</section>`);
+
+  previewData.site.mediaBaseUrl = 'https://media.example.com';
+  previewData.widgets = {
+    sidebar: {
+      name: 'Sidebar Widgets',
+      items: [
+        {
+          type: 'link-list',
+          title: 'Lael\'s Zeropress "DEMO"site.<p>',
+          settings: {
+            links: [
+              { label: 'Home', url: '/', target: '_self' },
+              { label: 'Blocked', url: 'javascript:alert(1)', target: '_self' },
+            ],
+          },
+        },
+        {
+          type: 'text',
+          title: 'Note',
+          settings: {
+            document_type: 'markdown',
+            content: 'Sidebar **markdown**',
+          },
+        },
+        {
+          type: 'profile',
+          title: 'About',
+          settings: {
+            display_name: 'Admin',
+            affiliation: 'ZeroPress Dev Team',
+            bio_short: 'Preview profile',
+            avatar: '/avatars/admin.webp',
+          },
+        },
+      ],
+    },
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /title="Lael&#39;s Zeropress &quot;DEMO&quot;site\.&lt;p&gt;"/);
+  assert.match(indexHtml, />Lael&#39;s Zeropress &quot;DEMO&quot;site\.&lt;p&gt;<\/a>/);
+  assert.match(indexHtml, /Sidebar <strong>markdown<\/strong>/);
+  assert.match(indexHtml, /src="https:\/\/media\.example\.com\/avatars\/admin\.webp"/);
+  assert.match(indexHtml, /Preview profile/);
+  assert.match(indexHtml, /<a href="\/" target="_self">Home<\/a>/);
+  assert.doesNotMatch(indexHtml, /javascript:alert/);
+  assert.doesNotMatch(indexHtml, />Blocked<\/a>/);
+});
+
+test('loadThemePackageFromDir preserves theme capability metadata for internal fixtures', async () => {
+  const themePackage = await loadThemePackageFromDir(goldenThemeDir);
+
+  assert.deepEqual(themePackage.metadata.features, {
+    comments: true,
+    newsletter: false,
+  });
+});
+
 test('buildSiteFromThemeDir loads the golden fixture theme directory and FilesystemWriter writes files to disk', async () => {
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-out-'));
 
@@ -261,7 +424,7 @@ test('buildSiteFromThemeDir loads the golden fixture theme directory and Filesys
       previewData: await loadDefaultPreviewData(),
       themeDir: goldenThemeDir,
       writer,
-      options: { generateSpecialFiles: false, injectHtmx: false },
+      options: { generateSpecialFiles: false },
     });
 
     const indexHtml = await fs.readFile(path.join(outDir, 'index.html'), 'utf8');
@@ -289,7 +452,7 @@ test('buildSite fails closed before FilesystemWriter can escape the output direc
         previewData,
         themePackage,
         writer,
-        options: { assetHashing: false, generateSpecialFiles: false, injectHtmx: false },
+        options: { assetHashing: false, generateSpecialFiles: false },
       }),
       /Unsafe output path detected:/,
     );
@@ -329,6 +492,7 @@ test('buildSite supports medium fixture with raw Unicode slugs and paginated tax
     `categories/${categorySlug}/page/2/index.html`,
     `tags/${tagSlug}/index.html`,
     `tags/${tagSlug}/page/2/index.html`,
+    '_zeropress/comment-policy.json',
   ];
 
   for (const outputPath of expectedPaths) {
@@ -374,7 +538,7 @@ test('buildSite rejects a page slug with traversal segments', async () => {
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false, injectHtmx: false },
+      options: { generateSpecialFiles: false },
     }),
     /INVALID_PAGE_SLUG/,
   );
@@ -393,7 +557,7 @@ test('buildSite rejects a post slug containing a slash', async () => {
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false, injectHtmx: false },
+      options: { generateSpecialFiles: false },
     }),
     /INVALID_POST_SLUG/,
   );
@@ -412,7 +576,7 @@ test('buildSite rejects a post slug containing whitespace', async () => {
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false, injectHtmx: false },
+      options: { generateSpecialFiles: false },
     }),
     /INVALID_POST_SLUG/,
   );
@@ -432,7 +596,7 @@ test('buildSite rejects a category slug that would create traversal-looking taxo
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false, injectHtmx: false },
+      options: { generateSpecialFiles: false },
     }),
     /INVALID_POST_CATEGORY_SLUGS/,
   );
@@ -451,7 +615,7 @@ test('buildSite rejects a percent-encoded dangerous post slug', async () => {
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false, injectHtmx: false },
+      options: { generateSpecialFiles: false },
     }),
     /INVALID_POST_SLUG/,
   );
@@ -470,7 +634,7 @@ test('buildSite rejects unsafe asset output paths before MemoryWriter records fi
         previewData,
         themePackage,
         writer,
-        options: { assetHashing: false, generateSpecialFiles: false, injectHtmx: false },
+        options: { assetHashing: false, generateSpecialFiles: false },
       }),
       /Unsafe output path detected:/,
     );
@@ -490,7 +654,7 @@ test('buildSite uses escaped post excerpt for meta description on post pages', a
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false, injectHtmx: false },
+    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -514,7 +678,7 @@ test('buildSite renders SEO meta for post and page routes', async () => {
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false, injectHtmx: false },
+    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -549,7 +713,7 @@ test('buildSite omits canonical and og:url when site.url is empty and still emit
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false, injectHtmx: false },
+    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -586,7 +750,7 @@ test('buildSite normalizes media fields against site.mediaBaseUrl before renderi
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false, injectHtmx: false },
+    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -619,7 +783,7 @@ test('buildSite blanks unresolved relative media fields when site.mediaBaseUrl i
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false, injectHtmx: false },
+    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -777,8 +941,8 @@ test('buildSite omits comment container markup when site.disallowComments is tru
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
-  assert.equal(postHtml.includes('hx-get="/api/comments/post-1"'), false);
-  assert.equal(postHtml.includes('<section id="comments" class="zp-comments">'), false);
+  assert.equal(postHtml.includes('data-zp-comments'), false);
+  assert.equal(postHtml.includes('htmx.org'), false);
 });
 
 test('buildSite omits comment container markup when post.allow_comments is false', async () => {
@@ -795,11 +959,11 @@ test('buildSite omits comment container markup when post.allow_comments is false
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
-  assert.equal(postHtml.includes('hx-get="/api/comments/post-1"'), false);
-  assert.equal(postHtml.includes('<section id="comments" class="zp-comments">'), false);
+  assert.equal(postHtml.includes('data-zp-comments'), false);
+  assert.equal(postHtml.includes('htmx.org'), false);
 });
 
-test('buildSite renders comment shell with worker-compatible endpoints when comments are enabled', async () => {
+test('buildSite renders an empty comments mount when comments are enabled', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
@@ -811,14 +975,60 @@ test('buildSite renders comment shell with worker-compatible endpoints when comm
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
-  assert.equal(postHtml.includes('hx-get="/api/comments/post-1"'), true);
-  assert.equal(postHtml.includes('hx-post="/api/comments/post-1"'), true);
+  assert.equal(postHtml.includes('data-zp-comments'), true);
+  assert.equal(postHtml.includes('data-zp-comments-post="101"'), true);
+  assert.equal(postHtml.includes('hidden></div>'), true);
+  assert.equal(postHtml.includes('htmx.org'), false);
+});
+
+test('buildSite emits a comment policy allowlist manifest for published commentable posts', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.content.posts[1].allow_comments = false;
+  previewData.content.posts[2].status = 'draft';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const commentPolicy = JSON.parse(getFileContent(writer.getFiles(), '_zeropress/comment-policy.json'));
+  assert.deepEqual(commentPolicy, {
+    version: 1,
+    commentable_posts: [101],
+  });
+});
+
+test('buildSite disables comments when the theme capability is missing', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  delete themePackage.metadata.features;
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  const commentPolicy = JSON.parse(getFileContent(writer.getFiles(), '_zeropress/comment-policy.json'));
+
+  assert.equal(postHtml.includes('data-zp-comments'), false);
+  assert.deepEqual(commentPolicy, {
+    version: 1,
+    commentable_posts: [],
+  });
 });
 
 test('buildSite renders v0.5 raw content and resolves post author data from authors', async () => {
   const writer = new MemoryWriter();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
-  themePackage.templates.set('post', '<article class="post-entry">{{post.author_name}}|{{post.author_avatar}}|{{post.html}}</article>');
+  themePackage.templates.set('post', '<article class="post-entry">{{post.author_name}}|{{post.author_avatar}}|{{post.comments_enabled}}|{{post.slug}}|{{post.id}}|{{post.html}}</article>');
   themePackage.templates.set('page', '<article class="page-entry">{{page.html}}</article>');
 
   await buildSite({
@@ -848,7 +1058,6 @@ test('buildSite renders v0.5 raw content and resolves post author data from auth
         ],
         posts: [
           {
-            id: 'post-1',
             public_id: 1,
             title: 'Markdown Post',
             slug: 'markdown-post',
@@ -881,14 +1090,14 @@ test('buildSite renders v0.5 raw content and resolves post author data from auth
     },
     themePackage,
     writer,
-    options: { generateSpecialFiles: false, injectHtmx: false },
+    options: { generateSpecialFiles: false },
   });
 
   const files = writer.getFiles();
   const postHtml = getFileContent(files, 'posts/markdown-post/index.html');
   const pageHtml = getFileContent(files, 'plaintext-page/index.html');
 
-  assert.match(postHtml, /Admin\|https:\/\/media\.example\.com\/avatars\/admin\.webp\|/);
+  assert.match(postHtml, /Admin\|https:\/\/media\.example\.com\/avatars\/admin\.webp\|false\|markdown-post\|\|/);
   assert.match(postHtml, /<h1 id="markdown-heading">/);
   assert.match(postHtml, /<p>Paragraph text\.<\/p>/);
   assert.match(pageHtml, /<p>First paragraph\.<\/p>/);

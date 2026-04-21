@@ -1,10 +1,15 @@
 import { SlotResolver } from './slot-resolver.js';
 import { VariableResolver } from './variable-resolver.js';
+import { ControlFlowRenderer } from './control-flow-renderer.js';
 
 export class ZeroPressEngine {
   constructor() {
     this.slotResolver = new SlotResolver();
     this.variableResolver = new VariableResolver();
+    this.controlFlowRenderer = new ControlFlowRenderer({
+      resolvePath: (data, path) => this.variableResolver.resolvePath(data, path),
+      renderText: (value, data, renderOptions) => this.variableResolver.resolve(value, data, renderOptions),
+    });
     this.themePackage = null;
   }
 
@@ -27,9 +32,10 @@ export class ZeroPressEngine {
       throw new Error('Template "layout" not found');
     }
 
-    const renderedContent = this.variableResolver.resolve(template, this.combineRenderData(data, context));
+    const renderData = this.combineRenderData(data, context);
+    const renderedContent = this.renderTemplate(template, renderData);
     const layoutWithSlots = this.slotResolver.resolve(layout, this.themePackage.partials, renderedContent);
-    return this.variableResolver.resolve(layoutWithSlots, this.combineRenderData(data, context));
+    return this.renderTemplate(layoutWithSlots, renderData);
   }
 
   combineRenderData(data, context) {
@@ -39,5 +45,17 @@ export class ZeroPressEngine {
       currentUrl: context.currentUrl,
       language: context.language,
     };
+  }
+
+  renderTemplate(template, data) {
+    if (this.themePackage?.metadata?.runtime === '0.4') {
+      return this.controlFlowRenderer.render(template, data, {
+        escapeValues: true,
+        rawPaths: new Set(['meta.head_tags']),
+        rawPathPrefixes: new Set(['meta']),
+      });
+    }
+
+    return this.variableResolver.resolve(template, data);
   }
 }

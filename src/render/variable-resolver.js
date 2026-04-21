@@ -2,15 +2,16 @@ export class VariableResolver {
   static MENU_PATTERN = /\{\{menu:([a-z][a-z0-9_-]{0,63})\}\}/g;
   static VARIABLE_PATTERN = /\{\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)\}\}/g;
   static STANDALONE_PATTERN = /\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g;
+  static RAW_STANDALONE = new Set(['posts', 'categories', 'tags', 'pagination']);
 
-  resolve(template, data) {
+  resolve(template, data, options = {}) {
     let result = template.replace(VariableResolver.MENU_PATTERN, (_, menuId) => {
       return this.renderMenu(data?.menus?.[menuId]);
     });
 
     result = result.replace(VariableResolver.VARIABLE_PATTERN, (_, variablePath) => {
       const value = this.resolvePath(data, variablePath);
-      return value == null ? '' : String(value);
+      return this.renderValue(value, variablePath, options);
     });
 
     result = result.replace(VariableResolver.STANDALONE_PATTERN, (match, variableName) => {
@@ -19,7 +20,7 @@ export class VariableResolver {
       }
 
       const value = data[variableName];
-      return value == null ? '' : String(value);
+      return this.renderValue(value, variableName, options);
     });
 
     return result;
@@ -64,11 +65,58 @@ export class VariableResolver {
     return `<li><a href="${url}" target="${target}"${rel}>${title}</a>${children}</li>`;
   }
 
+  renderValue(value, variablePath, options = {}) {
+    if (value == null) {
+      return '';
+    }
+
+    const stringValue = String(value);
+    if (options.escapeValues !== true) {
+      return stringValue;
+    }
+
+    if (this.shouldRenderRaw(variablePath, options)) {
+      return stringValue;
+    }
+
+    return this.escapeHtml(stringValue);
+  }
+
+  shouldRenderRaw(variablePath, options = {}) {
+    if (options.rawPaths instanceof Set && options.rawPaths.has(variablePath)) {
+      return true;
+    }
+
+    if (options.rawPathPrefixes instanceof Set) {
+      for (const prefix of options.rawPathPrefixes) {
+        if (variablePath === prefix || variablePath.startsWith(`${prefix}.`)) {
+          return true;
+        }
+      }
+    }
+
+    if (VariableResolver.RAW_STANDALONE.has(variablePath)) {
+      return true;
+    }
+
+    const lastSegment = variablePath.split('.').pop();
+    if (lastSegment === 'html' || lastSegment?.endsWith('_html')) {
+      return true;
+    }
+
+    if (lastSegment?.endsWith('_url')) {
+      return true;
+    }
+
+    return false;
+  }
+
   escapeHtml(value) {
     return value
       .replaceAll('&', '&amp;')
       .replaceAll('<', '&lt;')
       .replaceAll('>', '&gt;')
-      .replaceAll('"', '&quot;');
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
   }
 }

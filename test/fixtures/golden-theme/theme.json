@@ -4,6 +4,10 @@
   "slug": "golden-fixture-theme",
   "version": "1.0.0",
   "license": "MIT",
-  "runtime": "0.3",
-  "description": "Theme fixture for build-core golden tests"
+  "runtime": "0.4",
+  "description": "Theme fixture for build-core golden tests",
+  "features": {
+    "comments": true,
+    "newsletter": false
+  }
 }

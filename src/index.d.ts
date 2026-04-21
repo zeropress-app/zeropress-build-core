@@ -8,6 +8,10 @@ export interface ThemePackage {
     description?: string;
     thumbnail?: string;
     settings?: Record<string, unknown>;
+    features?: {
+      comments?: boolean;
+      newsletter?: boolean;
+    };
     menuSlots?: Record<string, {
       title: string;
       description?: string;
@@ -19,7 +23,7 @@ export interface ThemePackage {
     namespace?: string;
     slug?: string;
     license?: 'MIT' | 'Apache-2.0' | 'BSD-3-Clause' | 'GPL-3.0-only' | 'GPL-3.0-or-later';
-    runtime?: '0.3';
+    runtime?: '0.3' | '0.4';
   };
   templates: Map<string, string>;
   partials: Map<string, string>;
@@ -39,7 +43,6 @@ export interface BuildWriter {
 export interface BuildOptions {
   assetHashing?: boolean;
   generateSpecialFiles?: boolean;
-  injectHtmx?: boolean;
   writeManifest?: boolean;
 }
 

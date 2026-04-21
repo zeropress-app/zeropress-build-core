@@ -9,7 +9,6 @@ import { ZeroPressEngine } from '../render/zeropress-engine.js';
 const DEFAULT_OPTIONS = {
   assetHashing: true,
   generateSpecialFiles: true,
-  injectHtmx: true,
   writeManifest: false,
 };
 
@@ -18,7 +17,12 @@ const DEFAULT_DATE_FORMAT = 'YYYY-MM-DD';
 const DEFAULT_TIME_FORMAT = 'HH:mm';
 const DEFAULT_TIMEZONE = 'UTC';
 const DEFAULT_LOCALE = 'en-US';
+const DEFAULT_THEME_RUNTIME = '0.3';
+const THEME_RUNTIME_V0_4 = '0.4';
+const COMMENT_POLICY_OUTPUT_PATH = '_zeropress/comment-policy.json';
 const OUTPUT_PATH_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
+const SAFE_MEDIA_PROTOCOLS = new Set(['http:', 'https:']);
+const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 export async function buildSite(input) {
   const options = { ...DEFAULT_OPTIONS, ...(input.options || {}) };
   const state = await createBuildState(input, options);
@@ -58,6 +62,14 @@ export async function buildSite(input) {
     await writeOutput(state.writer, state.summaries, assetOutput.path, assetOutput.content, assetOutput.contentType);
   }
 
+  await writeOutput(
+    state.writer,
+    state.summaries,
+    COMMENT_POLICY_OUTPUT_PATH,
+    state.commentPolicyContent,
+    'application/json',
+  );
+
   if (options.generateSpecialFiles) {
     await maybeRenderNotFoundPage(state);
     if (hasCanonicalSiteUrl(state.previewData.site.url)) {
@@ -84,7 +96,8 @@ async function createBuildState(input, options) {
   const summaries = [];
   const themePackage = input.themePackage;
   const previewData = normalizePreviewData(input.previewData);
-  const renderData = createRenderData(previewData);
+  const renderData = createRenderData(previewData, themePackage.metadata);
+  const themeRuntime = normalizeThemeRuntime(themePackage.metadata?.runtime);
 
   engine.initialize(themePackage);
 
@@ -101,13 +114,15 @@ async function createBuildState(input, options) {
     writer: input.writer,
     previewData,
     renderData,
-    renderedWidgets: renderWidgetAreas(previewData, renderData),
+    themeRuntime,
+    widgets: buildWidgetsForTheme(previewData, renderData, themeRuntime),
     engine,
     assetProcessor,
     summaries,
     assetOutputs,
     assetMap,
     customCssHref: customCssAsset ? `/${customCssAsset.path}` : '',
+    commentPolicyContent: buildCommentPolicyManifest(renderData.posts),
     options,
     generatedAt: new Date(),
     emitted: {
@@ -149,7 +164,7 @@ async function renderRoute(state, templateName, route) {
     templateName,
     {
       menus: state.previewData.menus,
-      widgets: state.renderedWidgets,
+      widgets: state.widgets,
       ...route,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
@@ -172,7 +187,7 @@ async function renderPost(state, post) {
     'post',
     {
       menus: state.previewData.menus,
-      widgets: state.renderedWidgets,
+      widgets: state.widgets,
       post,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
@@ -188,9 +203,6 @@ async function renderPost(state, post) {
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   html = injectCustomCssAssetLink(html, state.customCssHref);
-  if (state.options.injectHtmx) {
-    html = injectHtmxScript(html);
-  }
   await writeOutput(state.writer, state.summaries, `posts/${encodeSlugSegment(post.slug)}/index.html`, html, 'text/html');
   state.emitted.posts.push({
     url: currentUrl,
@@ -208,7 +220,7 @@ async function renderPage(state, page) {
     'page',
     {
       menus: state.previewData.menus,
-      widgets: state.renderedWidgets,
+      widgets: state.widgets,
       page,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
@@ -240,7 +252,7 @@ async function maybeRenderNotFoundPage(state) {
     '404',
     {
       menus: state.previewData.menus,
-      widgets: state.renderedWidgets,
+      widgets: state.widgets,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl: '/404.html',
         title: state.previewData.site.title,
@@ -320,7 +332,7 @@ function normalizeWidgetAreas(widgetAreas, mediaBaseUrl) {
 function normalizeWidgetItem(item, mediaBaseUrl) {
   const normalizedItem = {
     ...item,
-    title: normalizeNonEmptyString(item?.title, 'Widget'),
+    title: typeof item?.title === 'string' ? item.title.trim() : '',
   };
 
   if (item?.type === 'profile' && item?.settings && typeof item.settings === 'object') {
@@ -341,7 +353,8 @@ function normalizeCustomCss(customCss) {
   return content ? { content } : undefined;
 }
 
-function createRenderData(previewData) {
+function createRenderData(previewData, themeMetadata = {}) {
+  const themeSupportsComments = themeMetadata?.features?.comments === true;
   const authorsById = new Map(previewData.content.authors.map((author) => [author.id, author]));
   const categoriesBySlug = new Map(previewData.content.categories.map((category) => [category.slug, category]));
   const tagsBySlug = new Map(previewData.content.tags.map((tag) => [tag.slug, tag]));
@@ -362,7 +375,7 @@ function createRenderData(previewData) {
     }
   }
 
-  const posts = previewData.content.posts.map((post) => preparePost(post, previewData.site, authorsById, categoriesBySlug, tagsBySlug));
+  const posts = previewData.content.posts.map((post) => preparePost(post, previewData.site, authorsById, categoriesBySlug, tagsBySlug, themeSupportsComments));
   const pages = previewData.content.pages.map((page) => preparePage(page));
   const postBySlug = new Map(posts.map((post) => [post.slug, post]));
   const categoryLinks = renderCategoryLinks(previewData.content.categories, categoryCountBySlug);
@@ -412,6 +425,245 @@ function createRenderData(previewData) {
       renderList: (postsForRoute) => renderPostList(postsForRoute, postBySlug),
       renderExtras: () => ({ tags: tagLinks }),
     }),
+  };
+}
+
+function normalizeThemeRuntime(value) {
+  return value === THEME_RUNTIME_V0_4 ? THEME_RUNTIME_V0_4 : DEFAULT_THEME_RUNTIME;
+}
+
+function buildWidgetsForTheme(previewData, renderData, themeRuntime) {
+  if (themeRuntime === THEME_RUNTIME_V0_4) {
+    return resolveWidgetAreas(previewData, renderData);
+  }
+
+  return renderWidgetAreas(previewData, renderData);
+}
+
+function resolveWidgetAreas(previewData, renderData) {
+  if (!previewData.widgets || typeof previewData.widgets !== 'object') {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(previewData.widgets).map(([widgetAreaId, widgetArea]) => [
+      widgetAreaId,
+      resolveWidgetArea(widgetArea, previewData, renderData, widgetAreaId),
+    ]),
+  );
+}
+
+function resolveWidgetArea(widgetArea, previewData, renderData, widgetAreaId) {
+  if (!widgetArea || !Array.isArray(widgetArea.items)) {
+    return {
+      name: normalizeNonEmptyString(widgetArea?.name, widgetAreaId),
+      items: [],
+    };
+  }
+
+  return {
+    name: normalizeNonEmptyString(widgetArea?.name, widgetAreaId),
+    items: widgetArea.items
+      .map((item, index) => resolveWidgetItem(item, previewData, renderData, widgetAreaId, index))
+      .filter(Boolean),
+  };
+}
+
+function resolveWidgetItem(item, previewData, renderData, widgetAreaId, index) {
+  if (!item || typeof item !== 'object' || typeof item.type !== 'string') {
+    return null;
+  }
+
+  const baseWidget = {
+    id: `${widgetAreaId}-${index + 1}`,
+    type: item.type,
+    title: typeof item.title === 'string' ? item.title : '',
+    empty: false,
+  };
+
+  switch (item.type) {
+    case 'recent-posts':
+      return resolveRecentPostsWidget(baseWidget, item.settings, renderData);
+    case 'categories':
+      return resolveCategoriesWidget(baseWidget, item.settings, previewData);
+    case 'tags':
+      return resolveTagsWidget(baseWidget, item.settings, previewData);
+    case 'archives':
+      return resolveArchivesWidget(baseWidget, item.settings, previewData);
+    case 'text':
+      return resolveTextWidget(baseWidget, item.settings);
+    case 'link-list':
+      return resolveLinkListWidget(baseWidget, item.settings);
+    case 'search':
+      return resolveSearchWidget(baseWidget, item.settings, widgetAreaId, index);
+    case 'profile':
+      return resolveProfileWidget(baseWidget, item.settings);
+    default:
+      return null;
+  }
+}
+
+function resolveRecentPostsWidget(baseWidget, settings, renderData) {
+  const limit = clampInteger(settings?.limit, 5, 1, 20);
+  const items = renderData.posts
+    .slice(0, limit)
+    .map((post) => ({
+      title: post.title,
+      url: `/posts/${encodeSlugSegment(post.slug)}/`,
+      published_at: post.published_at,
+      published_at_iso: post.published_at_iso,
+    }));
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return {
+    ...baseWidget,
+    show_date: settings?.show_date !== false,
+    items,
+  };
+}
+
+function resolveCategoriesWidget(baseWidget, settings, previewData) {
+  const countBySlug = buildTaxonomyCountMap(previewData.content.posts, 'category_slugs');
+  const items = previewData.content.categories
+    .map((category) => ({
+      name: category.name,
+      slug: category.slug,
+      url: `/categories/${encodeSlugSegment(category.slug)}/`,
+      count: countBySlug.get(category.slug) || 0,
+      depth: 0,
+    }))
+    .filter((category) => category.count > 0);
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return {
+    ...baseWidget,
+    show_count: settings?.show_count === true,
+    hierarchical: settings?.hierarchical === true,
+    items,
+  };
+}
+
+function resolveTagsWidget(baseWidget, settings, previewData) {
+  const countBySlug = buildTaxonomyCountMap(previewData.content.posts, 'tag_slugs');
+  const limit = clampInteger(settings?.limit, 20, 1, 100);
+  const items = previewData.content.tags
+    .map((tag) => ({
+      name: tag.name,
+      slug: tag.slug,
+      url: `/tags/${encodeSlugSegment(tag.slug)}/`,
+      count: countBySlug.get(tag.slug) || 0,
+    }))
+    .filter((tag) => tag.count > 0)
+    .slice(0, limit);
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return {
+    ...baseWidget,
+    show_count: settings?.show_count === true,
+    items,
+  };
+}
+
+function resolveArchivesWidget(baseWidget, settings, previewData) {
+  const limit = clampInteger(settings?.limit, 12, 1, 120);
+  const items = buildArchiveEntries(previewData.content.posts, previewData.site)
+    .slice(0, limit)
+    .map((entry) => ({
+      label: entry.label,
+      url: '/archive/',
+      count: entry.count,
+      year: entry.year,
+      month: entry.month,
+      meta: `${entry.count} posts`,
+    }));
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return {
+    ...baseWidget,
+    items,
+  };
+}
+
+function resolveTextWidget(baseWidget, settings) {
+  const content = typeof settings?.content === 'string' ? settings.content : '';
+  const html = renderDocumentContent(content, normalizeDocumentType(settings?.document_type));
+
+  if (!normalizeOptionalString(html)) {
+    return null;
+  }
+
+  return {
+    ...baseWidget,
+    html,
+  };
+}
+
+function resolveLinkListWidget(baseWidget, settings) {
+  const items = (Array.isArray(settings?.links) ? settings.links : [])
+    .map((link) => {
+      const label = normalizeOptionalString(link?.label);
+      const url = normalizeThemeLinkUrl(link?.url);
+      if (!label || !url) {
+        return null;
+      }
+
+      const target = normalizeLinkTarget(link?.target);
+      return {
+        label,
+        url,
+        target,
+        rel: target === '_blank' ? 'noreferrer noopener' : '',
+      };
+    })
+    .filter(Boolean);
+
+  if (items.length === 0) {
+    return null;
+  }
+
+  return {
+    ...baseWidget,
+    items,
+  };
+}
+
+function resolveSearchWidget(baseWidget, settings, widgetAreaId, index) {
+  return {
+    ...baseWidget,
+    placeholder: normalizeNonEmptyString(settings?.placeholder, 'Search...'),
+    button_label: normalizeNonEmptyString(settings?.button_label, 'Search'),
+    dom_id: `widget-search-${widgetAreaId}-${index + 1}`,
+  };
+}
+
+function resolveProfileWidget(baseWidget, settings) {
+  const displayName = normalizeOptionalString(settings?.display_name);
+  const affiliation = normalizeOptionalString(settings?.affiliation);
+  const bioText = normalizeOptionalString(settings?.bio_short);
+  const avatarUrl = normalizeMediaField(settings?.avatar);
+
+  if (!displayName && !affiliation && !bioText && !avatarUrl) {
+    return null;
+  }
+
+  return {
+    ...baseWidget,
+    display_name: displayName,
+    affiliation,
+    avatar_url: avatarUrl,
+    bio_text: bioText,
   };
 }
 
@@ -583,7 +835,7 @@ function renderLinkListWidget(title, settings) {
   const items = links
     .map((link) => {
       const label = normalizeOptionalString(link?.label);
-      const url = normalizeOptionalString(link?.url);
+      const url = normalizeThemeLinkUrl(link?.url);
       if (!label || !url) {
         return '';
       }
@@ -672,14 +924,26 @@ function preparePage(page) {
   };
 }
 
-function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug) {
+function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, themeSupportsComments) {
   const documentType = normalizeDocumentType(post.document_type);
   const html = renderDocumentContent(post.content, documentType);
   const author = authorsById.get(post.author_id);
 
   return {
-    ...post,
+    public_id: post.public_id,
+    title: post.title,
+    slug: post.slug,
+    content: post.content,
     document_type: documentType,
+    excerpt: post.excerpt,
+    published_at_iso: post.published_at_iso,
+    updated_at_iso: post.updated_at_iso,
+    author_id: post.author_id,
+    featured_image: post.featured_image,
+    status: post.status,
+    allow_comments: post.allow_comments,
+    category_slugs: post.category_slugs,
+    tag_slugs: post.tag_slugs,
     html,
     author_name: normalizeNonEmptyString(author?.display_name, post.author_id),
     author_avatar: author?.avatar,
@@ -688,50 +952,20 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug) {
     reading_time: calculateReadingTime(html),
     categories_html: renderInlineTaxonomyLinks(post.category_slugs, categoriesBySlug, 'category'),
     tags_html: renderInlineTaxonomyLinks(post.tag_slugs, tagsBySlug, 'tag'),
-    comments_html: renderCommentsContainer(site, post),
+    comments_enabled: themeSupportsComments && site.disallowComments !== true && post.allow_comments === true,
   };
 }
 
-function renderCommentsContainer(site, post) {
-  if (site.disallowComments === true || post.allow_comments !== true) {
-    return '';
-  }
+function buildCommentPolicyManifest(posts) {
+  const commentablePosts = posts
+    .filter((post) => post.status === 'published' && post.comments_enabled === true)
+    .map((post) => post.public_id)
+    .filter((value) => Number.isInteger(value) && value > 0);
 
-  const safePostId = encodeURIComponent(post.id);
-  return `<section id="comments" class="zp-comments">
-  <h2>댓글</h2>
-  <div id="comment-list"
-       hx-get="/api/comments/${safePostId}"
-       hx-trigger="load"
-       hx-swap="innerHTML">
-    <p class="zp-comments-loading">댓글을 불러오는 중...</p>
-  </div>
-  <form id="comment-form"
-        hx-post="/api/comments/${safePostId}"
-        hx-target="#comment-form-result"
-        hx-swap="innerHTML">
-    <div id="comment-form-result"></div>
-    <div>
-      <label for="author_name">이름</label>
-      <input type="text" id="author_name" name="author_name" required>
-    </div>
-    <div>
-      <label for="author_email">이메일</label>
-      <input type="email" id="author_email" name="author_email" required>
-    </div>
-    <div>
-      <label for="content">댓글</label>
-      <textarea id="content" name="content" required minlength="1" maxlength="5000"></textarea>
-    </div>
-    <div style="position:absolute;left:-9999px;" aria-hidden="true">
-      <input type="text" name="website" tabindex="-1" autocomplete="off">
-    </div>
-    <button type="submit">댓글 작성</button>
-  </form>
-  <noscript>
-    <p>댓글 기능을 사용하려면 JavaScript를 활성화해 주세요.</p>
-  </noscript>
-</section>`;
+  return JSON.stringify({
+    version: 1,
+    commentable_posts: commentablePosts,
+  }, null, 2);
 }
 
 function buildTaxonomyRoutes(options) {
@@ -982,6 +1216,8 @@ function buildArchiveEntries(posts, site) {
     .map((entry) => ({
       label: formatArchiveLabel(entry.date, site),
       count: entry.count,
+      year: entry.date.getUTCFullYear(),
+      month: entry.date.getUTCMonth() + 1,
     }));
 }
 
@@ -1131,6 +1367,7 @@ async function assertValidThemePackage(themePackage) {
     ...(themePackage.metadata.author ? { author: themePackage.metadata.author } : {}),
     ...(themePackage.metadata.description ? { description: themePackage.metadata.description } : {}),
     ...(themePackage.metadata.thumbnail ? { thumbnail: themePackage.metadata.thumbnail } : {}),
+    ...(themePackage.metadata.features ? { features: themePackage.metadata.features } : {}),
     ...(themePackage.metadata.menuSlots ? { menuSlots: themePackage.metadata.menuSlots } : {}),
     ...(themePackage.metadata.widgetAreas ? { widgetAreas: themePackage.metadata.widgetAreas } : {}),
     settings: themePackage.metadata.settings || {},
@@ -1292,7 +1529,7 @@ function resolveMetaImageUrl(image) {
   }
 
   if (isAbsoluteUrl(normalizedImage)) {
-    return normalizedImage;
+    return normalizeAbsoluteUrl(normalizedImage, SAFE_MEDIA_PROTOCOLS);
   }
 
   return '';
@@ -1309,7 +1546,7 @@ function normalizeMediaField(value, mediaBaseUrl) {
   }
 
   if (isAbsoluteUrl(normalizedValue)) {
-    return normalizedValue;
+    return normalizeAbsoluteUrl(normalizedValue, SAFE_MEDIA_PROTOCOLS);
   }
 
   const normalizedBaseUrl = normalizeOptionalString(mediaBaseUrl);
@@ -1331,6 +1568,31 @@ function isAbsoluteUrl(value) {
   } catch {
     return false;
   }
+}
+
+function normalizeAbsoluteUrl(value, allowedProtocols) {
+  try {
+    const url = new URL(value);
+    if (!allowedProtocols.has(url.protocol)) {
+      return '';
+    }
+    return decodeURI(url.toString());
+  } catch {
+    return '';
+  }
+}
+
+function normalizeThemeLinkUrl(value) {
+  const normalizedValue = normalizeOptionalString(value);
+  if (!normalizedValue || normalizedValue.startsWith('//')) {
+    return '';
+  }
+
+  if (isAbsoluteUrl(normalizedValue)) {
+    return normalizeAbsoluteUrl(normalizedValue, SAFE_LINK_PROTOCOLS);
+  }
+
+  return normalizedValue;
 }
 
 async function writeOutput(writer, summaries, path, content, contentType) {
@@ -1391,6 +1653,7 @@ function assertPlannedOutputPathsSafe(state) {
     ...state.renderData.posts.map((post) => `posts/${encodeSlugSegment(post.slug)}/index.html`),
     ...state.renderData.pages.map((page) => `${encodeSlugSegment(page.slug)}/index.html`),
     ...state.assetOutputs.map((assetOutput) => assetOutput.path),
+    COMMENT_POLICY_OUTPUT_PATH,
   ];
 
   if (state.options.generateSpecialFiles) {
@@ -1463,10 +1726,6 @@ function sha256(content) {
   const hash = createHash('sha256');
   hash.update(content);
   return hash.digest('hex');
-}
-
-function injectHtmxScript(html) {
-  return html.replace('</body>', '<script src="https://unpkg.com/htmx.org@2.0.4" crossorigin="anonymous"></script>\n</body>');
 }
 
 function injectCustomCssAssetLink(html, href) {

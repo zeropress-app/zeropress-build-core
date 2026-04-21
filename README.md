@@ -186,9 +186,13 @@ Build-core now derives:
 - taxonomy link HTML
 - formatted `published_at` / `updated_at`
 - `reading_time`
-- `comments_html`
+- `comments_enabled`
 
-Comment shell rendering is derived from preview-data policy:
+It also emits a comments allowlist artifact:
+
+- `/_zeropress/comment-policy.json`
+
+Comment availability is derived from preview-data policy:
 
 - `site.disallowComments`
 - `content.posts[].allow_comments`
@@ -216,7 +220,6 @@ Supported options:
 
 - `assetHashing`
 - `generateSpecialFiles`
-- `injectHtmx`
 - `writeManifest`
 
 These options apply to both full builds and partial renders where relevant.
@@ -225,7 +228,6 @@ Defaults:
 
 - `assetHashing: true`
 - `generateSpecialFiles: true`
-- `injectHtmx: true`
 - `writeManifest: false`
 
 ---

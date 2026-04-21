@@ -2,5 +2,9 @@
   <h1>{{post.title}}</h1>
   <div class="content">{{post.html}}</div>
   <footer class="taxonomy">{{post.categories_html}} {{post.tags_html}}</footer>
-  {{post.comments_html}}
+  {{#if post.comments_enabled}}
+    <section class="comments-block">
+      <div class="comments-shell" data-zp-comments data-zp-comments-post="{{post.public_id}}" hidden></div>
+    </section>
+  {{/if}}
 </article>

@@ -51,6 +51,7 @@ export async function loadThemePackageFromDir(themeDir) {
       description: themeJson.description,
       thumbnail: themeJson.thumbnail,
       settings: themeJson.settings || {},
+      features: themeJson.features,
       menuSlots: themeJson.menuSlots,
       widgetAreas: themeJson.widgetAreas,
       namespace: themeJson.namespace,
