@@ -272,7 +272,7 @@ function normalizePreviewData(previewData) {
   return {
     ...previewData,
     site: normalizedSite,
-    widgets: normalizeWidgetAreas(previewData.widgets),
+    widgets: normalizeWidgetAreas(previewData.widgets, normalizedSite.mediaBaseUrl),
     custom_css: normalizeCustomCss(previewData.custom_css),
     content: {
       ...previewData.content,
@@ -298,7 +298,7 @@ function normalizePreviewData(previewData) {
   };
 }
 
-function normalizeWidgetAreas(widgetAreas) {
+function normalizeWidgetAreas(widgetAreas, mediaBaseUrl) {
   if (!widgetAreas || typeof widgetAreas !== 'object') {
     return {};
   }
@@ -310,14 +310,30 @@ function normalizeWidgetAreas(widgetAreas) {
         ...widgetArea,
         name: normalizeNonEmptyString(widgetArea?.name, widgetAreaId),
         items: Array.isArray(widgetArea?.items)
-          ? widgetArea.items.map((item) => ({
-            ...item,
-            title: normalizeNonEmptyString(item?.title, 'Widget'),
-          }))
+          ? widgetArea.items.map((item) => normalizeWidgetItem(item, mediaBaseUrl))
           : [],
       },
     ]),
   );
+}
+
+function normalizeWidgetItem(item, mediaBaseUrl) {
+  const normalizedItem = {
+    ...item,
+    title: normalizeNonEmptyString(item?.title, 'Widget'),
+  };
+
+  if (item?.type === 'profile' && item?.settings && typeof item.settings === 'object') {
+    return {
+      ...normalizedItem,
+      settings: {
+        ...item.settings,
+        avatar: normalizeMediaField(item.settings.avatar, mediaBaseUrl),
+      },
+    };
+  }
+
+  return normalizedItem;
 }
 
 function normalizeCustomCss(customCss) {

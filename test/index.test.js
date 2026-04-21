@@ -183,6 +183,7 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
   themePackage.templates.set('index', '<section class="index-page">{{widgets.sidebar}}</section>');
+  previewData.site.mediaBaseUrl = 'https://media.example.com';
 
   previewData.widgets = {
     sidebar: {
@@ -195,7 +196,7 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
             display_name: 'Admin',
             affiliation: 'ZeroPress Dev Team',
             bio_short: 'Preview profile',
-            avatar: 'https://cdn.example.com/avatar.webp',
+            avatar: '/avatars/admin.webp',
           },
         },
         {
@@ -243,6 +244,7 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
   assert.ok(customCssAsset, 'Expected a hashed custom CSS asset to be emitted');
   assert.match(indexHtml, /<link rel="stylesheet" href="\/assets\/zeropress-custom\.[a-f0-9]{8}\.css">/);
   assert.match(indexHtml, /widget-card--profile/);
+  assert.match(indexHtml, /src="https:\/\/media\.example\.com\/avatars\/admin\.webp"/);
   assert.match(indexHtml, /Preview profile/);
   assert.match(indexHtml, /Hello ZeroPress/);
   assert.match(indexHtml, /placeholder="Search articles"/);
