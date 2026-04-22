@@ -374,7 +374,12 @@ function createRenderData(previewData, themeMetadata = {}) {
     }
   }
 
-  const posts = previewData.content.posts.map((post) => preparePost(post, previewData.site, authorsById, categoriesBySlug, tagsBySlug, themeSupportsComments));
+  const preparedPosts = previewData.content.posts.map((post) => preparePost(post, previewData.site, authorsById, categoriesBySlug, tagsBySlug, themeSupportsComments));
+  const posts = preparedPosts.map((post, index) => ({
+    ...post,
+    prev: index > 0 ? buildAdjacentPostSummary(preparedPosts[index - 1]) : null,
+    next: index < preparedPosts.length - 1 ? buildAdjacentPostSummary(preparedPosts[index + 1]) : null,
+  }));
   const pages = previewData.content.pages.map((page) => preparePage(page));
   const postBySlug = new Map(posts.map((post) => [post.slug, post]));
   const categoryLinks = renderCategoryLinks(previewData.content.categories, categoryCountBySlug);
@@ -1211,6 +1216,21 @@ function buildStructuredPostSummary(post) {
     },
     categories: Array.isArray(post.categories) ? post.categories.map((category) => ({ ...category })) : [],
     tags: Array.isArray(post.tags) ? post.tags.map((tag) => ({ ...tag })) : [],
+  };
+}
+
+function buildAdjacentPostSummary(post) {
+  if (!post) {
+    return null;
+  }
+
+  return {
+    title: post.title,
+    slug: post.slug,
+    url: post.url,
+    excerpt: post.excerpt,
+    published_at: post.published_at,
+    published_at_iso: post.published_at_iso,
   };
 }
 

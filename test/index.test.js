@@ -657,6 +657,53 @@ test('buildSite runtime 0.4 exposes structured posts, archive groups, and pagina
   assert.match(archiveHtml, /<a class="archive-post" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a><time datetime="2026-02-14T09:00:00Z">2026-02-14 09:00<\/time>/);
 });
 
+test('buildSite runtime 0.4 exposes structured post surroundings while preserving legacy post helpers', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  themePackage.metadata.runtime = '0.4';
+  themePackage.templates.set('post', [
+    '<article class="structured-post-shell">',
+    '  <span class="legacy-author">{{post.author_name}}</span>',
+    '  <span class="structured-author">{{post.author.display_name}}</span>',
+    '  <div class="structured-categories">{{#for category in post.categories}}<a class="structured-category" href="{{category.url}}">{{category.name}}</a>{{/for}}</div>',
+    '  <div class="structured-tags">{{#for tag in post.tags}}<a class="structured-tag" href="{{tag.url}}">{{tag.name}}</a>{{/for}}</div>',
+    '  {{#if post.prev}}<a class="prev-post" href="{{post.prev.url}}">{{post.prev.title}}</a>{{/if}}',
+    '  {{#if post.next}}<a class="next-post" href="{{post.next.url}}">{{post.next.title}}</a>{{/if}}',
+    '  <div class="legacy-categories">{{post.categories_html}}</div>',
+    '  <div class="legacy-tags">{{post.tags_html}}</div>',
+    '</article>',
+  ].join('\n'));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const files = writer.getFiles();
+  const firstPostHtml = getFileContent(files, 'posts/hello-zeropress/index.html');
+  const secondPostHtml = getFileContent(files, 'posts/theme-blocks-deep-dive/index.html');
+  const thirdPostHtml = getFileContent(files, 'posts/archive-patterns/index.html');
+
+  assert.match(firstPostHtml, /<span class="legacy-author">Admin<\/span>/);
+  assert.match(firstPostHtml, /<span class="structured-author">Admin<\/span>/);
+  assert.match(firstPostHtml, /<a class="structured-category" href="\/categories\/general\/">General<\/a>/);
+  assert.match(firstPostHtml, /<a class="structured-tag" href="\/tags\/intro\/">Intro<\/a>/);
+  assert.doesNotMatch(firstPostHtml, /class="prev-post"/);
+  assert.match(firstPostHtml, /<a class="next-post" href="\/posts\/theme-blocks-deep-dive\/">Theme Blocks Deep Dive<\/a>/);
+  assert.match(firstPostHtml, /<div class="legacy-categories"><a href="\/categories\/general\/" class="category-link">General<\/a><\/div>/);
+  assert.match(firstPostHtml, /<div class="legacy-tags"><a href="\/tags\/intro\/" class="tag-link">Intro<\/a><\/div>/);
+
+  assert.match(secondPostHtml, /<a class="prev-post" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a>/);
+  assert.match(secondPostHtml, /<a class="next-post" href="\/posts\/archive-patterns\/">Archive Patterns<\/a>/);
+
+  assert.match(thirdPostHtml, /<a class="prev-post" href="\/posts\/theme-blocks-deep-dive\/">Theme Blocks Deep Dive<\/a>/);
+  assert.doesNotMatch(thirdPostHtml, /class="next-post"/);
+});
+
 test('buildSite fails closed before FilesystemWriter can escape the output directory', async () => {
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-out-'));
   const escapedFileName = `${path.basename(outDir)}-escape.css`;
