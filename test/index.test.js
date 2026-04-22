@@ -406,6 +406,84 @@ test('buildSite runtime 0.4 renders resolved widgets with escaping and safe URL 
   assert.doesNotMatch(indexHtml, />Blocked<\/a>/);
 });
 
+test('loadThemePackageFromDir uses normalized validator manifest metadata', async () => {
+  const themeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-theme-dir-'));
+
+  try {
+    await fs.writeFile(path.join(themeDir, 'theme.json'), JSON.stringify({
+      name: 'Test Theme',
+      namespace: 'test-studio',
+      slug: 'test-theme',
+      version: '1.0.0',
+      license: 'MIT',
+      runtime: '0.4',
+      author: '  ZeroPress  ',
+      description: '  Theme fixture  ',
+      features: {
+        comments: true,
+        newsletter: false,
+      },
+      menuSlots: {
+        primary: {
+          title: '  Primary Menu  ',
+          description: '  Main header navigation  ',
+        },
+      },
+      widgetAreas: {
+        sidebar: {
+          title: '  Sidebar Widgets  ',
+          description: '  Right rail widgets  ',
+        },
+      },
+      settings: {
+        accent: 'sand',
+      },
+      thumbnail: '/preview.png',
+    }, null, 2));
+    await fs.writeFile(path.join(themeDir, 'layout.html'), '<main>{{slot:content}}</main>');
+    await fs.writeFile(path.join(themeDir, 'index.html'), '<h1>{{site.title}}</h1>');
+    await fs.writeFile(path.join(themeDir, 'post.html'), '<article>{{post.title}}</article>');
+    await fs.writeFile(path.join(themeDir, 'page.html'), '<section>{{page.title}}</section>');
+    await fs.mkdir(path.join(themeDir, 'assets'));
+    await fs.writeFile(path.join(themeDir, 'assets', 'style.css'), 'body { color: black; }');
+
+    const themePackage = await loadThemePackageFromDir(themeDir);
+
+    assert.deepEqual(themePackage.metadata, {
+      name: 'Test Theme',
+      namespace: 'test-studio',
+      slug: 'test-theme',
+      version: '1.0.0',
+      license: 'MIT',
+      runtime: '0.4',
+      author: 'ZeroPress',
+      description: 'Theme fixture',
+      features: {
+        comments: true,
+        newsletter: false,
+      },
+      menuSlots: {
+        primary: {
+          title: 'Primary Menu',
+          description: 'Main header navigation',
+        },
+      },
+      widgetAreas: {
+        sidebar: {
+          title: 'Sidebar Widgets',
+          description: 'Right rail widgets',
+        },
+      },
+      settings: {
+        accent: 'sand',
+      },
+      thumbnail: '/preview.png',
+    });
+  } finally {
+    await fs.rm(themeDir, { recursive: true, force: true });
+  }
+});
+
 test('loadThemePackageFromDir preserves theme capability metadata for internal fixtures', async () => {
   const themePackage = await loadThemePackageFromDir(goldenThemeDir);
 
@@ -434,6 +512,57 @@ test('buildSiteFromThemeDir loads the golden fixture theme directory and Filesys
   } finally {
     await fs.rm(outDir, { recursive: true, force: true });
   }
+});
+
+test('buildSite renders nested partials in templates and layout slot partials', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.widgets = {
+    sidebar: {
+      name: 'Sidebar Widgets',
+      items: [
+        {
+          type: 'text',
+          title: 'Note',
+          settings: {
+            document_type: 'markdown',
+            content: 'Sidebar **markdown**',
+          },
+        },
+      ],
+    },
+  };
+
+  themePackage.templates.set('index', '<main class="index-shell">{{partial:sidebar/widgets}}</main>');
+  themePackage.partials.set('header', '<header class="site-header">{{partial:shared/banner}}</header>');
+  themePackage.partials.set('shared/banner', '<div class="banner">{{site.title}}</div>');
+  themePackage.partials.set('sidebar/widgets', [
+    '{{#if widgets.sidebar.items}}',
+    '<aside class="sidebar-stack">',
+    '{{#for widget in widgets.sidebar.items}}',
+    '{{partial:sidebar/widget-card}}',
+    '{{/for}}',
+    '</aside>',
+    '{{/if}}',
+  ].join(''));
+  themePackage.partials.set('sidebar/widget-card', [
+    '{{#if_eq widget.type "text"}}',
+    '<section class="widget-card">{{#if widget.title}}<h2>{{widget.title}}</h2>{{/if}}<div class="widget-copy">{{widget.html}}</div></section>',
+    '{{/if_eq}}',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /<header class="site-header"><div class="banner">ZeroPress Preview<\/div><\/header>/);
+  assert.match(indexHtml, /<main><main class="index-shell"><aside class="sidebar-stack"><section class="widget-card"><h2>Note<\/h2><div class="widget-copy"><p>Sidebar <strong>markdown<\/strong><\/p>\s*<\/div><\/section><\/aside><\/main><\/main>/);
 });
 
 test('buildSite fails closed before FilesystemWriter can escape the output directory', async () => {

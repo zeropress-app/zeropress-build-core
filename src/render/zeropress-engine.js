@@ -1,10 +1,12 @@
 import { SlotResolver } from './slot-resolver.js';
 import { VariableResolver } from './variable-resolver.js';
 import { ControlFlowRenderer } from './control-flow-renderer.js';
+import { PartialResolver } from './partial-resolver.js';
 
 export class ZeroPressEngine {
   constructor() {
     this.slotResolver = new SlotResolver();
+    this.partialResolver = new PartialResolver();
     this.variableResolver = new VariableResolver();
     this.controlFlowRenderer = new ControlFlowRenderer({
       resolvePath: (data, path) => this.variableResolver.resolvePath(data, path),
@@ -33,9 +35,9 @@ export class ZeroPressEngine {
     }
 
     const renderData = this.combineRenderData(data, context);
-    const renderedContent = this.renderTemplate(template, renderData);
+    const renderedContent = this.renderTemplate(this.expandPartials(template), renderData);
     const layoutWithSlots = this.slotResolver.resolve(layout, this.themePackage.partials, renderedContent);
-    return this.renderTemplate(layoutWithSlots, renderData);
+    return this.renderTemplate(this.expandPartials(layoutWithSlots), renderData);
   }
 
   combineRenderData(data, context) {
@@ -57,5 +59,13 @@ export class ZeroPressEngine {
     }
 
     return this.variableResolver.resolve(template, data);
+  }
+
+  expandPartials(template) {
+    if (this.themePackage?.metadata?.runtime !== '0.4') {
+      return template;
+    }
+
+    return this.partialResolver.resolve(template, this.themePackage.partials);
   }
 }

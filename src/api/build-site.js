@@ -89,12 +89,11 @@ async function createBuildState(input, options) {
   }
 
   assertPreviewData(input.previewData);
-  await assertValidThemePackage(input.themePackage);
+  const themePackage = await normalizeAndValidateThemePackage(input.themePackage);
 
   const engine = new ZeroPressEngine();
   const assetProcessor = new AssetProcessor();
   const summaries = [];
-  const themePackage = input.themePackage;
   const previewData = normalizePreviewData(input.previewData);
   const renderData = createRenderData(previewData, themePackage.metadata);
   const themeRuntime = normalizeThemeRuntime(themePackage.metadata?.runtime);
@@ -1351,7 +1350,7 @@ function recordRouteEmission(state, templateName, route, currentUrl) {
   });
 }
 
-async function assertValidThemePackage(themePackage) {
+async function normalizeAndValidateThemePackage(themePackage) {
   if (!themePackage?.templates || !themePackage?.partials || !themePackage?.assets || !themePackage?.metadata) {
     throw new Error('Invalid themePackage: expected metadata, templates, partials, and assets');
   }
@@ -1389,6 +1388,25 @@ async function assertValidThemePackage(themePackage) {
   if (!validation.ok) {
     throw new Error(`Theme validation failed: ${validation.errors[0]?.message || 'Unknown error'}`);
   }
+
+  if (!validation.manifest) {
+    throw new Error('Theme validation failed: normalized manifest not available');
+  }
+
+  return {
+    metadata: normalizeThemePackageMetadata(themePackage.metadata, validation.manifest),
+    templates: themePackage.templates,
+    partials: themePackage.partials,
+    assets: themePackage.assets,
+  };
+}
+
+function normalizeThemePackageMetadata(sourceMetadata, manifest) {
+  return {
+    ...manifest,
+    ...(sourceMetadata?.thumbnail ? { thumbnail: sourceMetadata.thumbnail } : {}),
+    settings: sourceMetadata?.settings || {},
+  };
 }
 
 async function buildAssetOutputs(assets, assetProcessor, options) {

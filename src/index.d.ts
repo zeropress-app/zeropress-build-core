@@ -1,29 +1,10 @@
 import type { PreviewDataV05 } from '@zeropress/preview-data-validator';
+import type { ThemeManifest } from '@zeropress/theme-validator';
 
 export interface ThemePackage {
-  metadata: {
-    name: string;
-    version: string;
-    author?: string | null;
-    description?: string;
+  metadata: ThemeManifest & {
     thumbnail?: string;
     settings?: Record<string, unknown>;
-    features?: {
-      comments?: boolean;
-      newsletter?: boolean;
-    };
-    menuSlots?: Record<string, {
-      title: string;
-      description?: string;
-    }>;
-    widgetAreas?: Record<string, {
-      title: string;
-      description?: string;
-    }>;
-    namespace?: string;
-    slug?: string;
-    license?: 'MIT' | 'Apache-2.0' | 'BSD-3-Clause' | 'GPL-3.0-only' | 'GPL-3.0-or-later';
-    runtime?: '0.3' | '0.4';
   };
   templates: Map<string, string>;
   partials: Map<string, string>;

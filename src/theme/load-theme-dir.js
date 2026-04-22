@@ -16,6 +16,10 @@ export async function loadThemePackageFromDir(themeDir) {
 
   const rawThemeJson = String(fileMap.get('theme.json'));
   const themeJson = JSON.parse(rawThemeJson);
+  const manifest = validation.manifest;
+  if (!manifest) {
+    throw new Error('Theme validation failed: normalized manifest not available');
+  }
   const templates = new Map();
   const partials = new Map();
   const assets = new Map();
@@ -45,19 +49,9 @@ export async function loadThemePackageFromDir(themeDir) {
 
   return {
     metadata: {
-      name: themeJson.name,
-      version: themeJson.version,
-      author: themeJson.author,
-      description: themeJson.description,
+      ...manifest,
       thumbnail: themeJson.thumbnail,
       settings: themeJson.settings || {},
-      features: themeJson.features,
-      menuSlots: themeJson.menuSlots,
-      widgetAreas: themeJson.widgetAreas,
-      namespace: themeJson.namespace,
-      slug: themeJson.slug,
-      license: themeJson.license,
-      runtime: themeJson.runtime,
     },
     templates,
     partials,
