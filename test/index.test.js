@@ -565,6 +565,98 @@ test('buildSite renders nested partials in templates and layout slot partials', 
   assert.match(indexHtml, /<main><main class="index-shell"><aside class="sidebar-stack"><section class="widget-card"><h2>Note<\/h2><div class="widget-copy"><p>Sidebar <strong>markdown<\/strong><\/p>\s*<\/div><\/section><\/aside><\/main><\/main>/);
 });
 
+test('buildSite runtime 0.4 exposes structured posts, archive groups, and pagination while preserving legacy helpers', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  themePackage.metadata.runtime = '0.4';
+  themePackage.templates.set('index', [
+    '<section>',
+    '  <div class="legacy-posts">{{posts}}</div>',
+    '  <div class="structured-posts">',
+    '    {{#for post in posts.items}}',
+    '      <article class="structured-post" data-slug="{{post.slug}}">',
+    '        <a class="structured-link" href="{{post.url}}">{{post.title}}</a>',
+    '        <span class="structured-author">{{post.author.display_name}}</span>',
+    '        {{#for category in post.categories}}<span class="structured-category">{{category.name}}</span>{{/for}}',
+    '        {{#for tag in post.tags}}<span class="structured-tag">{{tag.name}}</span>{{/for}}',
+    '      </article>',
+    '    {{/for}}',
+    '  </div>',
+    '  <div class="legacy-pagination">{{pagination}}</div>',
+    '  {{#if pagination.has_multiple_pages}}',
+    '    <nav class="structured-pagination">',
+    '      {{#if pagination.has_prev}}<a class="prev" href="{{pagination.prev_url}}">Previous</a>{{/if}}',
+    '      {{#for page in pagination.pages}}<a class="page {{#if page.current}}current{{/if}}" href="{{page.url}}">{{page.number}}</a>{{/for}}',
+    '      {{#if pagination.has_next}}<a class="next" href="{{pagination.next_url}}">Next</a>{{/if}}',
+    '    </nav>',
+    '  {{/if}}',
+    '</section>',
+  ].join('\n'));
+  themePackage.templates.set('category', [
+    '<section class="category-route">',
+    '  <h1>{{taxonomy.name}}</h1>',
+    '  <p>{{taxonomy.count}}</p>',
+    '  {{#for post in posts.items}}<a class="category-link-item" href="{{post.url}}">{{post.title}}</a>{{/for}}',
+    '</section>',
+  ].join('\n'));
+  themePackage.templates.set('tag', [
+    '<section class="tag-route">',
+    '  <h1>{{taxonomy.name}}</h1>',
+    '  <p>{{taxonomy.count}}</p>',
+    '  {{#for post in posts.items}}<a class="tag-link-item" href="{{post.url}}">{{post.title}}</a>{{/for}}',
+    '</section>',
+  ].join('\n'));
+  themePackage.templates.set('archive', [
+    '<section class="archive-route">',
+    '  <div class="legacy-archive">{{posts}}</div>',
+    '  {{#for group in archive.groups}}',
+    '    <section class="archive-group">',
+    '      <h2>{{group.label}}</h2>',
+    '      {{#for post in group.items}}<a class="archive-post" href="{{post.url}}">{{post.title}}</a><time datetime="{{post.published_at_iso}}">{{post.published_at}}</time>{{/for}}',
+    '    </section>',
+    '  {{/for}}',
+    '</section>',
+  ].join('\n'));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const files = writer.getFiles();
+  const indexHtml = getFileContent(files, 'index.html');
+  const categoryHtml = getFileContent(files, 'categories/general/index.html');
+  const tagHtml = getFileContent(files, 'tags/intro/index.html');
+  const archiveHtml = getFileContent(files, 'archive/index.html');
+
+  assert.match(indexHtml, /<div class="legacy-posts"><article class="post-list-item">/);
+  assert.match(indexHtml, /<article class="structured-post" data-slug="hello-zeropress">/);
+  assert.match(indexHtml, /<a class="structured-link" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a>/);
+  assert.match(indexHtml, /<span class="structured-author">Admin<\/span>/);
+  assert.match(indexHtml, /<span class="structured-category">General<\/span>/);
+  assert.match(indexHtml, /<span class="structured-tag">Intro<\/span>/);
+  assert.match(indexHtml, /<div class="legacy-pagination"><nav class="pagination">/);
+  assert.match(indexHtml, /<nav class="structured-pagination">/);
+  assert.match(indexHtml, /<a class="page current" href="\/">1<\/a>/);
+  assert.match(indexHtml, /<a class="page " href="\/page\/2\/">2<\/a>/);
+
+  assert.match(categoryHtml, /<h1>General<\/h1>/);
+  assert.match(categoryHtml, /<p>3<\/p>/);
+  assert.match(categoryHtml, /<a class="category-link-item" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a>/);
+
+  assert.match(tagHtml, /<h1>Intro<\/h1>/);
+  assert.match(tagHtml, /<p>3<\/p>/);
+  assert.match(tagHtml, /<a class="tag-link-item" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a>/);
+
+  assert.match(archiveHtml, /<div class="legacy-archive"><section class="archive-group"><h2>2026-02<\/h2>/);
+  assert.match(archiveHtml, /<section class="archive-group">\s*<h2>2026-02<\/h2>/);
+  assert.match(archiveHtml, /<a class="archive-post" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a><time datetime="2026-02-14T09:00:00Z">2026-02-14 09:00<\/time>/);
+});
+
 test('buildSite fails closed before FilesystemWriter can escape the output directory', async () => {
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-out-'));
   const escapedFileName = `${path.basename(outDir)}-escape.css`;

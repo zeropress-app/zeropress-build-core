@@ -20,6 +20,14 @@ export class VariableResolver {
       }
 
       const value = data[variableName];
+      if (
+        VariableResolver.RAW_STANDALONE.has(variableName)
+        && value
+        && typeof value === 'object'
+        && typeof value.html === 'string'
+      ) {
+        return this.renderValue(value.html, variableName, options);
+      }
       return this.renderValue(value, variableName, options);
     });
 

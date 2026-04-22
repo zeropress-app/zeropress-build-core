@@ -392,10 +392,10 @@ function createRenderData(previewData, themeMetadata = {}) {
       path: entry.path,
       page: entry.page,
       totalPages: entry.totalPages,
-      posts: renderPostList(entry.items, postBySlug),
+      posts: buildStructuredPostCollection(entry.items, postBySlug),
       categories: categoryLinks,
       tags: tagLinks,
-      pagination: renderPagination(entry.paginationData),
+      pagination: buildStructuredPagination(entry.paginationData),
     })),
     archiveRoutes: buildPaginatedCollection({
       items: previewData.content.posts,
@@ -405,24 +405,35 @@ function createRenderData(previewData, themeMetadata = {}) {
       path: entry.path,
       page: entry.page,
       totalPages: entry.totalPages,
-      posts: renderArchive(entry.items, postBySlug),
-      pagination: renderPagination(entry.paginationData),
+      posts: buildStructuredArchiveCollection(entry.items, postBySlug),
+      archive: {
+        groups: buildArchiveGroups(entry.items, postBySlug),
+      },
+      pagination: buildStructuredPagination(entry.paginationData),
     })),
     categoryRoutes: buildTaxonomyRoutes({
       items: previewData.content.categories,
       postsBySlug: categoryPostsBySlug,
+      postBySlug,
       postsPerPage: previewData.site.postsPerPage,
       buildBasePath: (category) => `/categories/${encodeSlugSegment(category.slug)}/`,
       renderList: (postsForRoute) => renderPostList(postsForRoute, postBySlug),
-      renderExtras: () => ({ categories: categoryLinks }),
+      renderExtras: (category) => ({
+        categories: categoryLinks,
+        taxonomy: buildTaxonomyRouteData('category', category, categoryCountBySlug),
+      }),
     }),
     tagRoutes: buildTaxonomyRoutes({
       items: previewData.content.tags,
       postsBySlug: tagPostsBySlug,
+      postBySlug,
       postsPerPage: previewData.site.postsPerPage,
       buildBasePath: (tag) => `/tags/${encodeSlugSegment(tag.slug)}/`,
       renderList: (postsForRoute) => renderPostList(postsForRoute, postBySlug),
-      renderExtras: () => ({ tags: tagLinks }),
+      renderExtras: (tag) => ({
+        tags: tagLinks,
+        taxonomy: buildTaxonomyRouteData('tag', tag, tagCountBySlug),
+      }),
     }),
   };
 }
@@ -927,11 +938,28 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
   const documentType = normalizeDocumentType(post.document_type);
   const html = renderDocumentContent(post.content, documentType);
   const author = authorsById.get(post.author_id);
+  const categories = post.category_slugs
+    .map((slug) => categoriesBySlug.get(slug))
+    .filter(Boolean)
+    .map((category) => ({
+      name: category.name,
+      slug: category.slug,
+      url: `/categories/${encodeSlugSegment(category.slug)}/`,
+    }));
+  const tags = post.tag_slugs
+    .map((slug) => tagsBySlug.get(slug))
+    .filter(Boolean)
+    .map((tag) => ({
+      name: tag.name,
+      slug: tag.slug,
+      url: `/tags/${encodeSlugSegment(tag.slug)}/`,
+    }));
 
   return {
     public_id: post.public_id,
     title: post.title,
     slug: post.slug,
+    url: `/posts/${encodeSlugSegment(post.slug)}/`,
     content: post.content,
     document_type: documentType,
     excerpt: post.excerpt,
@@ -943,6 +971,13 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
     allow_comments: post.allow_comments,
     category_slugs: post.category_slugs,
     tag_slugs: post.tag_slugs,
+    author: {
+      id: post.author_id,
+      display_name: normalizeNonEmptyString(author?.display_name, post.author_id),
+      avatar: author?.avatar || '',
+    },
+    categories,
+    tags,
     html,
     author_name: normalizeNonEmptyString(author?.display_name, post.author_id),
     author_avatar: author?.avatar,
@@ -988,8 +1023,10 @@ function buildTaxonomyRoutes(options) {
         slug: item.slug,
         page: entry.page,
         totalPages: entry.totalPages,
-        posts: options.renderList(entry.items),
-        pagination: renderPagination(entry.paginationData),
+        posts: buildStructuredPostCollection(entry.items, options.postBySlug, {
+          html: options.renderList(entry.items),
+        }),
+        pagination: buildStructuredPagination(entry.paginationData),
         ...options.renderExtras(item),
       });
     }
@@ -1019,6 +1056,20 @@ function buildPaginatedCollection(options) {
   }
 
   return pages;
+}
+
+function buildStructuredPostCollection(posts, postBySlug, overrides = {}) {
+  return {
+    html: typeof overrides.html === 'string' ? overrides.html : renderPostList(posts, postBySlug),
+    items: buildStructuredPostItems(posts, postBySlug),
+  };
+}
+
+function buildStructuredArchiveCollection(posts, postBySlug, overrides = {}) {
+  return {
+    html: typeof overrides.html === 'string' ? overrides.html : renderArchive(posts, postBySlug),
+    items: buildStructuredPostItems(posts, postBySlug),
+  };
 }
 
 function buildPaginatedPath(basePath, page) {
@@ -1058,6 +1109,25 @@ function buildPaginationData(currentPage, totalPages, totalPosts, basePath) {
         current: page === currentPage,
       };
     }),
+  };
+}
+
+function buildStructuredPagination(paginationData) {
+  return {
+    html: renderPagination(paginationData),
+    current_page: paginationData.currentPage,
+    total_pages: paginationData.totalPages,
+    total_items: paginationData.totalPosts,
+    has_prev: paginationData.hasPrev,
+    has_next: paginationData.hasNext,
+    has_multiple_pages: paginationData.totalPages > 1,
+    prev_url: paginationData.prevUrl || '',
+    next_url: paginationData.nextUrl || '',
+    pages: paginationData.pages.map((page) => ({
+      number: page.number,
+      url: page.url,
+      current: page.current,
+    })),
   };
 }
 
@@ -1116,6 +1186,59 @@ function renderArchive(posts, postBySlug) {
       return `<section class="archive-group"><h2>${escapeHtml(key)}</h2><ul>${items}</ul></section>`;
     })
     .join('\n');
+}
+
+function buildStructuredPostItems(posts, postBySlug) {
+  return posts
+    .map((post) => postBySlug.get(post.slug))
+    .filter(Boolean)
+    .map((post) => buildStructuredPostSummary(post));
+}
+
+function buildStructuredPostSummary(post) {
+  return {
+    title: post.title,
+    slug: post.slug,
+    url: post.url,
+    excerpt: post.excerpt,
+    published_at: post.published_at,
+    published_at_iso: post.published_at_iso,
+    reading_time: post.reading_time,
+    featured_image: post.featured_image,
+    author: {
+      display_name: post.author?.display_name || post.author_name,
+      avatar: post.author?.avatar || post.author_avatar || '',
+    },
+    categories: Array.isArray(post.categories) ? post.categories.map((category) => ({ ...category })) : [],
+    tags: Array.isArray(post.tags) ? post.tags.map((tag) => ({ ...tag })) : [],
+  };
+}
+
+function buildArchiveGroups(posts, postBySlug) {
+  const groups = new Map();
+
+  for (const post of posts) {
+    const prepared = postBySlug.get(post.slug);
+    if (!prepared?.published_at_iso) {
+      continue;
+    }
+
+    const date = toDate(prepared.published_at_iso);
+    const year = date.getUTCFullYear();
+    const month = date.getUTCMonth() + 1;
+    const label = `${year}-${String(month).padStart(2, '0')}`;
+    const current = groups.get(label) || {
+      label,
+      year,
+      month,
+      items: [],
+    };
+
+    current.items.push(buildStructuredPostSummary(prepared));
+    groups.set(label, current);
+  }
+
+  return Array.from(groups.values());
 }
 
 function renderCategoryLinks(categories, countBySlug) {
@@ -1179,6 +1302,15 @@ function renderPagination(paginationData) {
     .join(' ');
 
   return `<nav class="pagination">\n  ${prevLink}\n  <span class="pages">${pageLinks}</span>\n  ${nextLink}\n</nav>`;
+}
+
+function buildTaxonomyRouteData(kind, item, countBySlug) {
+  return {
+    kind,
+    slug: item.slug,
+    name: item.name,
+    count: countBySlug.get(item.slug) || 0,
+  };
 }
 
 function buildTaxonomyCountMap(posts, fieldName) {
