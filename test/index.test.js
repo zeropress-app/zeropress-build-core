@@ -493,6 +493,24 @@ test('loadThemePackageFromDir preserves theme capability metadata for internal f
   });
 });
 
+test('buildSite rejects theme packages that do not target runtime 0.4', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  themePackage.metadata.runtime = '0.3';
+
+  await assert.rejects(
+    buildSite({
+      previewData,
+      themePackage,
+      writer,
+      options: { generateSpecialFiles: false },
+    }),
+    /Theme validation failed: theme\.json field 'runtime' must be one of: 0\.4/,
+  );
+});
+
 test('buildSiteFromThemeDir loads the golden fixture theme directory and FilesystemWriter writes files to disk', async () => {
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-out-'));
 
@@ -510,6 +528,42 @@ test('buildSiteFromThemeDir loads the golden fixture theme directory and Filesys
     assert.match(indexHtml, /Hello ZeroPress/);
     assert.match(postHtml, /Preview post content/);
   } finally {
+    await fs.rm(outDir, { recursive: true, force: true });
+  }
+});
+
+test('buildSiteFromThemeDir rejects themes that do not target runtime 0.4', async () => {
+  const themeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-theme-'));
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-out-'));
+
+  try {
+    await fs.writeFile(path.join(themeDir, 'theme.json'), JSON.stringify({
+      name: 'Legacy Theme',
+      namespace: 'test-studio',
+      slug: 'legacy-theme',
+      version: '1.0.0',
+      license: 'MIT',
+      runtime: '0.3',
+    }, null, 2));
+    await fs.writeFile(path.join(themeDir, 'layout.html'), '<main>{{slot:content}}</main>');
+    await fs.writeFile(path.join(themeDir, 'index.html'), '<h1>{{site.title}}</h1>');
+    await fs.writeFile(path.join(themeDir, 'post.html'), '<article>{{post.title}}</article>');
+    await fs.writeFile(path.join(themeDir, 'page.html'), '<section>{{page.title}}</section>');
+    await fs.mkdir(path.join(themeDir, 'assets'));
+    await fs.writeFile(path.join(themeDir, 'assets', 'style.css'), 'body { color: black; }');
+
+    const writer = new FilesystemWriter({ outDir });
+    await assert.rejects(
+      buildSiteFromThemeDir({
+        previewData: await loadDefaultPreviewData(),
+        themeDir,
+        writer,
+        options: { generateSpecialFiles: false },
+      }),
+      /Theme validation failed: theme\.json field 'runtime' must be one of: 0\.4/,
+    );
+  } finally {
+    await fs.rm(themeDir, { recursive: true, force: true });
     await fs.rm(outDir, { recursive: true, force: true });
   }
 });
@@ -565,7 +619,7 @@ test('buildSite renders nested partials in templates and layout slot partials', 
   assert.match(indexHtml, /<main><main class="index-shell"><aside class="sidebar-stack"><section class="widget-card"><h2>Note<\/h2><div class="widget-copy"><p>Sidebar <strong>markdown<\/strong><\/p>\s*<\/div><\/section><\/aside><\/main><\/main>/);
 });
 
-test('buildSite runtime 0.4 exposes structured posts, archive groups, and pagination while preserving legacy helpers', async () => {
+test('buildSite runtime 0.4 exposes structured posts, archive groups, and pagination without legacy helpers', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
@@ -573,7 +627,6 @@ test('buildSite runtime 0.4 exposes structured posts, archive groups, and pagina
   themePackage.metadata.runtime = '0.4';
   themePackage.templates.set('index', [
     '<section>',
-    '  <div class="legacy-posts">{{posts}}</div>',
     '  <div class="structured-posts">',
     '    {{#for post in posts.items}}',
     '      <article class="structured-post" data-slug="{{post.slug}}">',
@@ -584,7 +637,6 @@ test('buildSite runtime 0.4 exposes structured posts, archive groups, and pagina
     '      </article>',
     '    {{/for}}',
     '  </div>',
-    '  <div class="legacy-pagination">{{pagination}}</div>',
     '  {{#if pagination.has_multiple_pages}}',
     '    <nav class="structured-pagination">',
     '      {{#if pagination.has_prev}}<a class="prev" href="{{pagination.prev_url}}">Previous</a>{{/if}}',
@@ -610,7 +662,6 @@ test('buildSite runtime 0.4 exposes structured posts, archive groups, and pagina
   ].join('\n'));
   themePackage.templates.set('archive', [
     '<section class="archive-route">',
-    '  <div class="legacy-archive">{{posts}}</div>',
     '  {{#for group in archive.groups}}',
     '    <section class="archive-group">',
     '      <h2>{{group.label}}</h2>',
@@ -633,13 +684,11 @@ test('buildSite runtime 0.4 exposes structured posts, archive groups, and pagina
   const tagHtml = getFileContent(files, 'tags/intro/index.html');
   const archiveHtml = getFileContent(files, 'archive/index.html');
 
-  assert.match(indexHtml, /<div class="legacy-posts"><article class="post-list-item">/);
   assert.match(indexHtml, /<article class="structured-post" data-slug="hello-zeropress">/);
   assert.match(indexHtml, /<a class="structured-link" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a>/);
   assert.match(indexHtml, /<span class="structured-author">Admin<\/span>/);
   assert.match(indexHtml, /<span class="structured-category">General<\/span>/);
   assert.match(indexHtml, /<span class="structured-tag">Intro<\/span>/);
-  assert.match(indexHtml, /<div class="legacy-pagination"><nav class="pagination">/);
   assert.match(indexHtml, /<nav class="structured-pagination">/);
   assert.match(indexHtml, /<a class="page current" href="\/">1<\/a>/);
   assert.match(indexHtml, /<a class="page " href="\/page\/2\/">2<\/a>/);
@@ -652,12 +701,11 @@ test('buildSite runtime 0.4 exposes structured posts, archive groups, and pagina
   assert.match(tagHtml, /<p>3<\/p>/);
   assert.match(tagHtml, /<a class="tag-link-item" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a>/);
 
-  assert.match(archiveHtml, /<div class="legacy-archive"><section class="archive-group"><h2>2026-02<\/h2>/);
   assert.match(archiveHtml, /<section class="archive-group">\s*<h2>2026-02<\/h2>/);
   assert.match(archiveHtml, /<a class="archive-post" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a><time datetime="2026-02-14T09:00:00Z">2026-02-14 09:00<\/time>/);
 });
 
-test('buildSite runtime 0.4 exposes structured post surroundings while preserving legacy post helpers', async () => {
+test('buildSite runtime 0.4 exposes structured post surroundings without legacy post helpers', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
@@ -665,14 +713,12 @@ test('buildSite runtime 0.4 exposes structured post surroundings while preservin
   themePackage.metadata.runtime = '0.4';
   themePackage.templates.set('post', [
     '<article class="structured-post-shell">',
-    '  <span class="legacy-author">{{post.author_name}}</span>',
     '  <span class="structured-author">{{post.author.display_name}}</span>',
+    '  <img class="structured-avatar" src="{{post.author.avatar}}" alt="{{post.author.display_name}}">',
     '  <div class="structured-categories">{{#for category in post.categories}}<a class="structured-category" href="{{category.url}}">{{category.name}}</a>{{/for}}</div>',
     '  <div class="structured-tags">{{#for tag in post.tags}}<a class="structured-tag" href="{{tag.url}}">{{tag.name}}</a>{{/for}}</div>',
     '  {{#if post.prev}}<a class="prev-post" href="{{post.prev.url}}">{{post.prev.title}}</a>{{/if}}',
     '  {{#if post.next}}<a class="next-post" href="{{post.next.url}}">{{post.next.title}}</a>{{/if}}',
-    '  <div class="legacy-categories">{{post.categories_html}}</div>',
-    '  <div class="legacy-tags">{{post.tags_html}}</div>',
     '</article>',
   ].join('\n'));
 
@@ -688,14 +734,12 @@ test('buildSite runtime 0.4 exposes structured post surroundings while preservin
   const secondPostHtml = getFileContent(files, 'posts/theme-blocks-deep-dive/index.html');
   const thirdPostHtml = getFileContent(files, 'posts/archive-patterns/index.html');
 
-  assert.match(firstPostHtml, /<span class="legacy-author">Admin<\/span>/);
   assert.match(firstPostHtml, /<span class="structured-author">Admin<\/span>/);
+  assert.match(firstPostHtml, /<img class="structured-avatar" src="" alt="Admin">/);
   assert.match(firstPostHtml, /<a class="structured-category" href="\/categories\/general\/">General<\/a>/);
   assert.match(firstPostHtml, /<a class="structured-tag" href="\/tags\/intro\/">Intro<\/a>/);
   assert.doesNotMatch(firstPostHtml, /class="prev-post"/);
   assert.match(firstPostHtml, /<a class="next-post" href="\/posts\/theme-blocks-deep-dive\/">Theme Blocks Deep Dive<\/a>/);
-  assert.match(firstPostHtml, /<div class="legacy-categories"><a href="\/categories\/general\/" class="category-link">General<\/a><\/div>/);
-  assert.match(firstPostHtml, /<div class="legacy-tags"><a href="\/tags\/intro\/" class="tag-link">Intro<\/a><\/div>/);
 
   assert.match(secondPostHtml, /<a class="prev-post" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a>/);
   assert.match(secondPostHtml, /<a class="next-post" href="\/posts\/archive-patterns\/">Archive Patterns<\/a>/);
@@ -1007,7 +1051,7 @@ test('buildSite normalizes media fields against site.mediaBaseUrl before renderi
 
   themePackage.templates.set('post', [
     '<article',
-    ' data-author-avatar="{{post.author_avatar}}"',
+    ' data-author-avatar="{{post.author.avatar}}"',
     ' data-featured-image="{{post.featured_image}}">',
     '{{post.title}}',
     '</article>',
@@ -1040,7 +1084,7 @@ test('buildSite blanks unresolved relative media fields when site.mediaBaseUrl i
 
   themePackage.templates.set('post', [
     '<article',
-    ' data-author-avatar="{{post.author_avatar}}"',
+    ' data-author-avatar="{{post.author.avatar}}"',
     ' data-featured-image="{{post.featured_image}}">',
     '{{post.title}}',
     '</article>',
@@ -1293,10 +1337,10 @@ test('buildSite disables comments when the theme capability is missing', async (
   });
 });
 
-test('buildSite renders v0.5 raw content and resolves post author data from authors', async () => {
+test('buildSite renders v0.5 raw content and resolves structured post author data from authors', async () => {
   const writer = new MemoryWriter();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
-  themePackage.templates.set('post', '<article class="post-entry">{{post.author_name}}|{{post.author_avatar}}|{{post.comments_enabled}}|{{post.slug}}|{{post.id}}|{{post.html}}</article>');
+  themePackage.templates.set('post', '<article class="post-entry">{{post.author.display_name}}|{{post.author.avatar}}|{{post.comments_enabled}}|{{post.slug}}|{{post.public_id}}|{{post.html}}</article>');
   themePackage.templates.set('page', '<article class="page-entry">{{page.html}}</article>');
 
   await buildSite({
@@ -1365,7 +1409,7 @@ test('buildSite renders v0.5 raw content and resolves post author data from auth
   const postHtml = getFileContent(files, 'posts/markdown-post/index.html');
   const pageHtml = getFileContent(files, 'plaintext-page/index.html');
 
-  assert.match(postHtml, /Admin\|https:\/\/media\.example\.com\/avatars\/admin\.webp\|false\|markdown-post\|\|/);
+  assert.match(postHtml, /Admin\|https:\/\/media\.example\.com\/avatars\/admin\.webp\|false\|markdown-post\|1\|/);
   assert.match(postHtml, /<h1 id="markdown-heading">/);
   assert.match(postHtml, /<p>Paragraph text\.<\/p>/);
   assert.match(pageHtml, /<p>First paragraph\.<\/p>/);

@@ -1,4 +1,21 @@
 <section class="archive-page">
-  <div class="posts">{{posts}}</div>
-  <div class="pagination">{{pagination}}</div>
+  <div class="posts">
+    {{#for group in archive.groups}}
+      <section class="archive-group">
+        <h2>{{group.label}}</h2>
+        <ul>
+          {{#for post in group.items}}<li><a href="{{post.url}}">{{post.title}}</a> <time datetime="{{post.published_at_iso}}">{{post.published_at}}</time></li>{{/for}}
+        </ul>
+      </section>
+    {{/for}}
+  </div>
+  {{#if pagination.has_multiple_pages}}
+    <div class="pagination">
+      <nav class="pagination-nav">
+        {{#if pagination.has_prev}}<a href="{{pagination.prev_url}}" class="prev">Previous</a>{{/if}}
+        <span class="pages">{{#for page in pagination.pages}}<a href="{{page.url}}" class="page-link {{#if page.current}}current{{/if}}">{{page.number}}</a>{{/for}}</span>
+        {{#if pagination.has_next}}<a href="{{pagination.next_url}}" class="next">Next</a>{{/if}}
+      </nav>
+    </div>
+  {{/if}}
 </section>

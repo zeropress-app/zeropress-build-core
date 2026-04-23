@@ -17,8 +17,6 @@ const DEFAULT_DATE_FORMAT = 'YYYY-MM-DD';
 const DEFAULT_TIME_FORMAT = 'HH:mm';
 const DEFAULT_TIMEZONE = 'UTC';
 const DEFAULT_LOCALE = 'en-US';
-const DEFAULT_THEME_RUNTIME = '0.3';
-const THEME_RUNTIME_V0_4 = '0.4';
 const COMMENT_POLICY_OUTPUT_PATH = '_zeropress/comment-policy.json';
 const OUTPUT_PATH_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
 const SAFE_MEDIA_PROTOCOLS = new Set(['http:', 'https:']);
@@ -96,7 +94,6 @@ async function createBuildState(input, options) {
   const summaries = [];
   const previewData = normalizePreviewData(input.previewData);
   const renderData = createRenderData(previewData, themePackage.metadata);
-  const themeRuntime = normalizeThemeRuntime(themePackage.metadata?.runtime);
 
   engine.initialize(themePackage);
 
@@ -113,8 +110,7 @@ async function createBuildState(input, options) {
     writer: input.writer,
     previewData,
     renderData,
-    themeRuntime,
-    widgets: buildWidgetsForTheme(previewData, renderData, themeRuntime),
+    widgets: resolveWidgetAreas(previewData, renderData),
     engine,
     assetProcessor,
     summaries,
@@ -382,8 +378,6 @@ function createRenderData(previewData, themeMetadata = {}) {
   }));
   const pages = previewData.content.pages.map((page) => preparePage(page));
   const postBySlug = new Map(posts.map((post) => [post.slug, post]));
-  const categoryLinks = renderCategoryLinks(previewData.content.categories, categoryCountBySlug);
-  const tagLinks = renderTagLinks(previewData.content.tags, tagCountBySlug);
 
   return {
     posts,
@@ -398,8 +392,6 @@ function createRenderData(previewData, themeMetadata = {}) {
       page: entry.page,
       totalPages: entry.totalPages,
       posts: buildStructuredPostCollection(entry.items, postBySlug),
-      categories: categoryLinks,
-      tags: tagLinks,
       pagination: buildStructuredPagination(entry.paginationData),
     })),
     archiveRoutes: buildPaginatedCollection({
@@ -410,7 +402,6 @@ function createRenderData(previewData, themeMetadata = {}) {
       path: entry.path,
       page: entry.page,
       totalPages: entry.totalPages,
-      posts: buildStructuredArchiveCollection(entry.items, postBySlug),
       archive: {
         groups: buildArchiveGroups(entry.items, postBySlug),
       },
@@ -422,9 +413,7 @@ function createRenderData(previewData, themeMetadata = {}) {
       postBySlug,
       postsPerPage: previewData.site.postsPerPage,
       buildBasePath: (category) => `/categories/${encodeSlugSegment(category.slug)}/`,
-      renderList: (postsForRoute) => renderPostList(postsForRoute, postBySlug),
       renderExtras: (category) => ({
-        categories: categoryLinks,
         taxonomy: buildTaxonomyRouteData('category', category, categoryCountBySlug),
       }),
     }),
@@ -434,25 +423,11 @@ function createRenderData(previewData, themeMetadata = {}) {
       postBySlug,
       postsPerPage: previewData.site.postsPerPage,
       buildBasePath: (tag) => `/tags/${encodeSlugSegment(tag.slug)}/`,
-      renderList: (postsForRoute) => renderPostList(postsForRoute, postBySlug),
       renderExtras: (tag) => ({
-        tags: tagLinks,
         taxonomy: buildTaxonomyRouteData('tag', tag, tagCountBySlug),
       }),
     }),
   };
-}
-
-function normalizeThemeRuntime(value) {
-  return value === THEME_RUNTIME_V0_4 ? THEME_RUNTIME_V0_4 : DEFAULT_THEME_RUNTIME;
-}
-
-function buildWidgetsForTheme(previewData, renderData, themeRuntime) {
-  if (themeRuntime === THEME_RUNTIME_V0_4) {
-    return resolveWidgetAreas(previewData, renderData);
-  }
-
-  return renderWidgetAreas(previewData, renderData);
 }
 
 function resolveWidgetAreas(previewData, renderData) {
@@ -682,253 +657,6 @@ function resolveProfileWidget(baseWidget, settings) {
   };
 }
 
-function renderWidgetAreas(previewData, renderData) {
-  if (!previewData.widgets || typeof previewData.widgets !== 'object') {
-    return {};
-  }
-
-  return Object.fromEntries(
-    Object.entries(previewData.widgets).map(([widgetAreaId, widgetArea]) => [
-      widgetAreaId,
-      renderWidgetArea(widgetArea, previewData, renderData, widgetAreaId),
-    ]),
-  );
-}
-
-function renderWidgetArea(widgetArea, previewData, renderData, widgetAreaId) {
-  if (!widgetArea || !Array.isArray(widgetArea.items) || widgetArea.items.length === 0) {
-    return '';
-  }
-
-  return widgetArea.items
-    .map((item, index) => renderWidgetItem(item, previewData, renderData, widgetAreaId, index))
-    .filter(Boolean)
-    .join('\n');
-}
-
-function renderWidgetItem(item, previewData, renderData, widgetAreaId, index) {
-  if (!item || typeof item !== 'object') {
-    return '';
-  }
-
-  const title = normalizeNonEmptyString(item.title, 'Widget');
-
-  switch (item.type) {
-    case 'recent-posts':
-      return renderRecentPostsWidget(title, item.settings, renderData);
-    case 'categories':
-      return renderCategoriesWidget(title, item.settings, previewData);
-    case 'tags':
-      return renderTagsWidget(title, item.settings, previewData);
-    case 'archives':
-      return renderArchivesWidget(title, item.settings, previewData);
-    case 'image':
-      return renderImageWidget(title, item.settings);
-    case 'text':
-      return renderTextWidget(title, item.settings);
-    case 'link-list':
-      return renderLinkListWidget(title, item.settings);
-    case 'search':
-      return renderSearchWidget(title, item.settings, widgetAreaId, index);
-    case 'profile':
-      return renderProfileWidget(title, item.settings);
-    default:
-      return '';
-  }
-}
-
-function renderRecentPostsWidget(title, settings, renderData) {
-  const limit = clampInteger(settings?.limit, 5, 1, 20);
-  const showDate = settings?.show_date !== false;
-  const items = renderData.posts
-    .slice(0, limit)
-    .map((post) => {
-      const dateMeta = showDate
-        ? `<span class="widget-list__meta">${escapeHtml(post.published_at)}</span>`
-        : '';
-
-      return `<li class="widget-list__item"><a href="/posts/${escapeHtml(encodeSlugSegment(post.slug))}/">${escapeHtml(post.title)}</a>${dateMeta}</li>`;
-    })
-    .join('');
-
-  if (!items) {
-    return '';
-  }
-
-  return renderWidgetCard(title, 'recent-posts', `<ul class="widget-list">${items}</ul>`);
-}
-
-function renderCategoriesWidget(title, settings, previewData) {
-  const countBySlug = buildTaxonomyCountMap(previewData.content.posts, 'category_slugs');
-  const items = previewData.content.categories
-    .map((category) => {
-      const count = countBySlug.get(category.slug) || 0;
-      if (count === 0) {
-        return '';
-      }
-
-      const suffix = settings?.show_count === true ? ` <span class="widget-taxonomy__count">(${count})</span>` : '';
-      return `<a href="/categories/${escapeHtml(encodeSlugSegment(category.slug))}/" class="category-link">${escapeHtml(category.name)}${suffix}</a>`;
-    })
-    .filter(Boolean)
-    .join('');
-
-  if (!items) {
-    return '';
-  }
-
-  return renderWidgetCard(title, 'categories', `<div class="taxonomy-list taxonomy-list--stack widget-taxonomy">${items}</div>`);
-}
-
-function renderTagsWidget(title, settings, previewData) {
-  const countBySlug = buildTaxonomyCountMap(previewData.content.posts, 'tag_slugs');
-  const limit = clampInteger(settings?.limit, 20, 1, 100);
-  const items = previewData.content.tags
-    .map((tag) => ({
-      ...tag,
-      count: countBySlug.get(tag.slug) || 0,
-    }))
-    .filter((tag) => tag.count > 0)
-    .slice(0, limit)
-    .map((tag) => {
-      const suffix = settings?.show_count === true ? ` <span class="widget-taxonomy__count">(${tag.count})</span>` : '';
-      return `<a href="/tags/${escapeHtml(encodeSlugSegment(tag.slug))}/" class="tag-link">${escapeHtml(tag.name)}${suffix}</a>`;
-    })
-    .join('');
-
-  if (!items) {
-    return '';
-  }
-
-  return renderWidgetCard(title, 'tags', `<div class="taxonomy-list widget-taxonomy">${items}</div>`);
-}
-
-function renderArchivesWidget(title, settings, previewData) {
-  const limit = clampInteger(settings?.limit, 12, 1, 120);
-  const archiveEntries = buildArchiveEntries(previewData.content.posts, previewData.site).slice(0, limit);
-  const items = archiveEntries
-    .map((entry) => `<li class="widget-list__item"><a href="/archive/">${escapeHtml(entry.label)}</a><span class="widget-list__meta">${entry.count} posts</span></li>`)
-    .join('');
-
-  if (!items) {
-    return '';
-  }
-
-  return renderWidgetCard(title, 'archives', `<ul class="widget-list">${items}</ul>`);
-}
-
-function renderImageWidget(title, settings) {
-  const src = normalizeOptionalString(settings?.src);
-  if (!src) {
-    return '';
-  }
-
-  const alt = escapeHtml(normalizeOptionalString(settings?.alt));
-  const caption = normalizeOptionalString(settings?.caption);
-  const href = normalizeOptionalString(settings?.href);
-  const target = normalizeLinkTarget(settings?.target);
-  const rel = target === '_blank' ? ' rel="noreferrer noopener"' : '';
-  const image = `<img class="widget-image__media" src="${escapeHtml(src)}" alt="${alt}">`;
-  const linkedImage = href ? `<a href="${escapeHtml(href)}" target="${target}"${rel}>${image}</a>` : image;
-  const captionHtml = caption ? `<figcaption class="widget-image__caption">${escapeHtml(caption)}</figcaption>` : '';
-
-  return renderWidgetCard(title, 'image', `<figure class="widget-image">${linkedImage}${captionHtml}</figure>`);
-}
-
-function renderTextWidget(title, settings) {
-  const content = typeof settings?.content === 'string' ? settings.content : '';
-  const html = renderDocumentContent(content, normalizeDocumentType(settings?.document_type));
-  if (!normalizeOptionalString(html)) {
-    return '';
-  }
-
-  return renderWidgetCard(title, 'text', `<div class="widget-copy">${html}</div>`);
-}
-
-function renderLinkListWidget(title, settings) {
-  const links = Array.isArray(settings?.links) ? settings.links : [];
-  const items = links
-    .map((link) => {
-      const label = normalizeOptionalString(link?.label);
-      const url = normalizeThemeLinkUrl(link?.url);
-      if (!label || !url) {
-        return '';
-      }
-
-      const target = normalizeLinkTarget(link?.target);
-      const rel = target === '_blank' ? ' rel="noreferrer noopener"' : '';
-      return `<a href="${escapeHtml(url)}" target="${target}"${rel}>${escapeHtml(label)}</a>`;
-    })
-    .filter(Boolean)
-    .join('');
-
-  if (!items) {
-    return '';
-  }
-
-  return renderWidgetCard(title, 'link-list', `<div class="taxonomy-list taxonomy-list--stack widget-link-list">${items}</div>`);
-}
-
-function renderSearchWidget(title, settings, widgetAreaId, index) {
-  const placeholder = escapeHtml(normalizeNonEmptyString(settings?.placeholder, 'Search...'));
-  const buttonLabel = escapeHtml(normalizeNonEmptyString(settings?.button_label, 'Search'));
-  const searchId = `widget-search-${widgetAreaId}-${index + 1}`;
-
-  return renderWidgetCard(title, 'search', [
-    '<div class="widget-search" data-search-root>',
-    `  <label class="sr-only" for="${escapeHtml(searchId)}">${escapeHtml(title)}</label>`,
-    '  <form class="search-theme-wrapper" data-search-form>',
-    `    <input id="${escapeHtml(searchId)}" class="search-input" data-theme-search type="search" placeholder="${placeholder}" autocomplete="off" enterkeyhint="search">`,
-    `    <button class="widget-search-button" type="submit">${buttonLabel}</button>`,
-    '  </form>',
-    '  <div class="search-results" data-search-results hidden></div>',
-    '  <p class="search-feedback search-feedback--sidebar" data-search-feedback aria-live="polite"></p>',
-    '</div>',
-  ].join('\n'));
-}
-
-function renderProfileWidget(title, settings) {
-  const displayName = normalizeOptionalString(settings?.display_name);
-  const affiliation = normalizeOptionalString(settings?.affiliation);
-  const bioShort = normalizeOptionalString(settings?.bio_short);
-  const avatar = normalizeOptionalString(settings?.avatar);
-
-  if (!displayName && !bioShort && !avatar) {
-    return '';
-  }
-
-  const avatarHtml = avatar
-    ? `<img class="widget-profile__avatar" src="${escapeHtml(avatar)}" alt="${escapeHtml(displayName || title)}">`
-    : '';
-  const affiliationHtml = affiliation ? `<p class="widget-profile__affiliation">${escapeHtml(affiliation)}</p>` : '';
-  const bioHtml = bioShort ? `<p class="sidebar-copy">${escapeHtml(bioShort)}</p>` : '';
-
-  return renderWidgetCard(title, 'profile', [
-    '<div class="widget-profile">',
-    avatarHtml,
-    '  <div class="widget-profile__body">',
-    displayName ? `    <p class="widget-profile__name">${escapeHtml(displayName)}</p>` : '',
-    affiliationHtml ? `    ${affiliationHtml}` : '',
-    bioHtml ? `    ${bioHtml}` : '',
-    '  </div>',
-    '</div>',
-  ].filter(Boolean).join('\n'));
-}
-
-function renderWidgetCard(title, modifier, body) {
-  if (!normalizeOptionalString(body)) {
-    return '';
-  }
-
-  return [
-    `<section class="content-card sidebar-card widget-card widget-card--${escapeHtml(modifier)}">`,
-    '  <p class="section-kicker">Widget</p>',
-    `  <h2>${escapeHtml(title)}</h2>`,
-    `  ${body}`,
-    '</section>',
-  ].join('\n');
-}
-
 function preparePage(page) {
   const documentType = normalizeDocumentType(page.document_type);
 
@@ -984,13 +712,9 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
     categories,
     tags,
     html,
-    author_name: normalizeNonEmptyString(author?.display_name, post.author_id),
-    author_avatar: author?.avatar,
     published_at: formatTimestamp(post.published_at_iso, site),
     updated_at: formatTimestamp(post.updated_at_iso, site),
     reading_time: calculateReadingTime(html),
-    categories_html: renderInlineTaxonomyLinks(post.category_slugs, categoriesBySlug, 'category'),
-    tags_html: renderInlineTaxonomyLinks(post.tag_slugs, tagsBySlug, 'tag'),
     comments_enabled: themeSupportsComments && site.disallowComments !== true && post.allow_comments === true,
   };
 }
@@ -1028,9 +752,7 @@ function buildTaxonomyRoutes(options) {
         slug: item.slug,
         page: entry.page,
         totalPages: entry.totalPages,
-        posts: buildStructuredPostCollection(entry.items, options.postBySlug, {
-          html: options.renderList(entry.items),
-        }),
+        posts: buildStructuredPostCollection(entry.items, options.postBySlug),
         pagination: buildStructuredPagination(entry.paginationData),
         ...options.renderExtras(item),
       });
@@ -1063,16 +785,8 @@ function buildPaginatedCollection(options) {
   return pages;
 }
 
-function buildStructuredPostCollection(posts, postBySlug, overrides = {}) {
+function buildStructuredPostCollection(posts, postBySlug) {
   return {
-    html: typeof overrides.html === 'string' ? overrides.html : renderPostList(posts, postBySlug),
-    items: buildStructuredPostItems(posts, postBySlug),
-  };
-}
-
-function buildStructuredArchiveCollection(posts, postBySlug, overrides = {}) {
-  return {
-    html: typeof overrides.html === 'string' ? overrides.html : renderArchive(posts, postBySlug),
     items: buildStructuredPostItems(posts, postBySlug),
   };
 }
@@ -1119,7 +833,6 @@ function buildPaginationData(currentPage, totalPages, totalPosts, basePath) {
 
 function buildStructuredPagination(paginationData) {
   return {
-    html: renderPagination(paginationData),
     current_page: paginationData.currentPage,
     total_pages: paginationData.totalPages,
     total_items: paginationData.totalPosts,
@@ -1134,63 +847,6 @@ function buildStructuredPagination(paginationData) {
       current: page.current,
     })),
   };
-}
-
-function renderPostList(posts, postBySlug) {
-  if (posts.length === 0) {
-    return '<p>No posts</p>';
-  }
-
-  return posts
-    .map((post) => {
-      const prepared = postBySlug.get(post.slug);
-      if (!prepared) {
-        return '';
-      }
-
-      return [
-        '<article class="post-list-item">',
-        `  <h2><a href="/posts/${escapeHtml(encodeSlugSegment(post.slug))}/">${escapeHtml(post.title)}</a></h2>`,
-        `  <div class="post-meta"><time datetime="${escapeHtml(prepared.published_at_iso)}">${escapeHtml(prepared.published_at)}</time> • ${escapeHtml(prepared.reading_time)}</div>`,
-        `  <div class="post-excerpt">${escapeHtml(prepared.excerpt)}</div>`,
-        '</article>',
-      ].join('\n');
-    })
-    .filter(Boolean)
-    .join('\n');
-}
-
-function renderArchive(posts, postBySlug) {
-  if (posts.length === 0) {
-    return '<p>No posts</p>';
-  }
-
-  const groups = new Map();
-
-  for (const post of posts) {
-    const key = `${toDate(post.published_at_iso).getUTCFullYear()}-${String(toDate(post.published_at_iso).getUTCMonth() + 1).padStart(2, '0')}`;
-    const items = groups.get(key) || [];
-    items.push(post);
-    groups.set(key, items);
-  }
-
-  return Array.from(groups.entries())
-    .map(([key, groupPosts]) => {
-      const items = groupPosts
-        .map((post) => {
-          const prepared = postBySlug.get(post.slug);
-          if (!prepared) {
-            return '';
-          }
-
-          return `<li><a href="/posts/${escapeHtml(encodeSlugSegment(post.slug))}/">${escapeHtml(post.title)}</a> <time datetime="${escapeHtml(prepared.published_at_iso)}">${escapeHtml(prepared.published_at)}</time></li>`;
-        })
-        .filter(Boolean)
-        .join('\n');
-
-      return `<section class="archive-group"><h2>${escapeHtml(key)}</h2><ul>${items}</ul></section>`;
-    })
-    .join('\n');
 }
 
 function buildStructuredPostItems(posts, postBySlug) {
@@ -1211,8 +867,8 @@ function buildStructuredPostSummary(post) {
     reading_time: post.reading_time,
     featured_image: post.featured_image,
     author: {
-      display_name: post.author?.display_name || post.author_name,
-      avatar: post.author?.avatar || post.author_avatar || '',
+      display_name: post.author?.display_name || '',
+      avatar: post.author?.avatar || '',
     },
     categories: Array.isArray(post.categories) ? post.categories.map((category) => ({ ...category })) : [],
     tags: Array.isArray(post.tags) ? post.tags.map((tag) => ({ ...tag })) : [],
@@ -1259,69 +915,6 @@ function buildArchiveGroups(posts, postBySlug) {
   }
 
   return Array.from(groups.values());
-}
-
-function renderCategoryLinks(categories, countBySlug) {
-  return categories
-    .map((category) => {
-      const count = countBySlug.get(category.slug) || 0;
-      if (count === 0) {
-        return null;
-      }
-
-      return `<a href="/categories/${escapeHtml(encodeSlugSegment(category.slug))}/" class="category-link">${escapeHtml(category.name)} (${count})</a>`;
-    })
-    .filter(Boolean)
-    .join('\n');
-}
-
-function renderTagLinks(tags, countBySlug) {
-  return tags
-    .map((tag) => {
-      const count = countBySlug.get(tag.slug) || 0;
-      if (count === 0) {
-        return null;
-      }
-
-      return `<a href="/tags/${escapeHtml(encodeSlugSegment(tag.slug))}/" class="tag-link">${escapeHtml(tag.name)} (${count})</a>`;
-    })
-    .filter(Boolean)
-    .join('\n');
-}
-
-function renderInlineTaxonomyLinks(slugs, taxonomyBySlug, kind) {
-  const links = slugs
-    .map((slug) => taxonomyBySlug.get(slug))
-    .filter(Boolean)
-    .map((item) => {
-      const base = kind === 'category' ? '/categories/' : '/tags/';
-      const className = kind === 'category' ? 'category-link' : 'tag-link';
-      return `<a href="${base}${escapeHtml(encodeSlugSegment(item.slug))}/" class="${className}">${escapeHtml(item.name)}</a>`;
-    });
-
-  if (links.length === 0) {
-    return '';
-  }
-
-  return kind === 'category' ? links.join(', ') : links.join(' ');
-}
-
-function renderPagination(paginationData) {
-  if (paginationData.totalPages <= 1) {
-    return '';
-  }
-
-  const prevLink = paginationData.hasPrev && paginationData.prevUrl
-    ? `<a href="${paginationData.prevUrl}" class="prev">Previous</a>`
-    : '';
-  const nextLink = paginationData.hasNext && paginationData.nextUrl
-    ? `<a href="${paginationData.nextUrl}" class="next">Next</a>`
-    : '';
-  const pageLinks = paginationData.pages
-    .map((page) => `<a href="${page.url}" class="page-link ${page.current ? 'current' : ''}">${page.number}</a>`)
-    .join(' ');
-
-  return `<nav class="pagination">\n  ${prevLink}\n  <span class="pages">${pageLinks}</span>\n  ${nextLink}\n</nav>`;
 }
 
 function buildTaxonomyRouteData(kind, item, countBySlug) {

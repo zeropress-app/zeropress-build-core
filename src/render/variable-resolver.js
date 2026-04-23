@@ -2,7 +2,6 @@ export class VariableResolver {
   static MENU_PATTERN = /\{\{menu:([a-z][a-z0-9_-]{0,63})\}\}/g;
   static VARIABLE_PATTERN = /\{\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)\}\}/g;
   static STANDALONE_PATTERN = /\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g;
-  static RAW_STANDALONE = new Set(['posts', 'categories', 'tags', 'pagination']);
 
   resolve(template, data, options = {}) {
     let result = template.replace(VariableResolver.MENU_PATTERN, (_, menuId) => {
@@ -20,14 +19,6 @@ export class VariableResolver {
       }
 
       const value = data[variableName];
-      if (
-        VariableResolver.RAW_STANDALONE.has(variableName)
-        && value
-        && typeof value === 'object'
-        && typeof value.html === 'string'
-      ) {
-        return this.renderValue(value.html, variableName, options);
-      }
       return this.renderValue(value, variableName, options);
     });
 
@@ -101,10 +92,6 @@ export class VariableResolver {
           return true;
         }
       }
-    }
-
-    if (VariableResolver.RAW_STANDALONE.has(variablePath)) {
-      return true;
     }
 
     const lastSegment = variablePath.split('.').pop();

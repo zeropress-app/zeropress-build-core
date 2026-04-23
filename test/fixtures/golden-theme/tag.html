@@ -1,5 +1,19 @@
 <section class="tag-page">
-  <div class="posts">{{posts}}</div>
-  <aside class="tags">{{tags}}</aside>
-  <div class="pagination">{{pagination}}</div>
+  <h1>{{taxonomy.name}}</h1>
+  <div class="posts">
+    {{#for post in posts.items}}
+      <article class="post-list-item">
+        <h2><a href="{{post.url}}">{{post.title}}</a></h2>
+      </article>
+    {{/for}}
+  </div>
+  {{#if pagination.has_multiple_pages}}
+    <div class="pagination">
+      <nav class="pagination-nav">
+        {{#if pagination.has_prev}}<a href="{{pagination.prev_url}}" class="prev">Previous</a>{{/if}}
+        <span class="pages">{{#for page in pagination.pages}}<a href="{{page.url}}" class="page-link {{#if page.current}}current{{/if}}">{{page.number}}</a>{{/for}}</span>
+        {{#if pagination.has_next}}<a href="{{pagination.next_url}}" class="next">Next</a>{{/if}}
+      </nav>
+    </div>
+  {{/if}}
 </section>
