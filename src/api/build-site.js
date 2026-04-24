@@ -846,7 +846,69 @@ function buildStructuredPagination(paginationData) {
       url: page.url,
       current: page.current,
     })),
+    window: buildPaginationWindow(paginationData),
   };
+}
+
+function buildPaginationWindow(paginationData) {
+  const totalPages = paginationData.totalPages;
+  if (!Number.isInteger(totalPages) || totalPages <= 0) {
+    return [];
+  }
+
+  const currentPage = paginationData.currentPage;
+  const pageMap = new Map(
+    paginationData.pages.map((page) => [page.number, {
+      kind: 'page',
+      number: page.number,
+      url: page.url,
+      current: page.current,
+    }]),
+  );
+
+  if (totalPages <= 7) {
+    return paginationData.pages.map((page) => ({
+      kind: 'page',
+      number: page.number,
+      url: page.url,
+      current: page.current,
+    }));
+  }
+
+  const pageNumbers = new Set([1, totalPages, currentPage - 1, currentPage, currentPage + 1]);
+
+  if (currentPage <= 4) {
+    for (let number = 1; number <= 5; number += 1) {
+      pageNumbers.add(number);
+    }
+  }
+
+  if (currentPage >= totalPages - 3) {
+    for (let number = totalPages - 4; number <= totalPages; number += 1) {
+      pageNumbers.add(number);
+    }
+  }
+
+  const orderedNumbers = Array.from(pageNumbers)
+    .filter((number) => Number.isInteger(number) && number >= 1 && number <= totalPages)
+    .sort((left, right) => left - right);
+
+  const windowItems = [];
+  let previousNumber = null;
+
+  for (const number of orderedNumbers) {
+    if (previousNumber != null && number - previousNumber > 1) {
+      windowItems.push({ kind: 'gap' });
+    }
+
+    const pageItem = pageMap.get(number);
+    if (pageItem) {
+      windowItems.push(pageItem);
+    }
+    previousNumber = number;
+  }
+
+  return windowItems;
 }
 
 function buildStructuredPostItems(posts, postBySlug) {

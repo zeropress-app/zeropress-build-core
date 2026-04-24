@@ -105,6 +105,23 @@ function createAssetBuffer(source = 'body { color: red; }') {
   return Buffer.from(source, 'utf8');
 }
 
+function createInterpolatingRenderer() {
+  const resolvePath = (data, templatePath) => templatePath.split('.').reduce((current, segment) => {
+    if (current == null || typeof current !== 'object') {
+      return undefined;
+    }
+    return current[segment];
+  }, data);
+
+  return new ControlFlowRenderer({
+    resolvePath,
+    renderText: (value, data) => String(value || '').replace(/\{\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}\}/g, (_, templatePath) => {
+      const resolved = resolvePath(data, templatePath);
+      return resolved == null ? '' : String(resolved);
+    }),
+  });
+}
+
 test('ControlFlowRenderer renders nested if/if_eq/for blocks and strips comments', () => {
   const renderer = new ControlFlowRenderer();
   const output = renderer.render(`
@@ -141,6 +158,42 @@ test('ControlFlowRenderer rejects duplicate else blocks', () => {
     () => renderer.render('{{#if widget.title}}A{{#else}}B{{#else}}C{{/if}}', { widget: { title: 'x' } }),
     /Unexpected else tag/,
   );
+});
+
+test('ControlFlowRenderer exposes loop metadata and else_if branches', () => {
+  const renderer = createInterpolatingRenderer();
+  const output = renderer.render(
+    '{{#for item in items}}{{#if loop.first}}first{{#else_if loop.last}}last{{#else}}middle{{/if}}:{{loop.index}}:{{item.label}};{{/for}}',
+    {
+      items: [
+        { label: 'One' },
+        { label: 'Two' },
+        { label: 'Three' },
+      ],
+    },
+  );
+
+  assert.equal(output, 'first:0:One;middle:1:Two;last:2:Three;');
+});
+
+test('ControlFlowRenderer renders partial arguments and nested partial shadowing', () => {
+  const renderer = createInterpolatingRenderer();
+  const output = renderer.render(
+    '{{partial:card variant="compact" show_excerpt=true}}',
+    {
+      post: {
+        excerpt: 'Structured partial args',
+      },
+    },
+    {
+      partials: new Map([
+        ['card', '<article data-variant="{{partial.variant}}">{{#if partial.show_excerpt}}<p>{{post.excerpt}}</p>{{/if}}{{partial:badge variant="nested"}}<span class="after">{{partial.variant}}</span></article>'],
+        ['badge', '<em>{{partial.variant}}</em>'],
+      ]),
+    },
+  );
+
+  assert.equal(output, '<article data-variant="compact"><p>Structured partial args</p><em>nested</em><span class="after">compact</span></article>');
 });
 
 test('buildSite matches the golden fixture for the default preview payload', async () => {
@@ -318,12 +371,12 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
   assert.match(indexHtml, /Sidebar <strong>markdown<\/strong>/);
 });
 
-test('buildSite runtime 0.4 renders resolved widgets with escaping and safe URL filtering', async () => {
+test('buildSite runtime 0.5 renders resolved widgets with escaping and safe URL filtering', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  themePackage.metadata.runtime = '0.4';
+  themePackage.metadata.runtime = '0.5';
   themePackage.templates.set('index', `
 <section class="index-page">
   <aside class="sidebar-stack">
@@ -416,7 +469,7 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
       slug: 'test-theme',
       version: '1.0.0',
       license: 'MIT',
-      runtime: '0.4',
+      runtime: '0.5',
       author: '  ZeroPress  ',
       description: '  Theme fixture  ',
       features: {
@@ -455,7 +508,7 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
       slug: 'test-theme',
       version: '1.0.0',
       license: 'MIT',
-      runtime: '0.4',
+      runtime: '0.5',
       author: 'ZeroPress',
       description: 'Theme fixture',
       features: {
@@ -493,7 +546,7 @@ test('loadThemePackageFromDir preserves theme capability metadata for internal f
   });
 });
 
-test('buildSite rejects theme packages that do not target runtime 0.4', async () => {
+test('buildSite rejects theme packages that do not target runtime 0.5', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
@@ -507,7 +560,7 @@ test('buildSite rejects theme packages that do not target runtime 0.4', async ()
       writer,
       options: { generateSpecialFiles: false },
     }),
-    /Theme validation failed: theme\.json field 'runtime' must be one of: 0\.4/,
+    /Theme validation failed: theme\.json field 'runtime' must be one of: 0\.5/,
   );
 });
 
@@ -532,7 +585,7 @@ test('buildSiteFromThemeDir loads the golden fixture theme directory and Filesys
   }
 });
 
-test('buildSiteFromThemeDir rejects themes that do not target runtime 0.4', async () => {
+test('buildSiteFromThemeDir rejects themes that do not target runtime 0.5', async () => {
   const themeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-theme-'));
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-out-'));
 
@@ -560,7 +613,7 @@ test('buildSiteFromThemeDir rejects themes that do not target runtime 0.4', asyn
         writer,
         options: { generateSpecialFiles: false },
       }),
-      /Theme validation failed: theme\.json field 'runtime' must be one of: 0\.4/,
+      /Theme validation failed: theme\.json field 'runtime' must be one of: 0\.5/,
     );
   } finally {
     await fs.rm(themeDir, { recursive: true, force: true });
@@ -619,12 +672,12 @@ test('buildSite renders nested partials in templates and layout slot partials', 
   assert.match(indexHtml, /<main><main class="index-shell"><aside class="sidebar-stack"><section class="widget-card"><h2>Note<\/h2><div class="widget-copy"><p>Sidebar <strong>markdown<\/strong><\/p>\s*<\/div><\/section><\/aside><\/main><\/main>/);
 });
 
-test('buildSite runtime 0.4 exposes structured posts, archive groups, and pagination without legacy helpers', async () => {
+test('buildSite runtime 0.5 exposes structured posts, archive groups, and pagination without legacy helpers', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  themePackage.metadata.runtime = '0.4';
+  themePackage.metadata.runtime = '0.5';
   themePackage.templates.set('index', [
     '<section>',
     '  <div class="structured-posts">',
@@ -640,7 +693,7 @@ test('buildSite runtime 0.4 exposes structured posts, archive groups, and pagina
     '  {{#if pagination.has_multiple_pages}}',
     '    <nav class="structured-pagination">',
     '      {{#if pagination.has_prev}}<a class="prev" href="{{pagination.prev_url}}">Previous</a>{{/if}}',
-    '      {{#for page in pagination.pages}}<a class="page {{#if page.current}}current{{/if}}" href="{{page.url}}">{{page.number}}</a>{{/for}}',
+    '      {{#for page in pagination.window}}{{#if_eq page.kind "page"}}<a class="page {{#if page.current}}current{{/if}}" href="{{page.url}}">{{page.number}}</a>{{#else_if_eq page.kind "gap"}}<span class="page-gap">…</span>{{/if_eq}}{{/for}}',
     '      {{#if pagination.has_next}}<a class="next" href="{{pagination.next_url}}">Next</a>{{/if}}',
     '    </nav>',
     '  {{/if}}',
@@ -705,12 +758,48 @@ test('buildSite runtime 0.4 exposes structured posts, archive groups, and pagina
   assert.match(archiveHtml, /<a class="archive-post" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a><time datetime="2026-02-14T09:00:00Z">2026-02-14 09:00<\/time>/);
 });
 
-test('buildSite runtime 0.4 exposes structured post surroundings without legacy post helpers', async () => {
+test('buildSite exposes pagination.window for compact page navigation', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  const templatePost = previewData.content.posts[0];
+
+  previewData.site.postsPerPage = 1;
+  previewData.content.posts = Array.from({ length: 10 }, (_, index) => ({
+    ...templatePost,
+    public_id: index + 1,
+    title: `Window Post ${index + 1}`,
+    slug: `window-post-${index + 1}`,
+    published_at_iso: `2026-02-${String(28 - index).padStart(2, '0')}T09:00:00Z`,
+    updated_at_iso: `2026-02-${String(28 - index).padStart(2, '0')}T09:00:00Z`,
+  }));
+
+  themePackage.templates.set('index', [
+    '<nav class="window-pagination">',
+    '  {{#for page in pagination.window}}',
+    '    {{#if_eq page.kind "page"}}<a class="page{{#if page.current}} current{{/if}}" href="{{page.url}}">{{page.number}}</a>{{#else_if_eq page.kind "gap"}}<span class="gap">…</span>{{/if_eq}}',
+    '  {{/for}}',
+    '</nav>',
+  ].join('\n'));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const fifthPageHtml = getFileContent(writer.getFiles(), 'page/5/index.html');
+  assert.match(fifthPageHtml, /<nav class="window-pagination">/);
+  assert.match(fifthPageHtml, /<a class="page" href="\/">1<\/a>\s*<span class="gap">…<\/span>\s*<a class="page" href="\/page\/4\/">4<\/a>\s*<a class="page current" href="\/page\/5\/">5<\/a>\s*<a class="page" href="\/page\/6\/">6<\/a>\s*<span class="gap">…<\/span>\s*<a class="page" href="\/page\/10\/">10<\/a>/);
+});
+
+test('buildSite runtime 0.5 exposes structured post surroundings without legacy post helpers', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  themePackage.metadata.runtime = '0.4';
+  themePackage.metadata.runtime = '0.5';
   themePackage.templates.set('post', [
     '<article class="structured-post-shell">',
     '  <span class="structured-author">{{post.author.display_name}}</span>',

@@ -4,7 +4,7 @@
   "slug": "golden-fixture-theme",
   "version": "1.0.0",
   "license": "MIT",
-  "runtime": "0.4",
+  "runtime": "0.5",
   "description": "Theme fixture for build-core golden tests",
   "features": {
     "comments": true,
