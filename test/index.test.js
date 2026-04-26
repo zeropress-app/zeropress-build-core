@@ -14,11 +14,11 @@ const goldenDir = path.join(__dirname, 'golden', 'default-preview');
 const goldenThemeDir = path.join(fixturesDir, 'golden-theme');
 
 async function loadDefaultPreviewData() {
-  return JSON.parse(await fs.readFile(path.join(fixturesDir, 'default-preview-data.v0.3.json'), 'utf8'));
+  return JSON.parse(await fs.readFile(path.join(fixturesDir, 'default-preview-data.json'), 'utf8'));
 }
 
 async function loadMediumPreviewData() {
-  return JSON.parse(await fs.readFile(path.join(fixturesDir, 'medium-preview-data.v0.3.json'), 'utf8'));
+  return JSON.parse(await fs.readFile(path.join(fixturesDir, 'medium-preview-data.json'), 'utf8'));
 }
 
 async function loadGoldenThemePackage() {
