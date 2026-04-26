@@ -2,6 +2,8 @@ import { SlotResolver } from './slot-resolver.js';
 import { VariableResolver } from './variable-resolver.js';
 import { ControlFlowRenderer } from './control-flow-renderer.js';
 
+const CONTENT_SLOT_PLACEHOLDER = '__ZEROPRESS_CONTENT_SLOT_4F30E5A44C1D__';
+
 export class ZeroPressEngine {
   constructor() {
     this.slotResolver = new SlotResolver();
@@ -34,8 +36,8 @@ export class ZeroPressEngine {
 
     const renderData = this.combineRenderData(data, context);
     const renderedContent = this.renderTemplate(template, renderData);
-    const layoutWithSlots = this.slotResolver.resolve(layout, this.themePackage.partials, renderedContent);
-    return this.renderTemplate(layoutWithSlots, renderData);
+    const layoutWithSlots = this.slotResolver.resolve(layout, this.themePackage.partials, CONTENT_SLOT_PLACEHOLDER);
+    return this.renderTemplate(layoutWithSlots, renderData).replaceAll(CONTENT_SLOT_PLACEHOLDER, renderedContent);
   }
 
   combineRenderData(data, context) {

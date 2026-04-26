@@ -1504,3 +1504,44 @@ test('buildSite renders v0.5 raw content and resolves structured post author dat
   assert.match(pageHtml, /<p>First paragraph\.<\/p>/);
   assert.match(pageHtml, /<p>Second paragraph\.<\/p>/);
 });
+
+test('buildSite keeps ZeroPress template syntax inside markdown page content literal', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.content.pages = [
+    {
+      title: 'Theme Runtime',
+      slug: 'theme-runtime-v0-5',
+      content: [
+        '# Theme Runtime',
+        '',
+        '```html',
+        '{{#if site.title}}',
+        '<h1>{{site.title}}</h1>',
+        '{{#else}}',
+        '<h1>Untitled</h1>',
+        '{{/if}}',
+        '```',
+      ].join('\n'),
+      document_type: 'markdown',
+      status: 'published',
+    },
+  ];
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const pageHtml = getFileContent(writer.getFiles(), 'theme-runtime-v0-5/index.html');
+  assert.match(pageHtml, /<h1 id="theme-runtime">/);
+  assert.match(pageHtml, /\{\{#if site\.title\}\}/);
+  assert.match(pageHtml, /\{\{site\.title\}\}/);
+  assert.match(pageHtml, /\{\{#else\}\}/);
+  assert.match(pageHtml, /\{\{\/if\}\}/);
+  assert.doesNotMatch(pageHtml, /ZeroPress Preview<\/h1>/);
+});
