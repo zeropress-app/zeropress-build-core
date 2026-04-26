@@ -1571,8 +1571,8 @@ test('buildSite exposes markdown TOC to page and post templates', async () => {
 test('buildSite renders v0.5 raw content and resolves structured post author data from authors', async () => {
   const writer = new MemoryWriter();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
-  themePackage.templates.set('post', '<article class="post-entry">{{post.author.display_name}}|{{post.author.avatar}}|{{post.comments_enabled}}|{{post.slug}}|{{post.public_id}}|{{post.html}}</article>');
-  themePackage.templates.set('page', '<article class="page-entry">{{page.html}}</article>');
+  themePackage.templates.set('post', '<article class="post-entry">{{post.author.display_name}}|{{post.author.avatar}}|{{post.comments_enabled}}|{{post.slug}}|{{post.public_id}}|{{post.meta.badge}}|{{post.meta.rank}}|{{post.meta.featured}}|{{post.html}}</article>');
+  themePackage.templates.set('page', '<article class="page-entry">{{page.meta.section}}|{{page.meta.order}}|{{page.html}}</article>');
 
   await buildSite({
     previewData: {
@@ -1610,6 +1610,11 @@ test('buildSite renders v0.5 raw content and resolves structured post author dat
             published_at_iso: '2026-04-02T00:00:00Z',
             updated_at_iso: '2026-04-02T00:00:00Z',
             author_id: 'author-1',
+            meta: {
+              badge: 'featured',
+              rank: 7,
+              featured: true,
+            },
             status: 'published',
             allow_comments: true,
             category_slugs: [],
@@ -1622,6 +1627,10 @@ test('buildSite renders v0.5 raw content and resolves structured post author dat
             slug: 'plaintext-page',
             content: 'First paragraph.\n\nSecond paragraph.',
             document_type: 'plaintext',
+            meta: {
+              section: 'docs',
+              order: 2,
+            },
             status: 'published',
           },
         ],
@@ -1640,10 +1649,11 @@ test('buildSite renders v0.5 raw content and resolves structured post author dat
   const postHtml = getFileContent(files, 'posts/markdown-post/index.html');
   const pageHtml = getFileContent(files, 'plaintext-page/index.html');
 
-  assert.match(postHtml, /Admin\|https:\/\/media\.example\.com\/avatars\/admin\.webp\|false\|markdown-post\|1\|/);
+  assert.match(postHtml, /Admin\|https:\/\/media\.example\.com\/avatars\/admin\.webp\|false\|markdown-post\|1\|featured\|7\|true\|/);
   assert.match(postHtml, /<h1 id="markdown-heading">Markdown Heading<\/h1>/);
   assert.doesNotMatch(postHtml, /class="header-anchor"/);
   assert.match(postHtml, /<p>Paragraph text\.<\/p>/);
+  assert.match(pageHtml, /docs\|2\|/);
   assert.match(pageHtml, /<p>First paragraph\.<\/p>/);
   assert.match(pageHtml, /<p>Second paragraph\.<\/p>/);
 });

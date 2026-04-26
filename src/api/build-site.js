@@ -702,6 +702,7 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
     updated_at_iso: post.updated_at_iso,
     author_id: post.author_id,
     featured_image: post.featured_image,
+    meta: post.meta,
     status: post.status,
     allow_comments: post.allow_comments,
     category_slugs: post.category_slugs,
