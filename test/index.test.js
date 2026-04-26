@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildSite, buildSiteFromThemeDir, FilesystemWriter, MemoryWriter } from '../src/index.js';
 import { ControlFlowRenderer } from '../src/render/control-flow-renderer.js';
+import { renderDocument } from '../src/render/content-renderer.js';
 import { loadThemePackageFromDir } from '../src/theme/load-theme-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1426,6 +1427,147 @@ test('buildSite disables comments when the theme capability is missing', async (
   });
 });
 
+test('renderDocument creates markdown TOC from h2-h4 headings only', () => {
+  const document = renderDocument([
+    '# Page Title',
+    '',
+    '## Same',
+    '',
+    '### **Marked** `API`',
+    '',
+    '#### Details',
+    '',
+    '##### Too Deep',
+    '',
+    '###### Also Too Deep',
+    '',
+    '## Same',
+  ].join('\n'), 'markdown');
+
+  assert.deepEqual(document.toc, [
+    {
+      level: 2,
+      id: 'same',
+      title: 'Same',
+      href: '#same',
+    },
+    {
+      level: 3,
+      id: 'marked-api',
+      title: 'Marked API',
+      href: '#marked-api',
+    },
+    {
+      level: 4,
+      id: 'details',
+      title: 'Details',
+      href: '#details',
+    },
+    {
+      level: 2,
+      id: 'same-1',
+      title: 'Same',
+      href: '#same-1',
+    },
+  ]);
+  assert.match(document.html, /<h1 id="page-title">Page Title<\/h1>/);
+  assert.match(document.html, /<h2 id="same">Same<\/h2>/);
+  assert.match(document.html, /<h3 id="marked-api"><strong>Marked<\/strong> <code>API<\/code><\/h3>/);
+  assert.match(document.html, /<h2 id="same-1">Same<\/h2>/);
+  assert.doesNotMatch(document.html, /class="header-anchor"/);
+});
+
+test('renderDocument leaves non-markdown TOC empty', () => {
+  assert.deepEqual(renderDocument('<h2 id="custom">Custom</h2>', 'html').toc, []);
+  assert.deepEqual(renderDocument('## Plaintext heading', 'plaintext').toc, []);
+});
+
+test('buildSite exposes markdown TOC to page and post templates', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.content.posts = [
+    {
+      public_id: 1,
+      title: 'TOC Post',
+      slug: 'toc-post',
+      content: [
+        '# TOC Post',
+        '',
+        '## Overview',
+        '',
+        '### Details',
+        '',
+        '##### Appendix',
+      ].join('\n'),
+      document_type: 'markdown',
+      excerpt: 'TOC excerpt',
+      published_at_iso: '2026-04-02T00:00:00Z',
+      updated_at_iso: '2026-04-02T00:00:00Z',
+      author_id: previewData.content.authors[0].id,
+      status: 'published',
+      allow_comments: false,
+      category_slugs: [],
+      tag_slugs: [],
+    },
+  ];
+  previewData.content.pages = [
+    {
+      title: 'TOC Page',
+      slug: 'toc-page',
+      content: [
+        '# TOC Page',
+        '',
+        '## Start',
+        '',
+        '#### Fine Print',
+      ].join('\n'),
+      document_type: 'markdown',
+      status: 'published',
+    },
+    {
+      title: 'HTML Page',
+      slug: 'html-page',
+      content: '<h2 id="manual">Manual HTML</h2>',
+      document_type: 'html',
+      status: 'published',
+    },
+  ];
+  themePackage.templates.set('post', [
+    '<article>',
+    '{{#for item in post.toc}}<a class="post-toc-item toc-level-{{item.level}}" href="{{item.href}}" data-id="{{item.id}}">{{item.title}}</a>{{/for}}',
+    '{{post.html}}',
+    '</article>',
+  ].join(''));
+  themePackage.templates.set('page', [
+    '<article>',
+    '{{#if page.toc}}<nav class="page-toc">{{#for item in page.toc}}<a class="page-toc-item toc-level-{{item.level}}" href="{{item.href}}" data-id="{{item.id}}">{{item.title}}</a>{{/for}}</nav>{{/if}}',
+    '{{page.html}}',
+    '</article>',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const files = writer.getFiles();
+  const postHtml = getFileContent(files, 'posts/toc-post/index.html');
+  const markdownPageHtml = getFileContent(files, 'toc-page/index.html');
+  const htmlPageHtml = getFileContent(files, 'html-page/index.html');
+
+  assert.match(postHtml, /<a class="post-toc-item toc-level-2" href="#overview" data-id="overview">Overview<\/a>/);
+  assert.match(postHtml, /<a class="post-toc-item toc-level-3" href="#details" data-id="details">Details<\/a>/);
+  assert.doesNotMatch(postHtml, /href="#appendix"/);
+  assert.match(postHtml, /<h2 id="overview">Overview<\/h2>/);
+  assert.match(markdownPageHtml, /<nav class="page-toc"><a class="page-toc-item toc-level-2" href="#start" data-id="start">Start<\/a><a class="page-toc-item toc-level-4" href="#fine-print" data-id="fine-print">Fine Print<\/a><\/nav>/);
+  assert.match(htmlPageHtml, /<h2 id="manual">Manual HTML<\/h2>/);
+  assert.doesNotMatch(htmlPageHtml, /page-toc/);
+});
+
 test('buildSite renders v0.5 raw content and resolves structured post author data from authors', async () => {
   const writer = new MemoryWriter();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
@@ -1499,7 +1641,8 @@ test('buildSite renders v0.5 raw content and resolves structured post author dat
   const pageHtml = getFileContent(files, 'plaintext-page/index.html');
 
   assert.match(postHtml, /Admin\|https:\/\/media\.example\.com\/avatars\/admin\.webp\|false\|markdown-post\|1\|/);
-  assert.match(postHtml, /<h1 id="markdown-heading">/);
+  assert.match(postHtml, /<h1 id="markdown-heading">Markdown Heading<\/h1>/);
+  assert.doesNotMatch(postHtml, /class="header-anchor"/);
   assert.match(postHtml, /<p>Paragraph text\.<\/p>/);
   assert.match(pageHtml, /<p>First paragraph\.<\/p>/);
   assert.match(pageHtml, /<p>Second paragraph\.<\/p>/);
@@ -1538,7 +1681,8 @@ test('buildSite keeps ZeroPress template syntax inside markdown page content lit
   });
 
   const pageHtml = getFileContent(writer.getFiles(), 'theme-runtime-v0-5/index.html');
-  assert.match(pageHtml, /<h1 id="theme-runtime">/);
+  assert.match(pageHtml, /<h1 id="theme-runtime">Theme Runtime<\/h1>/);
+  assert.doesNotMatch(pageHtml, /class="header-anchor"/);
   assert.match(pageHtml, /\{\{#if site\.title\}\}/);
   assert.match(pageHtml, /\{\{site\.title\}\}/);
   assert.match(pageHtml, /\{\{#else\}\}/);

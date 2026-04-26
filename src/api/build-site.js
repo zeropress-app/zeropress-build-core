@@ -3,7 +3,7 @@ import { assertPreviewData } from '@zeropress/preview-data-validator';
 import { isSafeSlugSegment, normalizeStoredSlug } from '@zeropress/slug-policy';
 import { validateThemeFiles } from '@zeropress/theme-validator';
 import { AssetProcessor } from '../assets/asset-processor.js';
-import { renderDocumentContent } from '../render/content-renderer.js';
+import { renderDocument, renderDocumentContent } from '../render/content-renderer.js';
 import { ZeroPressEngine } from '../render/zeropress-engine.js';
 
 const DEFAULT_OPTIONS = {
@@ -659,17 +659,19 @@ function resolveProfileWidget(baseWidget, settings) {
 
 function preparePage(page) {
   const documentType = normalizeDocumentType(page.document_type);
+  const renderedDocument = renderDocument(page.content, documentType);
 
   return {
     ...page,
     document_type: documentType,
-    html: renderDocumentContent(page.content, documentType),
+    html: renderedDocument.html,
+    toc: renderedDocument.toc,
   };
 }
 
 function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, themeSupportsComments) {
   const documentType = normalizeDocumentType(post.document_type);
-  const html = renderDocumentContent(post.content, documentType);
+  const renderedDocument = renderDocument(post.content, documentType);
   const author = authorsById.get(post.author_id);
   const categories = post.category_slugs
     .map((slug) => categoriesBySlug.get(slug))
@@ -711,10 +713,11 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
     },
     categories,
     tags,
-    html,
+    html: renderedDocument.html,
+    toc: renderedDocument.toc,
     published_at: formatTimestamp(post.published_at_iso, site),
     updated_at: formatTimestamp(post.updated_at_iso, site),
-    reading_time: calculateReadingTime(html),
+    reading_time: calculateReadingTime(renderedDocument.html),
     comments_enabled: themeSupportsComments && site.disallowComments !== true && post.allow_comments === true,
   };
 }

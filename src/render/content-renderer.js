@@ -2,46 +2,84 @@ import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import anchor from 'markdown-it-anchor';
 
-const markdown = new MarkdownIt({
-  html: true,
-  linkify: true,
-  typographer: true,
-  breaks: true,
-  highlight(value, language) {
-    if (language && hljs.getLanguage(language)) {
-      try {
-        return hljs.highlight(value, { language }).value;
-      } catch {
-        return value;
-      }
-    }
-
-    try {
-      return hljs.highlightAuto(value).value;
-    } catch {
-      return value;
-    }
-  },
-});
-
-markdown.use(anchor, {
-  permalink: anchor.permalink.headerLink(),
-  slugify: slugify,
-});
+const TOC_LEVELS = new Set([2, 3, 4]);
 
 export function renderDocumentContent(content, documentType = 'markdown') {
+  return renderDocument(content, documentType).html;
+}
+
+export function renderDocument(content, documentType = 'markdown') {
   const normalizedContent = typeof content === 'string' ? content : '';
   const normalizedType = normalizeDocumentType(documentType);
 
   if (normalizedType === 'plaintext') {
-    return transformPlaintext(normalizedContent);
+    return {
+      html: transformPlaintext(normalizedContent),
+      toc: [],
+    };
   }
 
   if (normalizedType === 'html') {
-    return sanitizeHtml(normalizedContent);
+    return {
+      html: sanitizeHtml(normalizedContent),
+      toc: [],
+    };
   }
 
-  return sanitizeHtml(markdown.render(normalizedContent));
+  return renderMarkdownDocument(normalizedContent);
+}
+
+function renderMarkdownDocument(content) {
+  const toc = [];
+  const markdown = createMarkdownRenderer(toc);
+
+  return {
+    html: sanitizeHtml(markdown.render(content)),
+    toc,
+  };
+}
+
+function createMarkdownRenderer(toc) {
+  const markdown = new MarkdownIt({
+    html: true,
+    linkify: true,
+    typographer: true,
+    breaks: true,
+    highlight(value, language) {
+      if (language && hljs.getLanguage(language)) {
+        try {
+          return hljs.highlight(value, { language }).value;
+        } catch {
+          return value;
+        }
+      }
+
+      try {
+        return hljs.highlightAuto(value).value;
+      } catch {
+        return value;
+      }
+    },
+  });
+
+  markdown.use(anchor, {
+    slugify: slugify,
+    callback(token, { slug, title }) {
+      const level = Number(token.tag.slice(1));
+      if (!TOC_LEVELS.has(level)) {
+        return;
+      }
+
+      toc.push({
+        level,
+        id: slug,
+        title,
+        href: `#${slug}`,
+      });
+    },
+  });
+
+  return markdown;
 }
 
 function normalizeDocumentType(value) {
