@@ -759,6 +759,118 @@ test('buildSite runtime 0.5 exposes structured posts, archive groups, and pagina
   assert.match(archiveHtml, /<a class="archive-post" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a><time datetime="2026-02-14T09:00:00Z">2026-02-14 09:00<\/time>/);
 });
 
+test('buildSite applies html-extension permalinks and page path overrides', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.postsPerPage = 1;
+  previewData.site.permalinks = {
+    output_style: 'html-extension',
+    posts: '/posts/:public_id',
+    pages: '/:slug/',
+    categories: '/topics/:slug/',
+    tags: '/labels/:slug/',
+  };
+  previewData.content.pages[0].path = 'spec/preview-data-v0.5';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: true },
+  });
+
+  const files = writer.getFiles();
+  const paths = new Set(files.map((file) => file.path));
+  assert.equal(paths.has('posts/101.html'), true);
+  assert.equal(paths.has('posts/101/index.html'), false);
+  assert.equal(paths.has('spec/preview-data-v0.5.html'), true);
+  assert.equal(paths.has('topics/general.html'), true);
+  assert.equal(paths.has('topics/general/page/2.html'), true);
+  assert.equal(paths.has('labels/intro.html'), true);
+  assert.equal(paths.has('archive.html'), true);
+  assert.equal(paths.has('archive/page/2.html'), true);
+  assert.equal(paths.has('page/2.html'), true);
+
+  const indexHtml = getFileContent(files, 'index.html');
+  const postHtml = getFileContent(files, 'posts/101.html');
+  const pageHtml = getFileContent(files, 'spec/preview-data-v0.5.html');
+  const categoryHtml = getFileContent(files, 'topics/general.html');
+  const tagHtml = getFileContent(files, 'labels/intro.html');
+  const sitemapXml = getFileContent(files, 'sitemap.xml');
+  const feedXml = getFileContent(files, 'feed.xml');
+  const metaJson = JSON.parse(getFileContent(files, 'meta.json'));
+
+  assert.match(indexHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
+  assert.match(indexHtml, /<a href="\/page\/2" class="page-link ">2<\/a>/);
+  assert.match(postHtml, /<link rel="canonical" href="https:\/\/example\.com\/posts\/101">/);
+  assert.match(postHtml, /<a href="\/topics\/general" class="category-link">General<\/a>/);
+  assert.match(postHtml, /<a href="\/labels\/intro" class="tag-link">Intro<\/a>/);
+  assert.match(pageHtml, /<link rel="canonical" href="https:\/\/example\.com\/spec\/preview-data-v0\.5">/);
+  assert.match(categoryHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
+  assert.match(tagHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
+  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/posts\/101<\/loc>/);
+  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/spec\/preview-data-v0\.5<\/loc>/);
+  assert.match(feedXml, /<link>https:\/\/example\.com\/posts\/101<\/link>/);
+  assert.equal(metaJson.pages.some((page) => page.url === '/posts/101'), true);
+  assert.equal(metaJson.pages.some((page) => page.url === '/spec/preview-data-v0.5'), true);
+});
+
+test('buildSite applies date-based post permalinks in directory output style', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.permalinks = {
+    output_style: 'directory',
+    posts: '/posts/:year/:month/:day/:slug/',
+    pages: '/:slug/',
+    categories: '/categories/:slug/',
+    tags: '/tags/:slug/',
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const files = writer.getFiles();
+  const postHtml = getFileContent(files, 'posts/2026/02/14/hello-zeropress/index.html');
+  const indexHtml = getFileContent(files, 'index.html');
+
+  assert.match(indexHtml, /<a href="\/posts\/2026\/02\/14\/hello-zeropress\/">Hello ZeroPress<\/a>/);
+  assert.match(postHtml, /<link rel="canonical" href="https:\/\/example\.com\/posts\/2026\/02\/14\/hello-zeropress\/">/);
+});
+
+test('buildSite rejects duplicate permalink routes before writing files', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.permalinks = {
+    output_style: 'html-extension',
+    posts: '/posts/:public_id',
+    pages: '/:slug/',
+    categories: '/categories/:slug/',
+    tags: '/tags/:slug/',
+  };
+  previewData.content.pages[0].path = 'posts/101';
+
+  await assert.rejects(
+    () => buildSite({
+      previewData,
+      themePackage,
+      writer,
+      options: { generateSpecialFiles: false },
+    }),
+    /Duplicate public URL detected: \/posts\/101/,
+  );
+  assert.equal(writer.getFiles().length, 0);
+});
+
 test('buildSite exposes pagination.window for compact page navigation', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();

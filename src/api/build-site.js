@@ -17,6 +17,14 @@ const DEFAULT_DATE_FORMAT = 'YYYY-MM-DD';
 const DEFAULT_TIME_FORMAT = 'HH:mm';
 const DEFAULT_TIMEZONE = 'UTC';
 const DEFAULT_LOCALE = 'en-US';
+const DEFAULT_PERMALINKS = Object.freeze({
+  output_style: 'directory',
+  posts: '/posts/:slug/',
+  pages: '/:slug/',
+  categories: '/categories/:slug/',
+  tags: '/tags/:slug/',
+});
+const PERMALINK_OUTPUT_STYLES = new Set(['directory', 'html-extension']);
 const COMMENT_POLICY_OUTPUT_PATH = '_zeropress/comment-policy.json';
 const OUTPUT_PATH_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
 const SAFE_MEDIA_PROTOCOLS = new Set(['http:', 'https:']);
@@ -154,7 +162,7 @@ async function finalizeBuildResult(writer, summaries, options) {
 }
 
 async function renderRoute(state, templateName, route) {
-  const currentUrl = normalizeRoutePath(route.path);
+  const currentUrl = routePathToPublicUrl(route.path, state.previewData.site.permalinks.output_style);
   let html = await state.engine.render(
     templateName,
     {
@@ -172,12 +180,12 @@ async function renderRoute(state, templateName, route) {
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   html = injectCustomCssAssetLink(html, state.customCssHref);
-  await writeOutput(state.writer, state.summaries, routePathToOutputPath(route.path), html, 'text/html');
+  await writeOutput(state.writer, state.summaries, routePathToOutputPath(route.path, state.previewData.site.permalinks.output_style), html, 'text/html');
   recordRouteEmission(state, templateName, route, currentUrl);
 }
 
 async function renderPost(state, post) {
-  const currentUrl = `/posts/${encodeSlugSegment(post.slug)}/`;
+  const currentUrl = post.url;
   let html = await state.engine.render(
     'post',
     {
@@ -198,7 +206,7 @@ async function renderPost(state, post) {
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   html = injectCustomCssAssetLink(html, state.customCssHref);
-  await writeOutput(state.writer, state.summaries, `posts/${encodeSlugSegment(post.slug)}/index.html`, html, 'text/html');
+  await writeOutput(state.writer, state.summaries, routePathToOutputPath(post.url, state.previewData.site.permalinks.output_style), html, 'text/html');
   state.emitted.posts.push({
     url: currentUrl,
     title: post.title,
@@ -210,7 +218,7 @@ async function renderPost(state, post) {
 }
 
 async function renderPage(state, page) {
-  const currentUrl = `/${encodeSlugSegment(page.slug)}/`;
+  const currentUrl = page.url;
   let html = await state.engine.render(
     'page',
     {
@@ -229,7 +237,7 @@ async function renderPage(state, page) {
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   html = injectCustomCssAssetLink(html, state.customCssHref);
-  await writeOutput(state.writer, state.summaries, `${encodeSlugSegment(page.slug)}/index.html`, html, 'text/html');
+  await writeOutput(state.writer, state.summaries, routePathToOutputPath(page.url, state.previewData.site.permalinks.output_style), html, 'text/html');
   state.emitted.pages.push({
     url: currentUrl,
     title: page.title,
@@ -274,6 +282,7 @@ function normalizePreviewData(previewData) {
     timezone: normalizeNonEmptyString(previewData.site.timezone, DEFAULT_TIMEZONE),
     locale: normalizeLocale(previewData.site.locale || DEFAULT_LOCALE),
     disallowComments: previewData.site.disallowComments === true,
+    permalinks: normalizePermalinks(previewData.site.permalinks),
   };
 
   return {
@@ -348,6 +357,21 @@ function normalizeCustomCss(customCss) {
   return content ? { content } : undefined;
 }
 
+function normalizePermalinks(permalinks) {
+  const source = permalinks && typeof permalinks === 'object' ? permalinks : {};
+  const outputStyle = typeof source.output_style === 'string' && PERMALINK_OUTPUT_STYLES.has(source.output_style)
+    ? source.output_style
+    : DEFAULT_PERMALINKS.output_style;
+
+  return {
+    output_style: outputStyle,
+    posts: normalizeNonEmptyString(source.posts, DEFAULT_PERMALINKS.posts),
+    pages: normalizeNonEmptyString(source.pages, DEFAULT_PERMALINKS.pages),
+    categories: normalizeNonEmptyString(source.categories, DEFAULT_PERMALINKS.categories),
+    tags: normalizeNonEmptyString(source.tags, DEFAULT_PERMALINKS.tags),
+  };
+}
+
 function createRenderData(previewData, themeMetadata = {}) {
   const themeSupportsComments = themeMetadata?.features?.comments === true;
   const authorsById = new Map(previewData.content.authors.map((author) => [author.id, author]));
@@ -376,7 +400,7 @@ function createRenderData(previewData, themeMetadata = {}) {
     prev: index > 0 ? buildAdjacentPostSummary(preparedPosts[index - 1]) : null,
     next: index < preparedPosts.length - 1 ? buildAdjacentPostSummary(preparedPosts[index + 1]) : null,
   }));
-  const pages = previewData.content.pages.map((page) => preparePage(page));
+  const pages = previewData.content.pages.map((page) => preparePage(page, previewData.site));
   const postBySlug = new Map(posts.map((post) => [post.slug, post]));
 
   return {
@@ -387,6 +411,7 @@ function createRenderData(previewData, themeMetadata = {}) {
       items: previewData.content.posts,
       postsPerPage: previewData.site.postsPerPage,
       basePath: '/',
+      outputStyle: previewData.site.permalinks.output_style,
     }).map((entry) => ({
       path: entry.path,
       page: entry.page,
@@ -398,6 +423,7 @@ function createRenderData(previewData, themeMetadata = {}) {
       items: previewData.content.posts,
       postsPerPage: previewData.site.postsPerPage,
       basePath: '/archive/',
+      outputStyle: previewData.site.permalinks.output_style,
     }).map((entry) => ({
       path: entry.path,
       page: entry.page,
@@ -412,7 +438,8 @@ function createRenderData(previewData, themeMetadata = {}) {
       postsBySlug: categoryPostsBySlug,
       postBySlug,
       postsPerPage: previewData.site.postsPerPage,
-      buildBasePath: (category) => `/categories/${encodeSlugSegment(category.slug)}/`,
+      outputStyle: previewData.site.permalinks.output_style,
+      buildBasePath: (category) => resolvePermalink(previewData.site, 'categories', category).path,
       renderExtras: (category) => ({
         taxonomy: buildTaxonomyRouteData('category', category, categoryCountBySlug),
       }),
@@ -422,7 +449,8 @@ function createRenderData(previewData, themeMetadata = {}) {
       postsBySlug: tagPostsBySlug,
       postBySlug,
       postsPerPage: previewData.site.postsPerPage,
-      buildBasePath: (tag) => `/tags/${encodeSlugSegment(tag.slug)}/`,
+      outputStyle: previewData.site.permalinks.output_style,
+      buildBasePath: (tag) => resolvePermalink(previewData.site, 'tags', tag).path,
       renderExtras: (tag) => ({
         taxonomy: buildTaxonomyRouteData('tag', tag, tagCountBySlug),
       }),
@@ -521,7 +549,7 @@ function resolveCategoriesWidget(baseWidget, settings, previewData) {
     .map((category) => ({
       name: category.name,
       slug: category.slug,
-      url: `/categories/${encodeSlugSegment(category.slug)}/`,
+      url: resolvePermalink(previewData.site, 'categories', category).url,
       count: countBySlug.get(category.slug) || 0,
       depth: 0,
     }))
@@ -546,7 +574,7 @@ function resolveTagsWidget(baseWidget, settings, previewData) {
     .map((tag) => ({
       name: tag.name,
       slug: tag.slug,
-      url: `/tags/${encodeSlugSegment(tag.slug)}/`,
+      url: resolvePermalink(previewData.site, 'tags', tag).url,
       count: countBySlug.get(tag.slug) || 0,
     }))
     .filter((tag) => tag.count > 0)
@@ -569,7 +597,7 @@ function resolveArchivesWidget(baseWidget, settings, previewData) {
     .slice(0, limit)
     .map((entry) => ({
       label: entry.label,
-      url: '/archive/',
+      url: routePathToPublicUrl('/archive/', previewData.site.permalinks.output_style),
       count: entry.count,
       year: entry.year,
       month: entry.month,
@@ -657,12 +685,14 @@ function resolveProfileWidget(baseWidget, settings) {
   };
 }
 
-function preparePage(page) {
+function preparePage(page, site) {
   const documentType = normalizeDocumentType(page.document_type);
   const renderedDocument = renderDocument(page.content, documentType);
+  const permalink = resolvePagePermalink(site, page);
 
   return {
     ...page,
+    url: permalink.url,
     document_type: documentType,
     html: renderedDocument.html,
     toc: renderedDocument.toc,
@@ -673,13 +703,14 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
   const documentType = normalizeDocumentType(post.document_type);
   const renderedDocument = renderDocument(post.content, documentType);
   const author = authorsById.get(post.author_id);
+  const permalink = resolvePermalink(site, 'posts', post);
   const categories = post.category_slugs
     .map((slug) => categoriesBySlug.get(slug))
     .filter(Boolean)
     .map((category) => ({
       name: category.name,
       slug: category.slug,
-      url: `/categories/${encodeSlugSegment(category.slug)}/`,
+      url: resolvePermalink(site, 'categories', category).url,
     }));
   const tags = post.tag_slugs
     .map((slug) => tagsBySlug.get(slug))
@@ -687,14 +718,14 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
     .map((tag) => ({
       name: tag.name,
       slug: tag.slug,
-      url: `/tags/${encodeSlugSegment(tag.slug)}/`,
+      url: resolvePermalink(site, 'tags', tag).url,
     }));
 
   return {
     public_id: post.public_id,
     title: post.title,
     slug: post.slug,
-    url: `/posts/${encodeSlugSegment(post.slug)}/`,
+    url: permalink.url,
     content: post.content,
     document_type: documentType,
     excerpt: post.excerpt,
@@ -748,6 +779,7 @@ function buildTaxonomyRoutes(options) {
       items: matchedPosts,
       postsPerPage: options.postsPerPage,
       basePath: options.buildBasePath(item),
+      outputStyle: options.outputStyle,
     });
 
     for (const entry of paginated) {
@@ -768,6 +800,7 @@ function buildTaxonomyRoutes(options) {
 
 function buildPaginatedCollection(options) {
   const basePath = normalizePaginationBasePath(options.basePath);
+  const outputStyle = PERMALINK_OUTPUT_STYLES.has(options.outputStyle) ? options.outputStyle : DEFAULT_PERMALINKS.output_style;
   const postsPerPage = Number.isInteger(options.postsPerPage) && options.postsPerPage > 0 ? options.postsPerPage : DEFAULT_POSTS_PER_PAGE;
   const totalPosts = options.items.length;
   const totalPages = Math.max(1, Math.ceil(totalPosts / postsPerPage));
@@ -782,7 +815,7 @@ function buildPaginatedCollection(options) {
       page,
       totalPages,
       items: options.items.slice(start, end),
-      paginationData: buildPaginationData(page, totalPages, totalPosts, basePath),
+      paginationData: buildPaginationData(page, totalPages, totalPosts, basePath, outputStyle),
     });
   }
 
@@ -815,20 +848,22 @@ function normalizePaginationBasePath(basePath) {
   return `/${normalized}/`;
 }
 
-function buildPaginationData(currentPage, totalPages, totalPosts, basePath) {
+function buildPaginationData(currentPage, totalPages, totalPosts, basePath, outputStyle = DEFAULT_PERMALINKS.output_style) {
+  const buildPageUrl = (page) => routePathToPublicUrl(buildPaginatedPath(basePath, page), outputStyle);
+
   return {
     currentPage,
     totalPages,
     totalPosts,
     hasNext: currentPage < totalPages,
     hasPrev: currentPage > 1,
-    nextUrl: currentPage < totalPages ? buildPaginatedPath(basePath, currentPage + 1) : undefined,
-    prevUrl: currentPage > 1 ? buildPaginatedPath(basePath, currentPage - 1) : undefined,
+    nextUrl: currentPage < totalPages ? buildPageUrl(currentPage + 1) : undefined,
+    prevUrl: currentPage > 1 ? buildPageUrl(currentPage - 1) : undefined,
     pages: Array.from({ length: totalPages }, (_, index) => {
       const page = index + 1;
       return {
         number: page,
-        url: buildPaginatedPath(basePath, page),
+        url: buildPageUrl(page),
         current: page === currentPage,
       };
     }),
@@ -1437,12 +1472,26 @@ async function writeOutput(writer, summaries, path, content, contentType) {
   });
 }
 
-function routePathToOutputPath(routePath) {
+function routePathToOutputPath(routePath, outputStyle = DEFAULT_PERMALINKS.output_style) {
   const normalizedPath = normalizeRoutePath(routePath);
   if (normalizedPath === '/') {
     return 'index.html';
   }
+  if (outputStyle === 'html-extension') {
+    return `${normalizedPath.replace(/^\/+|\/+$/g, '')}.html`;
+  }
   return `${normalizedPath.replace(/^\//, '')}index.html`;
+}
+
+function routePathToPublicUrl(routePath, outputStyle = DEFAULT_PERMALINKS.output_style) {
+  const normalizedPath = normalizeRoutePath(routePath);
+  if (normalizedPath === '/') {
+    return '/';
+  }
+  if (outputStyle === 'html-extension') {
+    return normalizedPath.replace(/\/$/, '');
+  }
+  return normalizedPath;
 }
 
 function normalizeRoutePath(routePath) {
@@ -1453,34 +1502,124 @@ function normalizeRoutePath(routePath) {
   return `/${normalized}/`;
 }
 
+function resolvePagePermalink(site, page) {
+  if (normalizeOptionalString(page.path)) {
+    return buildRouteInfo(page.path, site.permalinks.output_style);
+  }
+  return resolvePermalink(site, 'pages', page);
+}
+
+function resolvePermalink(site, kind, item) {
+  const pattern = normalizeNonEmptyString(site.permalinks?.[kind], DEFAULT_PERMALINKS[kind]);
+  return buildRouteInfo(applyPermalinkPattern(pattern, kind, item, site), site.permalinks.output_style);
+}
+
+function buildRouteInfo(routePath, outputStyle) {
+  const path = normalizeRoutePath(routePath);
+  return {
+    path,
+    url: routePathToPublicUrl(path, outputStyle),
+    outputPath: routePathToOutputPath(path, outputStyle),
+  };
+}
+
+function applyPermalinkPattern(pattern, kind, item, site) {
+  const tokenValues = buildPermalinkTokenValues(kind, item, site);
+  const body = String(pattern || '').replace(/^\/+|\/+$/g, '');
+  const segments = body.split('/').filter(Boolean).map((segment) => {
+    if (segment.startsWith(':')) {
+      return tokenValues[segment.slice(1)] || '';
+    }
+    return segment;
+  });
+  return `/${segments.join('/')}/`;
+}
+
+function buildPermalinkTokenValues(kind, item, site) {
+  const values = {
+    slug: encodeSlugSegment(item.slug),
+  };
+
+  if (kind === 'posts') {
+    const parts = getPermalinkDateParts(item.published_at_iso, site);
+    values.public_id = String(item.public_id);
+    values.year = parts.year;
+    values.month = parts.month;
+    values.day = parts.day;
+  }
+
+  return values;
+}
+
+function getPermalinkDateParts(value, site) {
+  const date = toDate(value);
+  const timeZone = normalizeNonEmptyString(site.timezone, DEFAULT_TIMEZONE);
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+
+  return {
+    year: parts.find((part) => part.type === 'year')?.value || String(date.getUTCFullYear()),
+    month: parts.find((part) => part.type === 'month')?.value || String(date.getUTCMonth() + 1).padStart(2, '0'),
+    day: parts.find((part) => part.type === 'day')?.value || String(date.getUTCDate()).padStart(2, '0'),
+  };
+}
+
 function normalizeOutputPath(filePath) {
   return String(filePath || '').replace(/^\/+/, '');
 }
 
 function assertPlannedOutputPathsSafe(state) {
+  const outputStyle = state.previewData.site.permalinks.output_style;
   for (const post of state.renderData.posts) {
-    assertSafeSlugDerivedOutputPath(post.slug, `posts/${encodeSlugSegment(post.slug)}/index.html`);
+    assertSafeSlugDerivedOutputPath(post.slug, routePathToOutputPath(post.url, outputStyle));
   }
 
   for (const page of state.renderData.pages) {
-    assertSafeSlugDerivedOutputPath(page.slug, `${encodeSlugSegment(page.slug)}/index.html`);
+    assertSafeSlugDerivedOutputPath(page.slug, routePathToOutputPath(page.url, outputStyle));
   }
 
   for (const category of state.previewData.content.categories) {
-    assertSafeSlugDerivedOutputPath(category.slug, `categories/${encodeSlugSegment(category.slug)}/index.html`);
+    assertSafeSlugDerivedOutputPath(category.slug, resolvePermalink(state.previewData.site, 'categories', category).outputPath);
   }
 
   for (const tag of state.previewData.content.tags) {
-    assertSafeSlugDerivedOutputPath(tag.slug, `tags/${encodeSlugSegment(tag.slug)}/index.html`);
+    assertSafeSlugDerivedOutputPath(tag.slug, resolvePermalink(state.previewData.site, 'tags', tag).outputPath);
   }
 
+  const routeEntries = [
+    ...state.renderData.indexRoutes.map((route) => ({
+      url: routePathToPublicUrl(route.path, outputStyle),
+      outputPath: routePathToOutputPath(route.path, outputStyle),
+    })),
+    ...state.renderData.archiveRoutes.map((route) => ({
+      url: routePathToPublicUrl(route.path, outputStyle),
+      outputPath: routePathToOutputPath(route.path, outputStyle),
+    })),
+    ...state.renderData.categoryRoutes.map((route) => ({
+      url: routePathToPublicUrl(route.path, outputStyle),
+      outputPath: routePathToOutputPath(route.path, outputStyle),
+    })),
+    ...state.renderData.tagRoutes.map((route) => ({
+      url: routePathToPublicUrl(route.path, outputStyle),
+      outputPath: routePathToOutputPath(route.path, outputStyle),
+    })),
+    ...state.renderData.posts.map((post) => ({
+      url: post.url,
+      outputPath: routePathToOutputPath(post.url, outputStyle),
+    })),
+    ...state.renderData.pages.map((page) => ({
+      url: page.url,
+      outputPath: routePathToOutputPath(page.url, outputStyle),
+    })),
+  ];
+  assertUniqueRoutes(routeEntries);
+
   const plannedPaths = [
-    ...state.renderData.indexRoutes.map((route) => routePathToOutputPath(route.path)),
-    ...state.renderData.archiveRoutes.map((route) => routePathToOutputPath(route.path)),
-    ...state.renderData.categoryRoutes.map((route) => routePathToOutputPath(route.path)),
-    ...state.renderData.tagRoutes.map((route) => routePathToOutputPath(route.path)),
-    ...state.renderData.posts.map((post) => `posts/${encodeSlugSegment(post.slug)}/index.html`),
-    ...state.renderData.pages.map((page) => `${encodeSlugSegment(page.slug)}/index.html`),
+    ...routeEntries.map((entry) => entry.outputPath),
     ...state.assetOutputs.map((assetOutput) => assetOutput.path),
     COMMENT_POLICY_OUTPUT_PATH,
   ];
@@ -1497,6 +1636,34 @@ function assertPlannedOutputPathsSafe(state) {
     const normalizedPath = normalizeOutputPath(rawPath);
     assertSafeRelativeOutputPath(rawPath, normalizedPath);
   }
+
+  assertUniqueOutputPaths(plannedPaths);
+}
+
+function assertUniqueRoutes(routeEntries) {
+  const seenUrls = new Map();
+  for (const entry of routeEntries) {
+    const normalizedUrl = normalizeRouteCollisionKey(entry.url);
+    if (seenUrls.has(normalizedUrl)) {
+      throw new Error(`Duplicate public URL detected: ${entry.url}`);
+    }
+    seenUrls.set(normalizedUrl, entry);
+  }
+}
+
+function assertUniqueOutputPaths(plannedPaths) {
+  const seenPaths = new Set();
+  for (const plannedPath of plannedPaths) {
+    const normalizedPath = normalizeOutputPath(plannedPath);
+    if (seenPaths.has(normalizedPath)) {
+      throw new Error(`Duplicate output path detected: ${plannedPath}`);
+    }
+    seenPaths.add(normalizedPath);
+  }
+}
+
+function normalizeRouteCollisionKey(url) {
+  return String(url || '').replace(/\/+$/, '') || '/';
 }
 
 function assertSafeSlugDerivedOutputPath(rawSlug, outputPath) {
