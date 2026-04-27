@@ -55,7 +55,6 @@ import {
   - `sitemap.xml`
   - `feed.xml`
   - `robots.txt`
-  - `meta.json`
 - writing outputs through a pluggable writer
 
 It does not:
@@ -120,7 +119,7 @@ Notes:
 - `previewData` must already satisfy the canonical preview-data contract
 - `themePackage` must already be a validated in-memory theme package
 - `sitemap.xml` and `feed.xml` are emitted only when `site.url` is a non-empty canonical URL
-- `robots.txt` and `meta.json` are still emitted when `generateSpecialFiles` is enabled
+- `robots.txt` is still emitted when `generateSpecialFiles` is enabled
 
 ### `buildSiteFromThemeDir(input)`
 

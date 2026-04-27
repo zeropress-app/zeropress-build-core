@@ -81,12 +81,6 @@ function normalizeFeedXml(xml) {
   );
 }
 
-function normalizeMetaJson(jsonText) {
-  const parsed = JSON.parse(jsonText);
-  parsed.generated = '__GENERATED_AT__';
-  return JSON.stringify(parsed, null, 2);
-}
-
 function normalizeManifestSummary(jsonText) {
   const parsed = JSON.parse(jsonText);
   return JSON.stringify({
@@ -246,7 +240,6 @@ test('buildSite matches the golden fixture for the default preview payload', asy
     ['robots.txt', getFileContent(files, 'robots.txt')],
     ['feed.xml', normalizeFeedXml(getFileContent(files, 'feed.xml'))],
     ['sitemap.xml', normalizeSitemapXml(getFileContent(files, 'sitemap.xml'))],
-    ['meta.json', normalizeMetaJson(getFileContent(files, 'meta.json'))],
     ['build-manifest.summary.json', normalizeManifestSummary(getFileContent(files, 'build-manifest.json'))],
   ];
 
@@ -869,7 +862,6 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   const tagHtml = getFileContent(files, 'labels/intro.html');
   const sitemapXml = getFileContent(files, 'sitemap.xml');
   const feedXml = getFileContent(files, 'feed.xml');
-  const metaJson = JSON.parse(getFileContent(files, 'meta.json'));
 
   assert.match(indexHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
   assert.match(indexHtml, /<a href="\/page\/2" class="page-link ">2<\/a>/);
@@ -882,8 +874,6 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/posts\/101<\/loc>/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/spec\/preview-data-v0\.5<\/loc>/);
   assert.match(feedXml, /<link>https:\/\/example\.com\/posts\/101<\/link>/);
-  assert.equal(metaJson.pages.some((page) => page.url === '/posts/101'), true);
-  assert.equal(metaJson.pages.some((page) => page.url === '/spec/preview-data-v0.5'), true);
 });
 
 test('buildSite exposes global taxonomies to every render context', async () => {
@@ -1159,11 +1149,6 @@ test('buildSite supports medium fixture with raw Unicode slugs and paginated tax
   assert.ok(sitemapXml.includes(`https://example.kr/${pageSlug}/`));
   assert.equal(sitemapXml.includes(`https://example.kr/categories/${categorySlug}/`), false);
   assert.equal(sitemapXml.includes(`https://example.kr/tags/${tagSlug}/`), false);
-
-  const metaJson = JSON.parse(getFileContent(files, 'meta.json'));
-  assert.equal(metaJson.site.locale, 'ko-KR');
-  assert.equal(metaJson.pages.some((page) => page.url === `/posts/${postSlug}/`), true);
-  assert.equal(metaJson.pages.some((page) => page.url === `/${pageSlug}/`), true);
 
   const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
   for (const outputPath of expectedPaths) {
@@ -1458,7 +1443,7 @@ test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async ()
   assert.equal(files.some((file) => file.path === 'sitemap.xml'), false);
   assert.equal(files.some((file) => file.path === 'feed.xml'), false);
   assert.equal(files.some((file) => file.path === 'robots.txt'), true);
-  assert.equal(files.some((file) => file.path === 'meta.json'), true);
+  assert.equal(files.some((file) => file.path === 'meta.json'), false);
 
   const robotsTxt = getFileContent(files, 'robots.txt');
   assert.equal(robotsTxt.trim(), 'User-agent: *\nAllow: /');
@@ -1552,10 +1537,6 @@ test('buildSite emits only renderable special-file URLs when optional route temp
   assert.equal(sitemapXml.includes('https://example.com/tags/intro/'), false);
   assert.equal(sitemapXml.includes('https://example.com/posts/hello-zeropress/'), true);
   assert.equal(sitemapXml.includes('https://example.com/about/'), true);
-
-  const metaJson = JSON.parse(getFileContent(files, 'meta.json'));
-  assert.equal(metaJson.pages.some((page) => page.url === '/posts/hello-zeropress/'), true);
-  assert.equal(metaJson.pages.some((page) => page.url === '/about/'), true);
 });
 
 test('buildSite skips 404.html when the theme does not provide a 404 template', async () => {

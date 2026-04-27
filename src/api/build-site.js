@@ -83,7 +83,6 @@ export async function buildSite(input) {
       await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.generatedAt), 'application/rss+xml');
     }
     await writeOutput(state.writer, state.summaries, 'robots.txt', buildRobotsTxt(state.previewData.site), 'text/plain');
-    await writeOutput(state.writer, state.summaries, 'meta.json', buildMetaJson(state.previewData.site, state.emitted, state.generatedAt), 'application/json');
   }
 
   return finalizeBuildResult(state.writer, state.summaries, options);
@@ -1647,7 +1646,7 @@ function assertPlannedOutputPathsSafe(state) {
   ];
 
   if (state.options.generateSpecialFiles) {
-    plannedPaths.push('404.html', 'robots.txt', 'meta.json');
+    plannedPaths.push('404.html', 'robots.txt');
     if (hasCanonicalSiteUrl(state.previewData.site.url)) {
       plannedPaths.push('sitemap.xml', 'feed.xml');
     }
@@ -1808,38 +1807,6 @@ function buildRobotsTxt(site) {
     lines.push('', `Sitemap: ${resolveSiteUrl(site.url, '/sitemap.xml')}`);
   }
   return `${lines.join('\n')}\n`;
-}
-
-function buildMetaJson(site, emitted, generatedAt) {
-  const pages = [
-    ...emitted.posts.map((post) => ({
-      url: post.url,
-      title: post.title,
-      description: post.description,
-      publishedAt: post.publishedAt,
-      updatedAt: post.updatedAt,
-      type: 'post',
-      metadata: { status: post.status },
-    })),
-    ...emitted.pages.map((page) => ({
-      url: page.url,
-      title: page.title,
-      description: page.description,
-      type: 'page',
-      metadata: { status: page.status },
-    })),
-  ];
-
-  return JSON.stringify({
-    generated: formatUtcIsoSeconds(generatedAt),
-    site: {
-      title: site.title,
-      description: site.description,
-      url: site.url,
-      locale: site.locale,
-    },
-    pages,
-  }, null, 2);
 }
 
 function getContentType(assetPath) {

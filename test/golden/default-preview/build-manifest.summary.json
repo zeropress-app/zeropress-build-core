@@ -71,10 +71,6 @@
     {
       "path": "robots.txt",
       "contentType": "text/plain"
-    },
-    {
-      "path": "meta.json",
-      "contentType": "application/json"
     }
   ]
 }
