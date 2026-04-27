@@ -168,6 +168,7 @@ async function renderRoute(state, templateName, route) {
     {
       menus: state.previewData.menus,
       widgets: state.widgets,
+      taxonomies: state.renderData.taxonomies,
       ...route,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
@@ -191,6 +192,7 @@ async function renderPost(state, post) {
     {
       menus: state.previewData.menus,
       widgets: state.widgets,
+      taxonomies: state.renderData.taxonomies,
       post,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
@@ -224,6 +226,7 @@ async function renderPage(state, page) {
     {
       menus: state.previewData.menus,
       widgets: state.widgets,
+      taxonomies: state.renderData.taxonomies,
       page,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
@@ -256,6 +259,7 @@ async function maybeRenderNotFoundPage(state) {
     {
       menus: state.previewData.menus,
       widgets: state.widgets,
+      taxonomies: state.renderData.taxonomies,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl: '/404.html',
         title: state.previewData.site.title,
@@ -407,6 +411,7 @@ function createRenderData(previewData, themeMetadata = {}) {
     posts,
     pages,
     postBySlug,
+    taxonomies: buildGlobalTaxonomies(previewData, categoryCountBySlug, tagCountBySlug),
     indexRoutes: buildPaginatedCollection({
       items: previewData.content.posts,
       postsPerPage: previewData.site.postsPerPage,
@@ -456,6 +461,23 @@ function createRenderData(previewData, themeMetadata = {}) {
       }),
     }),
   };
+}
+
+function buildGlobalTaxonomies(previewData, categoryCountBySlug, tagCountBySlug) {
+  return {
+    categories: buildGlobalTaxonomyItems(previewData.site, 'categories', previewData.content.categories, categoryCountBySlug),
+    tags: buildGlobalTaxonomyItems(previewData.site, 'tags', previewData.content.tags, tagCountBySlug),
+  };
+}
+
+function buildGlobalTaxonomyItems(site, permalinkKind, items, countBySlug) {
+  return items.map((item) => ({
+    name: item.name,
+    slug: item.slug,
+    url: resolvePermalink(site, permalinkKind, item).url,
+    count: countBySlug.get(item.slug) || 0,
+    description: typeof item.description === 'string' ? item.description : '',
+  }));
 }
 
 function resolveWidgetAreas(previewData, renderData) {

@@ -886,6 +886,68 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   assert.equal(metaJson.pages.some((page) => page.url === '/spec/preview-data-v0.5'), true);
 });
 
+test('buildSite exposes global taxonomies to every render context', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.permalinks = {
+    output_style: 'html-extension',
+    posts: '/posts/:public_id',
+    pages: '/:slug/',
+    categories: '/topics/:slug/',
+    tags: '/labels/:slug/',
+  };
+  previewData.content.categories.push({
+    name: 'Empty Category',
+    slug: 'empty-category',
+  });
+  previewData.content.tags.push({
+    name: 'Quiet Tag',
+    slug: 'quiet-tag',
+    description: 'Tag with no posts',
+  });
+
+  themePackage.templates.set('layout', [
+    '<html>',
+    '  <body>',
+    '    <nav class="global-taxonomies">',
+    '      {{#for category in taxonomies.categories}}<a class="global-category" href="{{category.url}}" data-slug="{{category.slug}}" data-count="{{category.count}}" data-description="{{category.description}}">{{category.name}}</a>{{/for}}',
+    '      {{#for tag in taxonomies.tags}}<a class="global-tag" href="{{tag.url}}" data-slug="{{tag.slug}}" data-count="{{tag.count}}" data-description="{{tag.description}}">{{tag.name}}</a>{{/for}}',
+    '    </nav>',
+    '    <main>{{slot:content}}</main>',
+    '  </body>',
+    '</html>',
+  ].join('\n'));
+  themePackage.templates.set('category', '<section class="category-route" data-count="{{taxonomy.count}}">{{taxonomy.name}}</section>');
+  themePackage.templates.set('tag', '<section class="tag-route" data-count="{{taxonomy.count}}">{{taxonomy.name}}</section>');
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: true },
+  });
+
+  const files = writer.getFiles();
+  const indexHtml = getFileContent(files, 'index.html');
+  const postHtml = getFileContent(files, 'posts/101.html');
+  const pageHtml = getFileContent(files, 'about.html');
+  const notFoundHtml = getFileContent(files, '404.html');
+  const categoryHtml = getFileContent(files, 'topics/general.html');
+  const tagHtml = getFileContent(files, 'labels/intro.html');
+
+  assert.match(indexHtml, /<a class="global-category" href="\/topics\/general" data-slug="general" data-count="3" data-description="General posts">General<\/a>/);
+  assert.match(indexHtml, /<a class="global-category" href="\/topics\/empty-category" data-slug="empty-category" data-count="0" data-description="">Empty Category<\/a>/);
+  assert.match(indexHtml, /<a class="global-tag" href="\/labels\/intro" data-slug="intro" data-count="3" data-description="">Intro<\/a>/);
+  assert.match(indexHtml, /<a class="global-tag" href="\/labels\/quiet-tag" data-slug="quiet-tag" data-count="0" data-description="Tag with no posts">Quiet Tag<\/a>/);
+  assert.match(categoryHtml, /<section class="category-route" data-count="3">General<\/section>/);
+  assert.match(tagHtml, /<section class="tag-route" data-count="3">Intro<\/section>/);
+  assert.match(postHtml, /<nav class="global-taxonomies">/);
+  assert.match(pageHtml, /<nav class="global-taxonomies">/);
+  assert.match(notFoundHtml, /<nav class="global-taxonomies">/);
+});
+
 test('buildSite applies date-based post permalinks in directory output style', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
