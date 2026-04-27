@@ -1,7 +1,7 @@
 export class VariableResolver {
   static MENU_PATTERN = /\{\{menu:([a-z][a-z0-9_-]{0,63})\}\}/g;
-  static VARIABLE_PATTERN = /\{\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)+)\}\}/g;
-  static STANDALONE_PATTERN = /\{\{([a-zA-Z_][a-zA-Z0-9_]*)\}\}/g;
+  static VARIABLE_PATTERN = /\{\{([a-zA-Z_][a-zA-Z0-9_]*(?:-[a-zA-Z0-9_]+)*(?:\.[a-zA-Z_][a-zA-Z0-9_]*(?:-[a-zA-Z0-9_]+)*)+)\}\}/g;
+  static STANDALONE_PATTERN = /\{\{([a-zA-Z_][a-zA-Z0-9_]*(?:-[a-zA-Z0-9_]+)*)\}\}/g;
 
   resolve(template, data, options = {}) {
     let result = template.replace(VariableResolver.MENU_PATTERN, (_, menuId) => {

@@ -116,7 +116,7 @@ function createInterpolatingRenderer() {
 
   return new ControlFlowRenderer({
     resolvePath,
-    renderText: (value, data) => String(value || '').replace(/\{\{([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\}\}/g, (_, templatePath) => {
+    renderText: (value, data) => String(value || '').replace(/\{\{([a-zA-Z_][a-zA-Z0-9_]*(?:-[a-zA-Z0-9_]+)*(?:\.[a-zA-Z_][a-zA-Z0-9_]*(?:-[a-zA-Z0-9_]+)*)*)\}\}/g, (_, templatePath) => {
       const resolved = resolvePath(data, templatePath);
       return resolved == null ? '' : String(resolved);
     }),
@@ -175,6 +175,25 @@ test('ControlFlowRenderer exposes loop metadata and else_if branches', () => {
   );
 
   assert.equal(output, 'first:0:One;middle:1:Two;last:2:Three;');
+});
+
+test('ControlFlowRenderer renders internal hyphens in data path segments', () => {
+  const renderer = createInterpolatingRenderer();
+  const output = renderer.render(
+    '{{#if menus.docs-sidebar.items}}{{#for section in menus.docs-sidebar.items}}{{#if section.custom-title}}{{section.custom-title}}{{#else_if section.fallback-title}}{{section.fallback-title}}{{/if}}{{#if_eq section.custom-kind "guide"}}:{{section.custom-kind}}{{/if_eq}};{{/for}}{{/if}}',
+    {
+      menus: {
+        'docs-sidebar': {
+          items: [
+            { 'custom-kind': 'guide', 'custom-title': 'Guides' },
+            { 'custom-kind': 'reference', 'fallback-title': 'Reference' },
+          ],
+        },
+      },
+    },
+  );
+
+  assert.equal(output, 'Guides:guide;Reference;');
 });
 
 test('ControlFlowRenderer renders partial arguments and nested partial shadowing', () => {
@@ -269,6 +288,56 @@ test('buildSite renders menu helpers from preview-data menus', async () => {
 
   assert.match(indexHtml, /<header><ul><li><a href="\/" target="_self">Home<\/a><\/li><li><a href="\/archive\/" target="_self">Archive<\/a><\/li><\/ul><\/header>/);
   assert.match(indexHtml, /<footer><ul><li><a href="\/docs\/" target="_blank" rel="noreferrer noopener">Docs<\/a><\/li><\/ul><\/footer>/);
+});
+
+test('buildSite renders custom menu loops with hyphenated slot ids', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  themePackage.templates.set('index', `
+<main class="docs-home">
+  {{#for section in menus.docs-sidebar.items}}
+    <section class="docs-sidebar__section">
+      <h2>{{section.title}}</h2>
+      {{#for item in section.children}}<a href="{{item.url}}">{{item.title}}</a>{{/for}}
+    </section>
+  {{/for}}
+</main>
+`);
+  previewData.menus['docs-sidebar'] = {
+    name: 'Docs Sidebar',
+    items: [
+      {
+        title: 'Getting Started',
+        url: '/docs/',
+        type: 'custom',
+        target: '_self',
+        children: [
+          {
+            title: 'Introduction',
+            url: '/docs/introduction/',
+            type: 'custom',
+            target: '_self',
+            children: [],
+          },
+        ],
+      },
+    ],
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+
+  assert.match(indexHtml, /<section class="docs-sidebar__section">/);
+  assert.match(indexHtml, /<h2>Getting Started<\/h2>/);
+  assert.match(indexHtml, /<a href="\/docs\/introduction\/">Introduction<\/a>/);
 });
 
 test('buildSite renders widget areas and injects preview-data custom CSS assets', async () => {

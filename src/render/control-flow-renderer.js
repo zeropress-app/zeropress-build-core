@@ -1,8 +1,9 @@
 import { parsePartialToken } from './partial-resolver.js';
 
-const PATH_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*$/;
-const FOR_EXPRESSION_REGEX = /^([a-zA-Z_][a-zA-Z0-9_]*)\s+in\s+([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)$/;
-const IF_EQ_EXPRESSION_REGEX = /^([a-zA-Z_][a-zA-Z0-9_]*(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*)\s+("(?:[^"\\]|\\.)*")$/;
+const PATH_SEGMENT_SOURCE = '[a-zA-Z_][a-zA-Z0-9_]*(?:-[a-zA-Z0-9_]+)*';
+const PATH_REGEX = new RegExp(`^${PATH_SEGMENT_SOURCE}(?:\\.${PATH_SEGMENT_SOURCE})*$`);
+const FOR_EXPRESSION_REGEX = new RegExp(`^([a-zA-Z_][a-zA-Z0-9_]*)\\s+in\\s+(${PATH_SEGMENT_SOURCE}(?:\\.${PATH_SEGMENT_SOURCE})*)$`);
+const IF_EQ_EXPRESSION_REGEX = new RegExp(`^(${PATH_SEGMENT_SOURCE}(?:\\.${PATH_SEGMENT_SOURCE})*)\\s+("(?:[^"\\\\]|\\\\.)*")$`);
 
 export class ControlFlowRenderer {
   constructor(options = {}) {
