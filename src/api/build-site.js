@@ -124,6 +124,7 @@ async function createBuildState(input, options) {
     assetOutputs,
     assetMap,
     customCssHref: customCssAsset ? `/${customCssAsset.path}` : '',
+    customHtml: previewData.custom_html,
     commentPolicyContent: buildCommentPolicyManifest(renderData.posts),
     options,
     generatedAt: new Date(),
@@ -179,7 +180,7 @@ async function renderRoute(state, templateName, route) {
     createRenderContext(state.previewData.site, currentUrl),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
-  html = injectCustomCssAssetLink(html, state.customCssHref);
+  html = injectSiteCustomizations(html, state);
   await writeOutput(state.writer, state.summaries, routePathToOutputPath(route.path, state.previewData.site.permalinks.output_style), html, 'text/html');
   recordRouteEmission(state, templateName, route, currentUrl);
 }
@@ -206,7 +207,7 @@ async function renderPost(state, post) {
     createRenderContext(state.previewData.site, currentUrl),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
-  html = injectCustomCssAssetLink(html, state.customCssHref);
+  html = injectSiteCustomizations(html, state);
   await writeOutput(state.writer, state.summaries, routePathToOutputPath(post.url, state.previewData.site.permalinks.output_style), html, 'text/html');
   state.emitted.posts.push({
     url: currentUrl,
@@ -238,7 +239,7 @@ async function renderPage(state, page) {
     createRenderContext(state.previewData.site, currentUrl),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
-  html = injectCustomCssAssetLink(html, state.customCssHref);
+  html = injectSiteCustomizations(html, state);
   await writeOutput(state.writer, state.summaries, routePathToOutputPath(page.url, state.previewData.site.permalinks.output_style), html, 'text/html');
   state.emitted.pages.push({
     url: currentUrl,
@@ -269,7 +270,7 @@ async function maybeRenderNotFoundPage(state) {
     createRenderContext(state.previewData.site, '/404.html'),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
-  html = injectCustomCssAssetLink(html, state.customCssHref);
+  html = injectSiteCustomizations(html, state);
   await writeOutput(state.writer, state.summaries, '404.html', html, 'text/html');
 }
 
@@ -293,6 +294,7 @@ function normalizePreviewData(previewData) {
     site: normalizedSite,
     widgets: normalizeWidgetAreas(previewData.widgets, normalizedSite.mediaBaseUrl),
     custom_css: normalizeCustomCss(previewData.custom_css),
+    custom_html: normalizeCustomHtml(previewData.custom_html),
     content: {
       ...previewData.content,
       authors: previewData.content.authors.map((author) => ({
@@ -358,6 +360,23 @@ function normalizeWidgetItem(item, mediaBaseUrl) {
 function normalizeCustomCss(customCss) {
   const content = normalizeOptionalString(customCss?.content);
   return content ? { content } : undefined;
+}
+
+function normalizeCustomHtml(customHtml) {
+  if (!customHtml || typeof customHtml !== 'object') {
+    return undefined;
+  }
+
+  const headEnd = normalizeOptionalRawString(customHtml.head_end?.content);
+  const bodyEnd = normalizeOptionalRawString(customHtml.body_end?.content);
+  if (!headEnd && !bodyEnd) {
+    return undefined;
+  }
+
+  return {
+    ...(headEnd ? { head_end: { content: headEnd } } : {}),
+    ...(bodyEnd ? { body_end: { content: bodyEnd } } : {}),
+  };
 }
 
 function normalizePermalinks(permalinks) {
@@ -1165,6 +1184,10 @@ function normalizeOptionalString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
 }
 
+function normalizeOptionalRawString(value) {
+  return typeof value === 'string' && value.trim() ? value : '';
+}
+
 function normalizeLocale(value) {
   if (typeof value !== 'string' || !value.trim()) {
     return DEFAULT_LOCALE;
@@ -1745,12 +1768,33 @@ function sha256(content) {
   return hash.digest('hex');
 }
 
+function injectSiteCustomizations(html, state) {
+  let next = injectCustomCssAssetLink(html, state.customCssHref);
+  next = injectCustomHtml(next, state.customHtml);
+  return next;
+}
+
 function injectCustomCssAssetLink(html, href) {
   if (!normalizeOptionalString(href)) {
     return html;
   }
 
   return html.replace('</head>', `  <link rel="stylesheet" href="${escapeHtml(href)}">\n</head>`);
+}
+
+function injectCustomHtml(html, customHtml) {
+  let next = html;
+  const headEnd = normalizeOptionalRawString(customHtml?.head_end?.content);
+  const bodyEnd = normalizeOptionalRawString(customHtml?.body_end?.content);
+
+  if (headEnd) {
+    next = next.replace('</head>', `${headEnd}\n</head>`);
+  }
+  if (bodyEnd) {
+    next = next.replace('</body>', `${bodyEnd}\n</body>`);
+  }
+
+  return next;
 }
 
 function buildSitemapXml(site, emitted, generatedAt) {

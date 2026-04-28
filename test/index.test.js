@@ -434,6 +434,52 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
   assert.match(indexHtml, /Sidebar <strong>markdown<\/strong>/);
 });
 
+test('buildSite injects trusted custom HTML into rendered HTML routes', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.custom_css = {
+    content: 'body { color: rgb(10, 20, 30); }',
+  };
+  previewData.custom_html = {
+    head_end: {
+      content: '<meta name="zp-custom-head" content="ok">\n<script>window.__zp_head = true;</script>',
+    },
+    body_end: {
+      content: '<script defer src="/vendor/app.js"></script>',
+    },
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const files = writer.getFiles();
+  const indexHtml = getFileContent(files, 'index.html');
+  const postHtml = getFileContent(files, 'posts/hello-zeropress/index.html');
+  const pageHtml = getFileContent(files, 'about/index.html');
+  const notFoundHtml = getFileContent(files, '404.html');
+  const sitemapXml = getFileContent(files, 'sitemap.xml');
+
+  for (const html of [indexHtml, postHtml, pageHtml, notFoundHtml]) {
+    assert.match(html, /<meta name="zp-custom-head" content="ok">/);
+    assert.match(html, /<script>window\.__zp_head = true;<\/script>/);
+    assert.match(html, /<script defer src="\/vendor\/app\.js"><\/script>\n<\/body>/);
+    assert.doesNotMatch(html, /&lt;meta name="zp-custom-head"/);
+  }
+
+  const customCssLinkIndex = indexHtml.indexOf('<link rel="stylesheet" href="/assets/zeropress-custom');
+  const customHeadIndex = indexHtml.indexOf('<meta name="zp-custom-head" content="ok">');
+  const headCloseIndex = indexHtml.indexOf('</head>');
+  assert.ok(customCssLinkIndex > -1, 'Expected custom CSS link to be injected');
+  assert.ok(customHeadIndex > customCssLinkIndex, 'Expected custom HTML head_end after custom CSS link');
+  assert.ok(headCloseIndex > customHeadIndex, 'Expected custom HTML head_end before </head>');
+  assert.doesNotMatch(sitemapXml, /zp-custom-head|vendor\/app\.js/);
+});
+
 test('buildSite runtime 0.5 renders resolved widgets with escaping and safe URL filtering', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
