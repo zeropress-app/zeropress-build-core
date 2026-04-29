@@ -249,6 +249,21 @@ test('buildSite matches the golden fixture for the default preview payload', asy
   }
 });
 
+test('buildSite reports invalid preview data at the core API boundary', async () => {
+  const writer = new MemoryWriter();
+  const themePackage = await loadGoldenThemePackage();
+
+  await assert.rejects(
+    () => buildSite({
+      previewData: { version: '0.3' },
+      themePackage,
+      writer,
+      options: { generateSpecialFiles: false },
+    }),
+    /Invalid preview-data:/,
+  );
+});
+
 test('buildSite renders menu helpers from preview-data menus', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();

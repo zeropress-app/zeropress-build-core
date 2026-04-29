@@ -93,7 +93,7 @@ async function createBuildState(input, options) {
     throw new Error('buildSite requires a writer with an async write(file) method');
   }
 
-  assertPreviewData(input.previewData);
+  assertBuildPreviewData(input.previewData);
   const themePackage = await normalizeAndValidateThemePackage(input.themePackage);
 
   const engine = new ZeroPressEngine();
@@ -137,6 +137,18 @@ async function createBuildState(input, options) {
       pages: [],
     },
   };
+}
+
+function assertBuildPreviewData(previewData) {
+  try {
+    assertPreviewData(previewData);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith('Invalid preview-data')) {
+      throw error;
+    }
+    throw new Error(`Invalid preview-data: ${message}`);
+  }
 }
 
 async function finalizeBuildResult(writer, summaries, options) {
