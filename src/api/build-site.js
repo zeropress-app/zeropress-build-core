@@ -233,6 +233,7 @@ async function renderPost(state, post) {
 
 async function renderPage(state, page) {
   const currentUrl = page.url;
+  const outputPath = pageToOutputPath(page, state.previewData.site.permalinks.output_style);
   let html = await state.engine.render(
     'page',
     {
@@ -252,7 +253,7 @@ async function renderPage(state, page) {
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   html = injectSiteCustomizations(html, state);
-  await writeOutput(state.writer, state.summaries, routePathToOutputPath(page.url, state.previewData.site.permalinks.output_style), html, 'text/html');
+  await writeOutput(state.writer, state.summaries, outputPath, html, 'text/html');
   state.emitted.pages.push({
     url: currentUrl,
     title: page.title,
@@ -1550,6 +1551,22 @@ function routePathToPublicUrl(routePath, outputStyle = DEFAULT_PERMALINKS.output
   return normalizedPath;
 }
 
+function pagePathToPublicUrl(routePath, outputStyle = DEFAULT_PERMALINKS.output_style) {
+  const normalizedPath = normalizeRoutePath(routePath);
+  if (outputStyle !== 'html-extension') {
+    return routePathToPublicUrl(normalizedPath, outputStyle);
+  }
+
+  const withoutTrailingSlash = normalizedPath.replace(/\/$/, '');
+  if (withoutTrailingSlash === '/index') {
+    return '/';
+  }
+  if (withoutTrailingSlash.endsWith('/index')) {
+    return `${withoutTrailingSlash.slice(0, -'/index'.length)}/`;
+  }
+  return withoutTrailingSlash;
+}
+
 function normalizeRoutePath(routePath) {
   if (!routePath || routePath === '/') {
     return '/';
@@ -1560,7 +1577,7 @@ function normalizeRoutePath(routePath) {
 
 function resolvePagePermalink(site, page) {
   if (normalizeOptionalString(page.path)) {
-    return buildRouteInfo(page.path, site.permalinks.output_style);
+    return buildRouteInfo(page.path, site.permalinks.output_style, { pagePath: true });
   }
   return resolvePermalink(site, 'pages', page);
 }
@@ -1570,13 +1587,19 @@ function resolvePermalink(site, kind, item) {
   return buildRouteInfo(applyPermalinkPattern(pattern, kind, item, site), site.permalinks.output_style);
 }
 
-function buildRouteInfo(routePath, outputStyle) {
+function buildRouteInfo(routePath, outputStyle, options = {}) {
   const path = normalizeRoutePath(routePath);
   return {
     path,
-    url: routePathToPublicUrl(path, outputStyle),
+    url: options.pagePath ? pagePathToPublicUrl(path, outputStyle) : routePathToPublicUrl(path, outputStyle),
     outputPath: routePathToOutputPath(path, outputStyle),
   };
+}
+
+function pageToOutputPath(page, outputStyle) {
+  return normalizeOptionalString(page.path)
+    ? routePathToOutputPath(page.path, outputStyle)
+    : routePathToOutputPath(page.url, outputStyle);
 }
 
 function applyPermalinkPattern(pattern, kind, item, site) {
@@ -1635,7 +1658,7 @@ function assertPlannedOutputPathsSafe(state) {
   }
 
   for (const page of state.renderData.pages) {
-    assertSafeSlugDerivedOutputPath(page.slug, routePathToOutputPath(page.url, outputStyle));
+    assertSafeSlugDerivedOutputPath(page.slug, pageToOutputPath(page, outputStyle));
   }
 
   for (const category of state.previewData.content.categories) {
@@ -1669,7 +1692,7 @@ function assertPlannedOutputPathsSafe(state) {
     })),
     ...state.renderData.pages.map((page) => ({
       url: page.url,
-      outputPath: routePathToOutputPath(page.url, outputStyle),
+      outputPath: pageToOutputPath(page, outputStyle),
     })),
   ];
   assertUniqueRoutes(routeEntries);

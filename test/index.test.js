@@ -896,6 +896,13 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
     tags: '/labels/:slug/',
   };
   previewData.content.pages[0].path = 'spec/preview-data-v0.5';
+  previewData.content.pages.push({
+    ...previewData.content.pages[0],
+    title: 'CLI Tools',
+    slug: 'cli',
+    path: 'cli/index',
+    content: '<p>CLI page</p>',
+  });
 
   await buildSite({
     previewData,
@@ -909,6 +916,8 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   assert.equal(paths.has('posts/101.html'), true);
   assert.equal(paths.has('posts/101/index.html'), false);
   assert.equal(paths.has('spec/preview-data-v0.5.html'), true);
+  assert.equal(paths.has('cli/index.html'), true);
+  assert.equal(paths.has('cli.html'), false);
   assert.equal(paths.has('topics/general.html'), true);
   assert.equal(paths.has('topics/general/page/2.html'), true);
   assert.equal(paths.has('labels/intro.html'), true);
@@ -919,6 +928,7 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   const indexHtml = getFileContent(files, 'index.html');
   const postHtml = getFileContent(files, 'posts/101.html');
   const pageHtml = getFileContent(files, 'spec/preview-data-v0.5.html');
+  const indexPageHtml = getFileContent(files, 'cli/index.html');
   const categoryHtml = getFileContent(files, 'topics/general.html');
   const tagHtml = getFileContent(files, 'labels/intro.html');
   const sitemapXml = getFileContent(files, 'sitemap.xml');
@@ -930,10 +940,14 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   assert.match(postHtml, /<a href="\/topics\/general" class="category-link">General<\/a>/);
   assert.match(postHtml, /<a href="\/labels\/intro" class="tag-link">Intro<\/a>/);
   assert.match(pageHtml, /<link rel="canonical" href="https:\/\/example\.com\/spec\/preview-data-v0\.5">/);
+  assert.match(indexPageHtml, /<link rel="canonical" href="https:\/\/example\.com\/cli\/">/);
+  assert.doesNotMatch(indexPageHtml, /https:\/\/example\.com\/cli\/index/);
   assert.match(categoryHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
   assert.match(tagHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/posts\/101<\/loc>/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/spec\/preview-data-v0\.5<\/loc>/);
+  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/cli\/<\/loc>/);
+  assert.doesNotMatch(sitemapXml, /https:\/\/example\.com\/cli\/index/);
   assert.match(feedXml, /<link>https:\/\/example\.com\/posts\/101<\/link>/);
 });
 
@@ -1049,6 +1063,38 @@ test('buildSite rejects duplicate permalink routes before writing files', async 
       options: { generateSpecialFiles: false },
     }),
     /Duplicate public URL detected: \/posts\/101/,
+  );
+  assert.equal(writer.getFiles().length, 0);
+});
+
+test('buildSite rejects html-extension page path index public URL collisions', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.permalinks = {
+    output_style: 'html-extension',
+    posts: '/posts/:slug',
+    pages: '/:slug',
+    categories: '/categories/:slug',
+    tags: '/tags/:slug',
+  };
+  previewData.content.pages[0].path = 'cli';
+  previewData.content.pages.push({
+    ...previewData.content.pages[0],
+    title: 'CLI Index',
+    slug: 'cli-index',
+    path: 'cli/index',
+  });
+
+  await assert.rejects(
+    () => buildSite({
+      previewData,
+      themePackage,
+      writer,
+      options: { generateSpecialFiles: false },
+    }),
+    /Duplicate public URL detected: \/cli\//,
   );
   assert.equal(writer.getFiles().length, 0);
 });
