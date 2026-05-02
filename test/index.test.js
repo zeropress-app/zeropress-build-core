@@ -951,6 +951,218 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   assert.match(feedXml, /<link>https:\/\/example\.com\/posts\/101<\/link>/);
 });
 
+test('buildSite treats theme postIndex=false as effective post index disabled', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.metadata.features = {
+    ...(themePackage.metadata.features || {}),
+    postIndex: false,
+  };
+  themePackage.templates.set('index', [
+    '<section data-route="{{route.type}}" data-front="{{route.is_front_page}}" data-post-index="{{route.is_post_index}}" data-pagination="{{pagination.enabled}}">',
+    '{{#for post in posts.items}}<a href="{{post.url}}">{{post.title}}</a>{{/for}}',
+    '</section>',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const files = writer.getFiles();
+  const indexHtml = getFileContent(files, 'index.html');
+
+  assert.match(indexHtml, /data-route="front_page"/);
+  assert.match(indexHtml, /data-front="true"/);
+  assert.match(indexHtml, /data-post-index="false"/);
+  assert.match(indexHtml, /data-pagination="false"/);
+  assert.doesNotMatch(indexHtml, /Hello ZeroPress/);
+  assert.equal(files.some((file) => file.path === 'page/2/index.html'), false);
+});
+
+test('buildSite supports a non-paginated root post index', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.postsPerPage = 1;
+  previewData.site.post_index = {
+    enabled: true,
+    path: '/',
+    paginate: false,
+  };
+  themePackage.templates.set('index', [
+    '<section data-route="{{route.type}}" data-front="{{route.is_front_page}}" data-post-index="{{route.is_post_index}}" data-pagination="{{pagination.enabled}}">',
+    '{{#for post in posts.items}}<a href="{{post.url}}">{{post.title}}</a>{{/for}}',
+    '</section>',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const files = writer.getFiles();
+  const indexHtml = getFileContent(files, 'index.html');
+
+  assert.match(indexHtml, /data-route="post_index"/);
+  assert.match(indexHtml, /data-front="true"/);
+  assert.match(indexHtml, /data-post-index="true"/);
+  assert.match(indexHtml, /data-pagination="false"/);
+  assert.match(indexHtml, /Hello ZeroPress/);
+  assert.doesNotMatch(indexHtml, /Theme Blocks Deep Dive/);
+  assert.equal(files.some((file) => file.path === 'page/2/index.html'), false);
+});
+
+test('buildSite supports front page page content with a separate post index', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.postsPerPage = 1;
+  previewData.site.front_page = {
+    type: 'page',
+    page_slug: 'about',
+  };
+  previewData.site.post_index = {
+    enabled: true,
+    path: '/blog/',
+    paginate: true,
+  };
+  themePackage.templates.set('index', [
+    '<section data-route="{{route.type}}" data-front="{{route.is_front_page}}" data-post-index="{{route.is_post_index}}">',
+    '{{#for post in posts.items}}<a href="{{post.url}}">{{post.title}}</a>{{/for}}',
+    '</section>',
+  ].join(''));
+  themePackage.templates.set('page', '<section data-route="{{route.type}}" data-front="{{route.is_front_page}}"><h1>{{page.title}}</h1>{{page.html}}</section>');
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const files = writer.getFiles();
+  const rootHtml = getFileContent(files, 'index.html');
+  const blogHtml = getFileContent(files, 'blog/index.html');
+  const sitemapXml = getFileContent(files, 'sitemap.xml');
+
+  assert.match(rootHtml, /data-route="front_page"/);
+  assert.match(rootHtml, /data-front="true"/);
+  assert.match(rootHtml, /<h1>About<\/h1>/);
+  assert.match(blogHtml, /data-route="post_index"/);
+  assert.match(blogHtml, /data-front="false"/);
+  assert.match(blogHtml, /Hello ZeroPress/);
+  assert.equal(files.some((file) => file.path === 'blog/page/2/index.html'), true);
+  assert.equal(files.some((file) => file.path === 'about/index.html'), false);
+  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/<\/loc>/);
+  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/blog\/<\/loc>/);
+  assert.doesNotMatch(sitemapXml, /<loc>https:\/\/example\.com\/about\/<\/loc>/);
+});
+
+test('buildSite supports an index slug as front page without emitting a duplicate page route', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.permalinks = {
+    output_style: 'html-extension',
+    posts: '/posts/:slug/',
+    pages: '/:slug/',
+    categories: '/categories/:slug/',
+    tags: '/tags/:slug/',
+  };
+  previewData.site.front_page = {
+    type: 'page',
+    page_slug: 'index',
+  };
+  previewData.site.post_index = {
+    enabled: false,
+  };
+  previewData.content.pages.unshift({
+    title: 'Home',
+    slug: 'index',
+    content: '# Home\n\nWelcome home.',
+    document_type: 'markdown',
+    excerpt: 'Welcome home.',
+    status: 'published',
+  });
+  themePackage.templates.set('page', '<section data-route="{{route.type}}" data-front="{{route.is_front_page}}"><h1>{{page.title}}</h1>{{page.html}}</section>');
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const files = writer.getFiles();
+  const rootHtml = getFileContent(files, 'index.html');
+  const sitemapXml = getFileContent(files, 'sitemap.xml');
+
+  assert.match(rootHtml, /data-route="front_page"/);
+  assert.match(rootHtml, /data-front="true"/);
+  assert.match(rootHtml, /Welcome home\./);
+  assert.equal(files.filter((file) => file.path === 'index.html').length, 1);
+  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/<\/loc>/);
+  assert.doesNotMatch(sitemapXml, /https:\/\/example\.com\/index/);
+});
+
+test('buildSite supports standalone front page HTML', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.front_page = {
+    type: 'standalone_html',
+    html: '<!doctype html><html><head><title>Launch</title></head><body><h1>Launch</h1><script>window.launch = true;</script></body></html>',
+  };
+  previewData.site.post_index = {
+    enabled: true,
+    path: '/blog/',
+    paginate: false,
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const files = writer.getFiles();
+  const rootHtml = getFileContent(files, 'index.html');
+  const sitemapXml = getFileContent(files, 'sitemap.xml');
+  const feedXml = getFileContent(files, 'feed.xml');
+
+  assert.equal(rootHtml, previewData.site.front_page.html);
+  assert.equal(files.some((file) => file.path === 'blog/index.html'), true);
+  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/<\/loc>/);
+  assert.doesNotMatch(feedXml, /Launch/);
+});
+
+test('buildSite rejects front page root conflicts before writing files', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.front_page = {
+    type: 'page',
+    page_slug: 'about',
+  };
+  previewData.site.post_index = {
+    enabled: true,
+    path: '/',
+    paginate: false,
+  };
+
+  await assert.rejects(
+    () => buildSite({
+      previewData,
+      themePackage,
+      writer,
+    }),
+    /site\.front_page occupies "\/"/,
+  );
+  assert.equal(writer.getFiles().length, 0);
+});
+
 test('buildSite exposes global taxonomies to every render context', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();

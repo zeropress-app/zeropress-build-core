@@ -24,6 +24,14 @@ const DEFAULT_PERMALINKS = Object.freeze({
   categories: '/categories/:slug/',
   tags: '/tags/:slug/',
 });
+const DEFAULT_FRONT_PAGE = Object.freeze({
+  type: 'theme_index',
+});
+const DEFAULT_POST_INDEX = Object.freeze({
+  enabled: true,
+  path: '/',
+  paginate: true,
+});
 const PERMALINK_OUTPUT_STYLES = new Set(['directory', 'html-extension']);
 const COMMENT_POLICY_OUTPUT_PATH = '_zeropress/comment-policy.json';
 const OUTPUT_PATH_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
@@ -33,6 +41,10 @@ export async function buildSite(input) {
   const options = { ...DEFAULT_OPTIONS, ...(input.options || {}) };
   const state = await createBuildState(input, options);
   assertPlannedOutputPathsSafe(state);
+
+  if (state.renderData.frontPageRoute) {
+    await renderFrontPage(state, state.renderData.frontPageRoute);
+  }
 
   for (const route of state.renderData.indexRoutes) {
     await renderRoute(state, 'index', route);
@@ -129,6 +141,7 @@ async function createBuildState(input, options) {
     options,
     generatedAt: new Date(),
     emitted: {
+      frontPage: null,
       indexRoutes: [],
       archiveRoutes: [],
       categoryRoutes: [],
@@ -175,6 +188,10 @@ async function finalizeBuildResult(writer, summaries, options) {
 
 async function renderRoute(state, templateName, route) {
   const currentUrl = routePathToPublicUrl(route.path, state.previewData.site.permalinks.output_style);
+  const routeContext = buildRouteContext(route.route_type || templateName, currentUrl, {
+    isFrontPage: route.is_front_page === true,
+    isPostIndex: route.is_post_index === true,
+  });
   let html = await state.engine.render(
     templateName,
     {
@@ -182,6 +199,7 @@ async function renderRoute(state, templateName, route) {
       widgets: state.widgets,
       taxonomies: state.renderData.taxonomies,
       ...route,
+      route: routeContext,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
         title: state.previewData.site.title,
@@ -197,6 +215,87 @@ async function renderRoute(state, templateName, route) {
   recordRouteEmission(state, templateName, route, currentUrl);
 }
 
+async function renderFrontPage(state, route) {
+  const currentUrl = '/';
+  const routeContext = buildRouteContext('front_page', currentUrl, {
+    isFrontPage: true,
+    isPostIndex: false,
+  });
+
+  if (route.front_page_type === 'standalone_html') {
+    await writeOutput(state.writer, state.summaries, 'index.html', route.html, 'text/html');
+    state.emitted.frontPage = {
+      url: currentUrl,
+      title: state.previewData.site.title,
+      description: state.previewData.site.description,
+      includeInFeed: false,
+    };
+    return;
+  }
+
+  if (route.front_page_type === 'page') {
+    const page = {
+      ...route.page,
+      url: currentUrl,
+    };
+    let html = await state.engine.render(
+      'page',
+      {
+        menus: state.previewData.menus,
+        widgets: state.widgets,
+        taxonomies: state.renderData.taxonomies,
+        page,
+        route: routeContext,
+        meta: buildPageMeta(state.previewData.site, {
+          currentUrl,
+          title: buildDocumentTitle(page.title, state.previewData.site.title),
+          description: page.excerpt,
+          ogType: 'website',
+          image: page.featured_image,
+        }),
+      },
+      createRenderContext(state.previewData.site, currentUrl),
+    );
+    html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
+    html = injectSiteCustomizations(html, state);
+    await writeOutput(state.writer, state.summaries, 'index.html', html, 'text/html');
+    state.emitted.frontPage = {
+      url: currentUrl,
+      title: page.title,
+      description: page.excerpt,
+      includeInFeed: false,
+    };
+    return;
+  }
+
+  let html = await state.engine.render(
+    'index',
+    {
+      menus: state.previewData.menus,
+      widgets: state.widgets,
+      taxonomies: state.renderData.taxonomies,
+      ...route,
+      route: routeContext,
+      meta: buildPageMeta(state.previewData.site, {
+        currentUrl,
+        title: state.previewData.site.title,
+        description: state.previewData.site.description,
+        ogType: 'website',
+      }),
+    },
+    createRenderContext(state.previewData.site, currentUrl),
+  );
+  html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
+  html = injectSiteCustomizations(html, state);
+  await writeOutput(state.writer, state.summaries, 'index.html', html, 'text/html');
+  state.emitted.frontPage = {
+    url: currentUrl,
+    title: state.previewData.site.title,
+    description: state.previewData.site.description,
+    includeInFeed: false,
+  };
+}
+
 async function renderPost(state, post) {
   const currentUrl = post.url;
   let html = await state.engine.render(
@@ -206,6 +305,7 @@ async function renderPost(state, post) {
       widgets: state.widgets,
       taxonomies: state.renderData.taxonomies,
       post,
+      route: buildRouteContext('post', currentUrl),
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
         title: buildDocumentTitle(post.title, state.previewData.site.title),
@@ -234,6 +334,7 @@ async function renderPost(state, post) {
 async function renderPage(state, page) {
   const currentUrl = page.url;
   const outputPath = pageToOutputPath(page, state.previewData.site.permalinks.output_style);
+  const canonicalUrl = normalizeOptionalString(page.canonical_url) || currentUrl;
   let html = await state.engine.render(
     'page',
     {
@@ -241,8 +342,10 @@ async function renderPage(state, page) {
       widgets: state.widgets,
       taxonomies: state.renderData.taxonomies,
       page,
+      route: buildRouteContext('page', currentUrl),
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
+        canonicalUrl,
         title: buildDocumentTitle(page.title, state.previewData.site.title),
         description: page.excerpt,
         ogType: 'website',
@@ -259,6 +362,7 @@ async function renderPage(state, page) {
     title: page.title,
     description: page.excerpt,
     status: page.status,
+    includeInSitemap: page.omit_from_sitemap !== true,
   });
 }
 
@@ -273,6 +377,7 @@ async function maybeRenderNotFoundPage(state) {
       menus: state.previewData.menus,
       widgets: state.widgets,
       taxonomies: state.renderData.taxonomies,
+      route: buildRouteContext('not_found', '/404.html'),
       meta: buildPageMeta(state.previewData.site, {
         currentUrl: '/404.html',
         title: state.previewData.site.title,
@@ -300,6 +405,8 @@ function normalizePreviewData(previewData) {
     locale: normalizeLocale(previewData.site.locale || DEFAULT_LOCALE),
     disallowComments: previewData.site.disallowComments === true,
     permalinks: normalizePermalinks(previewData.site.permalinks),
+    front_page: normalizeFrontPage(previewData.site.front_page),
+    post_index: normalizePostIndex(previewData.site.post_index),
   };
 
   return {
@@ -407,8 +514,37 @@ function normalizePermalinks(permalinks) {
   };
 }
 
+function normalizeFrontPage(frontPage) {
+  if (!frontPage || typeof frontPage !== 'object') {
+    return { ...DEFAULT_FRONT_PAGE };
+  }
+
+  const type = ['theme_index', 'page', 'standalone_html'].includes(frontPage.type)
+    ? frontPage.type
+    : DEFAULT_FRONT_PAGE.type;
+
+  return {
+    type,
+    ...(type === 'page' ? { page_slug: normalizeOptionalString(frontPage.page_slug) } : {}),
+    ...(type === 'standalone_html' ? { html: normalizeOptionalRawString(frontPage.html) } : {}),
+  };
+}
+
+function normalizePostIndex(postIndex) {
+  if (!postIndex || typeof postIndex !== 'object') {
+    return { ...DEFAULT_POST_INDEX };
+  }
+
+  return {
+    enabled: postIndex.enabled !== false,
+    path: normalizeNonEmptyString(postIndex.path, DEFAULT_POST_INDEX.path),
+    paginate: postIndex.paginate !== false,
+  };
+}
+
 function createRenderData(previewData, themeMetadata = {}) {
   const themeSupportsComments = themeMetadata?.features?.comments === true;
+  const themeSupportsPostIndex = themeMetadata?.features?.postIndex !== false;
   const authorsById = new Map(previewData.content.authors.map((author) => [author.id, author]));
   const categoriesBySlug = new Map(previewData.content.categories.map((category) => [category.slug, category]));
   const tagsBySlug = new Map(previewData.content.tags.map((tag) => [tag.slug, tag]));
@@ -437,24 +573,38 @@ function createRenderData(previewData, themeMetadata = {}) {
   }));
   const pages = previewData.content.pages.map((page) => preparePage(page, previewData.site));
   const postBySlug = new Map(posts.map((post) => [post.slug, post]));
+  const frontPage = previewData.site.front_page;
+  const postIndex = previewData.site.post_index;
+  const effectivePostIndexEnabled = postIndex.enabled !== false && themeSupportsPostIndex;
+  const effectivePostIndexPaginate = effectivePostIndexEnabled && postIndex.paginate !== false;
+  const postIndexBasePath = normalizeRoutePath(postIndex.path || DEFAULT_POST_INDEX.path);
+
+  if (frontPage.type !== 'theme_index' && effectivePostIndexEnabled && postIndexBasePath === '/') {
+    throw new Error('Invalid front page configuration: site.front_page occupies "/" so site.post_index.path must not be "/". Set site.post_index.path to a non-root path or disable site.post_index.');
+  }
+
+  const frontPageRoute = buildFrontPageRoute(frontPage, pages, effectivePostIndexEnabled, postIndexBasePath);
+  const pageFrontPageSlug = frontPage.type === 'page' ? frontPage.page_slug : '';
+  const preparedPages = pageFrontPageSlug
+    ? pages.filter((page) => page.slug !== pageFrontPageSlug)
+    : pages;
 
   return {
     posts,
-    pages,
+    pages: preparedPages,
     postBySlug,
     taxonomies: buildGlobalTaxonomies(previewData, categoryCountBySlug, tagCountBySlug),
-    indexRoutes: buildPaginatedCollection({
+    frontPageRoute,
+    indexRoutes: buildPostIndexRoutes({
+      enabled: effectivePostIndexEnabled,
+      paginate: effectivePostIndexPaginate,
       items: previewData.content.posts,
       postsPerPage: previewData.site.postsPerPage,
-      basePath: '/',
+      basePath: postIndexBasePath,
       outputStyle: previewData.site.permalinks.output_style,
-    }).map((entry) => ({
-      path: entry.path,
-      page: entry.page,
-      totalPages: entry.totalPages,
-      posts: buildStructuredPostCollection(entry.items, postBySlug),
-      pagination: buildStructuredPagination(entry.paginationData),
-    })),
+      postBySlug,
+      frontPage,
+    }),
     archiveRoutes: buildPaginatedCollection({
       items: previewData.content.posts,
       postsPerPage: previewData.site.postsPerPage,
@@ -499,6 +649,84 @@ function buildGlobalTaxonomies(previewData, categoryCountBySlug, tagCountBySlug)
     categories: buildGlobalTaxonomyItems(previewData.site, 'categories', previewData.content.categories, categoryCountBySlug),
     tags: buildGlobalTaxonomyItems(previewData.site, 'tags', previewData.content.tags, tagCountBySlug),
   };
+}
+
+function buildFrontPageRoute(frontPage, pages, effectivePostIndexEnabled, postIndexBasePath) {
+  if (frontPage.type === 'theme_index') {
+    if (effectivePostIndexEnabled && postIndexBasePath === '/') {
+      return null;
+    }
+
+    return {
+      path: '/',
+      front_page_type: 'theme_index',
+      posts: buildStructuredPostCollection([], new Map()),
+      pagination: buildStructuredPagination(buildDisabledPaginationData(0)),
+    };
+  }
+
+  if (frontPage.type === 'page') {
+    const page = pages.find((entry) => entry.slug === frontPage.page_slug);
+    if (!page) {
+      throw new Error(`Invalid front page configuration: site.front_page.page_slug "${frontPage.page_slug}" does not match a page.`);
+    }
+
+    return {
+      path: '/',
+      front_page_type: 'page',
+      page,
+    };
+  }
+
+  if (frontPage.type === 'standalone_html') {
+    if (!normalizeOptionalRawString(frontPage.html)) {
+      throw new Error('Invalid front page configuration: site.front_page.html is required for standalone_html.');
+    }
+
+    return {
+      path: '/',
+      front_page_type: 'standalone_html',
+      html: frontPage.html,
+    };
+  }
+
+  return null;
+}
+
+function buildPostIndexRoutes(options) {
+  if (!options.enabled) {
+    return [];
+  }
+
+  if (!options.paginate) {
+    const items = options.items.slice(0, options.postsPerPage);
+    return [{
+      path: options.basePath,
+      route_type: 'post_index',
+      is_front_page: options.basePath === '/' && options.frontPage.type === 'theme_index',
+      is_post_index: true,
+      page: 1,
+      totalPages: 1,
+      posts: buildStructuredPostCollection(items, options.postBySlug),
+      pagination: buildStructuredPagination(buildDisabledPaginationData(options.items.length)),
+    }];
+  }
+
+  return buildPaginatedCollection({
+    items: options.items,
+    postsPerPage: options.postsPerPage,
+    basePath: options.basePath,
+    outputStyle: options.outputStyle,
+  }).map((entry) => ({
+    path: entry.path,
+    route_type: 'post_index',
+    is_front_page: entry.path === '/' && options.frontPage.type === 'theme_index',
+    is_post_index: true,
+    page: entry.page,
+    totalPages: entry.totalPages,
+    posts: buildStructuredPostCollection(entry.items, options.postBySlug),
+    pagination: buildStructuredPagination(entry.paginationData),
+  }));
 }
 
 function buildGlobalTaxonomyItems(site, permalinkKind, items, countBySlug) {
@@ -905,6 +1133,7 @@ function buildPaginationData(currentPage, totalPages, totalPosts, basePath, outp
   const buildPageUrl = (page) => routePathToPublicUrl(buildPaginatedPath(basePath, page), outputStyle);
 
   return {
+    enabled: true,
     currentPage,
     totalPages,
     totalPosts,
@@ -923,8 +1152,23 @@ function buildPaginationData(currentPage, totalPages, totalPosts, basePath, outp
   };
 }
 
+function buildDisabledPaginationData(totalPosts) {
+  return {
+    enabled: false,
+    currentPage: 1,
+    totalPages: 1,
+    totalPosts,
+    hasNext: false,
+    hasPrev: false,
+    nextUrl: undefined,
+    prevUrl: undefined,
+    pages: [],
+  };
+}
+
 function buildStructuredPagination(paginationData) {
   return {
+    enabled: paginationData.enabled !== false,
     current_page: paginationData.currentPage,
     total_pages: paginationData.totalPages,
     total_items: paginationData.totalPosts,
@@ -1368,10 +1612,20 @@ function createRenderContext(site, currentUrl) {
   };
 }
 
+function buildRouteContext(type, url, options = {}) {
+  return {
+    type,
+    is_front_page: options.isFrontPage === true,
+    is_post_index: options.isPostIndex === true,
+    path: url,
+    url,
+  };
+}
+
 function buildPageMeta(site, options = {}) {
   const resolvedTitle = normalizeNonEmptyString(options.title, site.title);
   const resolvedDescription = normalizeOptionalString(options.description);
-  const canonicalUrl = resolveMetaCanonicalUrl(site, options.currentUrl);
+  const canonicalUrl = resolveMetaCanonicalUrl(site, options.canonicalUrl || options.currentUrl);
   const ogImage = resolveMetaImageUrl(options.image);
   const ogType = normalizeNonEmptyString(options.ogType, 'website');
   const publishedTime = normalizeOptionalString(options.publishedTime);
@@ -1670,6 +1924,10 @@ function assertPlannedOutputPathsSafe(state) {
   }
 
   const routeEntries = [
+    ...(state.renderData.frontPageRoute ? [{
+      url: '/',
+      outputPath: 'index.html',
+    }] : []),
     ...state.renderData.indexRoutes.map((route) => ({
       url: routePathToPublicUrl(route.path, outputStyle),
       outputPath: routePathToOutputPath(route.path, outputStyle),
@@ -1834,12 +2092,19 @@ function injectCustomHtml(html, customHtml) {
 
 function buildSitemapXml(site, emitted, generatedAt) {
   const entries = [
+    ...(emitted.frontPage
+      ? [{
+        url: emitted.frontPage.url,
+        changefreq: 'daily',
+        priority: 1.0,
+      }]
+      : []),
     ...emitted.indexRoutes
-      .filter((route) => route.url === '/')
+      .filter((route) => route.page === 1)
       .map((route) => ({
         url: route.url,
         changefreq: 'daily',
-        priority: 1.0,
+        priority: route.url === '/' ? 1.0 : 0.7,
       })),
     ...emitted.posts.map((post) => ({
       url: post.url,
@@ -1847,11 +2112,13 @@ function buildSitemapXml(site, emitted, generatedAt) {
       changefreq: 'weekly',
       priority: 0.8,
     })),
-    ...emitted.pages.map((page) => ({
-      url: page.url,
-      changefreq: 'monthly',
-      priority: 0.7,
-    })),
+    ...emitted.pages
+      .filter((page) => page.includeInSitemap !== false)
+      .map((page) => ({
+        url: page.url,
+        changefreq: 'monthly',
+        priority: 0.7,
+      })),
   ];
 
   const body = entries.map((entry) => {
