@@ -407,6 +407,7 @@ function normalizePreviewData(previewData) {
     permalinks: normalizePermalinks(previewData.site.permalinks),
     front_page: normalizeFrontPage(previewData.site.front_page),
     post_index: normalizePostIndex(previewData.site.post_index),
+    footer: normalizeSiteFooter(previewData.site.footer),
   };
 
   return {
@@ -456,6 +457,22 @@ function normalizeWidgetAreas(widgetAreas, mediaBaseUrl) {
       },
     ]),
   );
+}
+
+function normalizeSiteFooter(footer) {
+  const source = footer && typeof footer === 'object' && !Array.isArray(footer) ? footer : {};
+  const attribution = source.attribution && typeof source.attribution === 'object' && !Array.isArray(source.attribution)
+    ? source.attribution
+    : {};
+
+  return {
+    ...source,
+    copyright_text: normalizeOptionalString(source.copyright_text),
+    attribution: {
+      ...attribution,
+      enabled: attribution.enabled !== false,
+    },
+  };
 }
 
 function normalizeWidgetItem(item, mediaBaseUrl) {

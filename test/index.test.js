@@ -249,6 +249,36 @@ test('buildSite matches the golden fixture for the default preview payload', asy
   }
 });
 
+test('buildSite exposes optional site.footer fields to themes', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  previewData.site.footer = {
+    copyright_text: 'Copyright 2026 Example Corp.',
+    attribution: {
+      enabled: false,
+    },
+  };
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.templates.set('layout', [
+    '<main>{{slot:content}}</main>',
+    '<footer>',
+    '{{#if site.footer.copyright_text}}<p>{{site.footer.copyright_text}}</p>{{#else_if site.title}}<p>{{site.title}}</p>{{/if}}',
+    '{{#if site.footer.attribution.enabled}}<p>Published with ZeroPress.</p>{{/if}}',
+    '</footer>',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /Copyright 2026 Example Corp\./);
+  assert.doesNotMatch(indexHtml, /Published with ZeroPress/);
+});
+
 test('buildSite reports invalid preview data at the core API boundary', async () => {
   const writer = new MemoryWriter();
   const themePackage = await loadGoldenThemePackage();
