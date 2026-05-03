@@ -2020,6 +2020,90 @@ test('renderDocument creates markdown TOC from h2-h4 headings only', () => {
   assert.doesNotMatch(document.html, /class="header-anchor"/);
 });
 
+test('renderDocument preserves standard markdown compatibility output', () => {
+  const table = renderDocument([
+    '| Name | Count |',
+    '| --- | ---: |',
+    '| Alpha | 1 |',
+  ].join('\n'), 'markdown');
+  const strike = renderDocument('This is ~~deleted~~ text.', 'markdown');
+  const mermaid = renderDocument([
+    '```mermaid',
+    'graph TD;',
+    '```',
+  ].join('\n'), 'markdown');
+
+  assert.match(table.html, /<table>/);
+  assert.match(table.html, /<th>Name<\/th>/);
+  assert.match(table.html, /<td>Alpha<\/td>/);
+  assert.match(strike.html, /<s>deleted<\/s>/);
+  assert.match(mermaid.html, /<code class="language-mermaid">/);
+});
+
+test('renderDocument renders GFM-compatible task lists', () => {
+  const document = renderDocument([
+    '- [x] Done',
+    '- [ ] Todo',
+  ].join('\n'), 'markdown');
+
+  assert.match(document.html, /<ul class="contains-task-list">/);
+  assert.match(document.html, /<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" checked="" disabled="" \/> Done<\/li>/);
+  assert.match(document.html, /<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" disabled="" \/> Todo<\/li>/);
+  assert.doesNotMatch(document.html, /\[x\]/);
+  assert.doesNotMatch(document.html, /\[ \]/);
+});
+
+test('renderDocument renders GitHub alerts as ZeroPress alert blocks', () => {
+  const markers = [
+    ['NOTE', 'note', 'Note'],
+    ['TIP', 'tip', 'Tip'],
+    ['IMPORTANT', 'important', 'Important'],
+    ['WARNING', 'warning', 'Warning'],
+    ['CAUTION', 'caution', 'Caution'],
+  ];
+
+  for (const [marker, className, title] of markers) {
+    const document = renderDocument([
+      `> [!${marker}]`,
+      '> Alert body with **formatting**.',
+    ].join('\n'), 'markdown');
+
+    assert.match(document.html, new RegExp(`<aside class="zp-alert zp-alert--${className}" role="note">`));
+    assert.match(document.html, new RegExp(`<p class="zp-alert__title">${title}</p>`));
+    assert.match(document.html, /<p>Alert body with <strong>formatting<\/strong>\.<\/p>/);
+    assert.doesNotMatch(document.html, new RegExp(`\\[!${marker}\\]`));
+  }
+
+  const unsupported = renderDocument([
+    '> [!TODO]',
+    '> Keep this blockquote.',
+  ].join('\n'), 'markdown');
+
+  assert.match(unsupported.html, /<blockquote>/);
+  assert.match(unsupported.html, /\[!TODO\]/);
+  assert.doesNotMatch(unsupported.html, /zp-alert/);
+});
+
+test('renderDocument keeps alert headings in markdown TOC', () => {
+  const document = renderDocument([
+    '> [!NOTE]',
+    '>',
+    '> ## Alert Heading',
+    '> Body',
+  ].join('\n'), 'markdown');
+
+  assert.deepEqual(document.toc, [
+    {
+      level: 2,
+      id: 'alert-heading',
+      title: 'Alert Heading',
+      href: '#alert-heading',
+    },
+  ]);
+  assert.match(document.html, /<aside class="zp-alert zp-alert--note" role="note">/);
+  assert.match(document.html, /<h2 id="alert-heading">Alert Heading<\/h2>/);
+});
+
 test('renderDocument leaves non-markdown TOC empty', () => {
   assert.deepEqual(renderDocument('<h2 id="custom">Custom</h2>', 'html').toc, []);
   assert.deepEqual(renderDocument('## Plaintext heading', 'plaintext').toc, []);
@@ -2109,6 +2193,78 @@ test('buildSite exposes markdown TOC to page and post templates', async () => {
   assert.match(markdownPageHtml, /<nav class="page-toc"><a class="page-toc-item toc-level-2" href="#start" data-id="start">Start<\/a><a class="page-toc-item toc-level-4" href="#fine-print" data-id="fine-print">Fine Print<\/a><\/nav>/);
   assert.match(htmlPageHtml, /<h2 id="manual">Manual HTML<\/h2>/);
   assert.doesNotMatch(htmlPageHtml, /page-toc/);
+});
+
+test('buildSite preserves markdown task list and alert HTML for pages and posts', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.content.posts = [
+    {
+      public_id: 1,
+      title: 'Markdown Compatibility Post',
+      slug: 'markdown-compat',
+      content: [
+        '# Markdown Compatibility Post',
+        '',
+        '- [x] Ship the renderer',
+        '',
+        '> [!WARNING]',
+        '> Watch the sanitizer.',
+      ].join('\n'),
+      document_type: 'markdown',
+      excerpt: 'Markdown compatibility excerpt',
+      published_at_iso: '2026-04-02T00:00:00Z',
+      updated_at_iso: '2026-04-02T00:00:00Z',
+      author_id: previewData.content.authors[0].id,
+      status: 'published',
+      allow_comments: false,
+      category_slugs: [],
+      tag_slugs: [],
+    },
+  ];
+  previewData.content.pages = [
+    {
+      title: 'Markdown Compatibility Page',
+      slug: 'markdown-compat-page',
+      content: [
+        '# Markdown Compatibility Page',
+        '',
+        '- [ ] Review docs',
+        '',
+        '> [!TIP]',
+        '> Use public files for progressive enhancement.',
+      ].join('\n'),
+      document_type: 'markdown',
+      status: 'published',
+    },
+  ];
+  themePackage.templates.set('post', '<article>{{post.html}}</article>');
+  themePackage.templates.set('page', '<article>{{page.html}}</article>');
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const files = writer.getFiles();
+  const postHtml = getFileContent(files, 'posts/markdown-compat/index.html');
+  const pageHtml = getFileContent(files, 'markdown-compat-page/index.html');
+
+  assert.match(postHtml, /<ul class="contains-task-list">/);
+  assert.match(postHtml, /<input class="task-list-item-checkbox" type="checkbox" checked="" disabled="" \/>/);
+  assert.match(postHtml, /<aside class="zp-alert zp-alert--warning" role="note">/);
+  assert.match(postHtml, /<p class="zp-alert__title">Warning<\/p>/);
+  assert.doesNotMatch(postHtml, /\[!WARNING\]/);
+
+  assert.match(pageHtml, /<ul class="contains-task-list">/);
+  assert.match(pageHtml, /<input class="task-list-item-checkbox" type="checkbox" disabled="" \/>/);
+  assert.match(pageHtml, /<aside class="zp-alert zp-alert--tip" role="note">/);
+  assert.match(pageHtml, /<p class="zp-alert__title">Tip<\/p>/);
+  assert.doesNotMatch(pageHtml, /\[!TIP\]/);
 });
 
 test('buildSite renders v0.5 raw content and resolves structured post author data from authors', async () => {
