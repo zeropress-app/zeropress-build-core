@@ -11,12 +11,7 @@ export class AssetProcessor {
   }
 
   async processJavaScript(js) {
-    return js
-      .replace(/\/\/(?![^\r\n]*https?:)[^\r\n]*/g, '')
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\s+/g, ' ')
-      .replace(/\s*([{}();,=+\-*/<>!&|])\s*/g, '$1')
-      .trim();
+    return js;
   }
 
   generateAssetHash(content) {

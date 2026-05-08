@@ -1743,7 +1743,7 @@ function normalizeMediaField(value, mediaBaseUrl) {
 
   const normalizedBaseUrl = normalizeOptionalString(mediaBaseUrl);
   if (!normalizedBaseUrl) {
-    return '';
+    return normalizedValue;
   }
 
   try {

@@ -249,6 +249,28 @@ test('buildSite matches the golden fixture for the default preview payload', asy
   }
 });
 
+test('buildSite preserves JavaScript string literal whitespace in theme assets', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  themePackage.assets.set(
+    'theme.js',
+    Buffer.from('const observerOptions = { rootMargin: "-40% 0px -55% 0px" };\nconst label = "a + b";\n'),
+  );
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { assetHashing: false, generateSpecialFiles: false },
+  });
+
+  const script = getFileContent(writer.getFiles(), 'assets/theme.js');
+  assert.match(script, /rootMargin: "-40% 0px -55% 0px"/);
+  assert.match(script, /"a \+ b"/);
+});
+
 test('buildSite exposes optional site.footer fields to themes', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -1740,7 +1762,7 @@ test('buildSite normalizes media fields against site.mediaBaseUrl before renderi
   assert.match(pageHtml, /data-featured-image="https:\/\/media\.example\.com\/images\/page-share\.png\?format=webp"/);
 });
 
-test('buildSite blanks unresolved relative media fields when site.mediaBaseUrl is missing', async () => {
+test('buildSite preserves relative media fields when site.mediaBaseUrl is missing', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
@@ -1768,10 +1790,11 @@ test('buildSite blanks unresolved relative media fields when site.mediaBaseUrl i
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
   const pageHtml = getFileContent(writer.getFiles(), 'about/index.html');
 
-  assert.match(postHtml, /data-author-avatar=""/);
-  assert.match(postHtml, /data-featured-image=""/);
-  assert.match(pageHtml, /data-featured-image=""/);
+  assert.match(postHtml, /data-author-avatar="\/avatars\/author\.png"/);
+  assert.match(postHtml, /data-featured-image="\.\/images\/post-share\.png"/);
+  assert.match(pageHtml, /data-featured-image="\/images\/page-share\.png"/);
   assert.doesNotMatch(postHtml, /property="og:image"/);
+  assert.doesNotMatch(pageHtml, /property="og:image"/);
 });
 
 test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async () => {

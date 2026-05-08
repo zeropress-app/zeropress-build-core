@@ -175,6 +175,8 @@ Theme validation is enforced through:
 
 `buildSiteFromThemeDir()` is the convenience entry point that loads a theme directory and converts it into the required in-memory `themePackage`.
 
+JavaScript theme assets are emitted as provided. Build-core may hash output filenames, but it does not rewrite or minify JavaScript content.
+
 As of `preview-data v0.4`, the payload no longer carries `routes` arrays or raw HTML fragments such as `categories_html`.
 
 Build-core now derives:
