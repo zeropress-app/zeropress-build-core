@@ -9,6 +9,7 @@ import { ZeroPressEngine } from '../render/zeropress-engine.js';
 const DEFAULT_OPTIONS = {
   assetHashing: true,
   generateSpecialFiles: true,
+  generateRobotsTxt: true,
   writeManifest: false,
 };
 
@@ -94,7 +95,9 @@ export async function buildSite(input) {
       await writeOutput(state.writer, state.summaries, 'sitemap.xml', buildSitemapXml(state.previewData.site, state.emitted, state.generatedAt), 'application/xml');
       await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.generatedAt), 'application/rss+xml');
     }
-    await writeOutput(state.writer, state.summaries, 'robots.txt', buildRobotsTxt(state.previewData.site), 'text/plain');
+    if (shouldGenerateRobotsTxt(options)) {
+      await writeOutput(state.writer, state.summaries, 'robots.txt', buildRobotsTxt(state.previewData.site), 'text/plain');
+    }
   }
 
   return finalizeBuildResult(state.writer, state.summaries, options);
@@ -410,6 +413,7 @@ function normalizePreviewData(previewData) {
     timezone: normalizeNonEmptyString(previewData.site.timezone, DEFAULT_TIMEZONE),
     locale: normalizeLocale(previewData.site.locale || DEFAULT_LOCALE),
     disallowComments: previewData.site.disallowComments === true,
+    indexing: previewData.site.indexing !== false,
     permalinks: normalizePermalinks(previewData.site.permalinks),
     front_page: normalizeFrontPage(previewData.site.front_page),
     post_index: normalizePostIndex(previewData.site.post_index),
@@ -2077,7 +2081,10 @@ function assertPlannedOutputPathsSafe(state) {
   ];
 
   if (state.options.generateSpecialFiles) {
-    plannedPaths.push('404.html', 'robots.txt');
+    plannedPaths.push('404.html');
+    if (shouldGenerateRobotsTxt(state.options)) {
+      plannedPaths.push('robots.txt');
+    }
     if (hasCanonicalSiteUrl(state.previewData.site.url)) {
       plannedPaths.push('sitemap.xml', 'feed.xml');
     }
@@ -2263,11 +2270,21 @@ function buildFeedXml(site, emitted, generatedAt) {
 }
 
 function buildRobotsTxt(site) {
-  const lines = ['User-agent: *', 'Allow: /'];
+  const lines = ['User-agent: *'];
+  if (site.indexing === false) {
+    lines.push('Disallow: /');
+    return `${lines.join('\n')}\n`;
+  }
+
+  lines.push('Allow: /');
   if (site.url) {
     lines.push('', `Sitemap: ${resolveSiteUrl(site.url, '/sitemap.xml')}`);
   }
   return `${lines.join('\n')}\n`;
+}
+
+function shouldGenerateRobotsTxt(options) {
+  return options.generateSpecialFiles && options.generateRobotsTxt !== false;
 }
 
 function getContentType(assetPath) {

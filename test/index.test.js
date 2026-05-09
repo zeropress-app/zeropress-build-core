@@ -1818,6 +1818,65 @@ test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async ()
   assert.equal(manifest.files.some((file) => file.path === 'feed.xml'), false);
 });
 
+test('buildSite renders fallback robots.txt from site.indexing policy', async () => {
+  const themePackage = await loadGoldenThemePackage();
+
+  {
+    const writer = new MemoryWriter();
+    const previewData = await loadDefaultPreviewData();
+    previewData.site.indexing = true;
+
+    await buildSite({
+      previewData,
+      themePackage,
+      writer,
+    });
+
+    const robotsTxt = getFileContent(writer.getFiles(), 'robots.txt');
+    assert.match(robotsTxt, /^User-agent: \*\nAllow: \//);
+    assert.match(robotsTxt, /Sitemap: https:\/\/example\.com\/sitemap\.xml/);
+  }
+
+  {
+    const writer = new MemoryWriter();
+    const previewData = await loadDefaultPreviewData();
+    previewData.site.indexing = false;
+
+    await buildSite({
+      previewData,
+      themePackage,
+      writer,
+    });
+
+    const files = writer.getFiles();
+    const robotsTxt = getFileContent(files, 'robots.txt');
+    assert.equal(robotsTxt.trim(), 'User-agent: *\nDisallow: /');
+    assert.equal(files.some((file) => file.path === 'sitemap.xml'), true);
+    assert.equal(files.some((file) => file.path === 'feed.xml'), true);
+  }
+});
+
+test('buildSite can disable fallback robots.txt while keeping other special files', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { writeManifest: true, generateRobotsTxt: false },
+  });
+
+  const files = writer.getFiles();
+  assert.equal(files.some((file) => file.path === 'robots.txt'), false);
+  assert.equal(files.some((file) => file.path === 'sitemap.xml'), true);
+  assert.equal(files.some((file) => file.path === 'feed.xml'), true);
+
+  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
+  assert.equal(manifest.files.some((file) => file.path === 'robots.txt'), false);
+});
+
 test('buildSite skips archive routes when archive template is missing', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();

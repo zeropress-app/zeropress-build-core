@@ -23,6 +23,7 @@ export interface BuildWriter {
 export interface BuildOptions {
   assetHashing?: boolean;
   generateSpecialFiles?: boolean;
+  generateRobotsTxt?: boolean;
   writeManifest?: boolean;
 }
 

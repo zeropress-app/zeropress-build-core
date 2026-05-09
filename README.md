@@ -54,7 +54,7 @@ import {
 - generating special files such as:
   - `sitemap.xml`
   - `feed.xml`
-  - `robots.txt`
+  - fallback `robots.txt`
 - writing outputs through a pluggable writer
 
 It does not:
@@ -119,7 +119,9 @@ Notes:
 - `previewData` must already satisfy the canonical preview-data contract
 - `themePackage` must already be a validated in-memory theme package
 - `sitemap.xml` and `feed.xml` are emitted only when `site.url` is a non-empty canonical URL
-- `robots.txt` is still emitted when `generateSpecialFiles` is enabled
+- fallback `robots.txt` is emitted when `generateSpecialFiles` is enabled and `generateRobotsTxt` is not `false`
+- fallback `robots.txt` uses `site.indexing`; `false` emits `Disallow: /`, while missing or `true` emits `Allow: /`
+- callers that disable fallback robots because a public `robots.txt` exists should copy that file as-is; sitemap directives in custom robots files are caller/user responsibility
 
 ### `buildSiteFromThemeDir(input)`
 
@@ -221,6 +223,7 @@ Supported options:
 
 - `assetHashing`
 - `generateSpecialFiles`
+- `generateRobotsTxt`
 - `writeManifest`
 
 These options apply to both full builds and partial renders where relevant.
@@ -229,6 +232,7 @@ Defaults:
 
 - `assetHashing: true`
 - `generateSpecialFiles: true`
+- `generateRobotsTxt: true`
 - `writeManifest: false`
 
 ---
