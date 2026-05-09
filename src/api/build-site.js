@@ -38,6 +38,9 @@ const COMMENT_POLICY_OUTPUT_PATH = '_zeropress/comment-policy.json';
 const OUTPUT_PATH_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
 const SAFE_MEDIA_PROTOCOLS = new Set(['http:', 'https:']);
 const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
+const MEDIA_DELIVERY_MODES = new Set(['none', 'media_domain']);
+const RESPONSIVE_IMAGE_WIDTHS = [320, 480, 768, 1024, 1280, 1600, 1920];
+const RESPONSIVE_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'avif']);
 export async function buildSite(input) {
   const options = { ...DEFAULT_OPTIONS, ...(input.options || {}) };
   const state = await createBuildState(input, options);
@@ -405,6 +408,9 @@ function normalizePreviewData(previewData) {
   const normalizedSite = {
     ...previewData.site,
     mediaBaseUrl: normalizeOptionalString(previewData.site.mediaBaseUrl),
+    mediaDeliveryMode: MEDIA_DELIVERY_MODES.has(previewData.site.mediaDeliveryMode)
+      ? previewData.site.mediaDeliveryMode
+      : 'none',
     postsPerPage: Number.isInteger(previewData.site.postsPerPage) && previewData.site.postsPerPage > 0
       ? previewData.site.postsPerPage
       : DEFAULT_POSTS_PER_PAGE,
@@ -419,6 +425,8 @@ function normalizePreviewData(previewData) {
     post_index: normalizePostIndex(previewData.site.post_index),
     footer: normalizeSiteFooter(previewData.site.footer),
   };
+  const media = normalizeContentMedia(previewData.content.media, normalizedSite);
+  const mediaRegistry = buildMediaRegistry(media);
 
   return {
     ...previewData,
@@ -430,24 +438,40 @@ function normalizePreviewData(previewData) {
     custom_html: normalizeCustomHtml(previewData.custom_html),
     content: {
       ...previewData.content,
-      authors: previewData.content.authors.map((author) => ({
-        ...author,
-        avatar: normalizeMediaField(author.avatar, normalizedSite.mediaBaseUrl),
-      })),
+      authors: previewData.content.authors.map((author) => {
+        const avatar = normalizeMediaField(author.avatar, normalizedSite.mediaBaseUrl);
+        const avatarMedia = deriveManagedMedia(avatar, mediaRegistry, normalizedSite);
+        return {
+          ...author,
+          avatar,
+          ...(avatarMedia ? { avatar_media: avatarMedia } : {}),
+        };
+      }),
       posts: previewData.content.posts
-        .map((post) => ({
-          ...post,
-          published_at_iso: normalizeIsoTimestamp(post.published_at_iso),
-          updated_at_iso: normalizeIsoTimestamp(post.updated_at_iso),
-          featured_image: normalizeMediaField(post.featured_image, normalizedSite.mediaBaseUrl),
-        }))
+        .map((post) => {
+          const featuredImage = normalizeMediaField(post.featured_image, normalizedSite.mediaBaseUrl);
+          const featuredMedia = deriveManagedMedia(featuredImage, mediaRegistry, normalizedSite);
+          return {
+            ...post,
+            published_at_iso: normalizeIsoTimestamp(post.published_at_iso),
+            updated_at_iso: normalizeIsoTimestamp(post.updated_at_iso),
+            featured_image: featuredImage,
+            ...(featuredMedia ? { featured_media: featuredMedia } : {}),
+          };
+        })
         .sort((left, right) => toDate(right.published_at_iso).getTime() - toDate(left.published_at_iso).getTime()),
-      pages: previewData.content.pages.map((page) => ({
-        ...page,
-        featured_image: normalizeMediaField(page.featured_image, normalizedSite.mediaBaseUrl),
-      })),
+      pages: previewData.content.pages.map((page) => {
+        const featuredImage = normalizeMediaField(page.featured_image, normalizedSite.mediaBaseUrl);
+        const featuredMedia = deriveManagedMedia(featuredImage, mediaRegistry, normalizedSite);
+        return {
+          ...page,
+          featured_image: featuredImage,
+          ...(featuredMedia ? { featured_media: featuredMedia } : {}),
+        };
+      }),
       categories: [...previewData.content.categories],
       tags: [...previewData.content.tags],
+      media,
     },
   };
 }
@@ -458,6 +482,112 @@ function normalizeRecordMap(value) {
   }
 
   return { ...value };
+}
+
+function normalizeContentMedia(mediaItems, site) {
+  if (!Array.isArray(mediaItems)) {
+    return [];
+  }
+
+  return mediaItems
+    .map((item) => {
+      if (!item || typeof item !== 'object') {
+        return null;
+      }
+      const src = normalizeMediaField(item.src, site.mediaBaseUrl);
+      const width = Number.isInteger(item.width) && item.width > 0 ? item.width : 0;
+      const height = Number.isInteger(item.height) && item.height > 0 ? item.height : 0;
+      if (!src || !width || !height) {
+        return null;
+      }
+      return {
+        src,
+        width,
+        height,
+        alt: typeof item.alt === 'string' ? item.alt : '',
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildMediaRegistry(mediaItems) {
+  const registry = new Map();
+  for (const item of mediaItems) {
+    if (!registry.has(item.src)) {
+      registry.set(item.src, item);
+    }
+  }
+  return registry;
+}
+
+function deriveManagedMedia(src, mediaRegistry, site) {
+  const normalizedSrc = normalizeOptionalString(src);
+  if (!normalizedSrc) {
+    return null;
+  }
+  const media = mediaRegistry.get(normalizedSrc);
+  if (!media) {
+    return null;
+  }
+  return {
+    ...media,
+    srcset: buildResponsiveImageSrcset(media, site),
+  };
+}
+
+function buildResponsiveImageSrcset(media, site) {
+  if (site.mediaDeliveryMode !== 'media_domain') {
+    return '';
+  }
+
+  const mediaBaseUrl = normalizeOptionalString(site.mediaBaseUrl);
+  if (!mediaBaseUrl || !isUrlUnderMediaBase(media.src, mediaBaseUrl) || !isResponsiveRasterImage(media.src)) {
+    return '';
+  }
+
+  const widths = RESPONSIVE_IMAGE_WIDTHS.filter((width) => width <= media.width);
+  if (!widths.includes(media.width)) {
+    widths.push(media.width);
+  }
+
+  return widths
+    .filter((width, index, values) => width > 0 && values.indexOf(width) === index)
+    .map((width) => `${buildResponsiveImageVariantUrl(media.src, width)} ${width}w`)
+    .join(', ');
+}
+
+function buildResponsiveImageVariantUrl(src, width) {
+  try {
+    const url = new URL(src);
+    url.searchParams.set('w', String(width));
+    url.searchParams.set('fit', 'scale-down');
+    url.searchParams.set('format', 'auto');
+    return decodeURI(url.toString());
+  } catch {
+    return src;
+  }
+}
+
+function isUrlUnderMediaBase(src, mediaBaseUrl) {
+  try {
+    const sourceUrl = new URL(src);
+    const baseUrl = new URL(mediaBaseUrl);
+    const basePath = baseUrl.pathname.endsWith('/') ? baseUrl.pathname : `${baseUrl.pathname}/`;
+    return sourceUrl.origin === baseUrl.origin && sourceUrl.pathname.startsWith(basePath);
+  } catch {
+    return false;
+  }
+}
+
+function isResponsiveRasterImage(src) {
+  try {
+    const url = new URL(src);
+    const lastSegment = url.pathname.split('/').pop() || '';
+    const extension = lastSegment.includes('.') ? lastSegment.split('.').pop().toLowerCase() : '';
+    return RESPONSIVE_IMAGE_EXTENSIONS.has(extension);
+  } catch {
+    return false;
+  }
 }
 
 function normalizeCollections(collections) {
@@ -766,6 +896,7 @@ function buildCollectionPageSummary(page, frontPage) {
     url: frontPage?.type === 'page' && frontPage.page_slug === page.slug ? '/' : page.url,
     excerpt: page.excerpt || '',
     featured_image: page.featured_image || '',
+    ...(page.featured_media ? { featured_media: { ...page.featured_media } } : {}),
     meta: page.meta,
   };
 }
@@ -1133,6 +1264,7 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
     updated_at_iso: post.updated_at_iso,
     author_id: post.author_id,
     featured_image: post.featured_image,
+    ...(post.featured_media ? { featured_media: { ...post.featured_media } } : {}),
     meta: post.meta,
     status: post.status,
     allow_comments: post.allow_comments,
@@ -1142,6 +1274,7 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
       id: post.author_id,
       display_name: normalizeNonEmptyString(author?.display_name, post.author_id),
       avatar: author?.avatar || '',
+      ...(author?.avatar_media ? { avatar_media: { ...author.avatar_media } } : {}),
     },
     categories,
     tags,
@@ -1383,9 +1516,11 @@ function buildStructuredPostSummary(post) {
     published_at_iso: post.published_at_iso,
     reading_time: post.reading_time,
     featured_image: post.featured_image,
+    ...(post.featured_media ? { featured_media: { ...post.featured_media } } : {}),
     author: {
       display_name: post.author?.display_name || '',
       avatar: post.author?.avatar || '',
+      ...(post.author?.avatar_media ? { avatar_media: { ...post.author.avatar_media } } : {}),
     },
     categories: Array.isArray(post.categories) ? post.categories.map((category) => ({ ...category })) : [],
     tags: Array.isArray(post.tags) ? post.tags.map((tag) => ({ ...tag })) : [],

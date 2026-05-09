@@ -1755,6 +1755,136 @@ test('buildSite normalizes media fields against site.mediaBaseUrl before renderi
   assert.match(pageHtml, /data-featured-image="https:\/\/media\.example\.com\/images\/page-share\.png\?format=webp"/);
 });
 
+test('buildSite derives managed media and responsive srcset from content media registry', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.site.mediaBaseUrl = 'https://media.example.com';
+  previewData.site.mediaDeliveryMode = 'media_domain';
+  previewData.content.authors[0].avatar = '/avatars/admin.jpg';
+  previewData.content.posts[0].featured_image = '/originals/hello.jpg';
+  previewData.content.pages[0].featured_image = '/originals/about.png';
+  previewData.content.media = [
+    { src: '/avatars/admin.jpg', width: 512, height: 512, alt: 'Admin avatar' },
+    { src: '/originals/hello.jpg', width: 1500, height: 900, alt: 'Hello cover' },
+    { src: '/originals/about.png', width: 640, height: 360, alt: 'About cover' },
+  ];
+
+  themePackage.templates.set('post', [
+    '<article',
+    ' data-avatar-src="{{post.author.avatar_media.src}}"',
+    ' data-avatar-srcset="{{post.author.avatar_media.srcset}}"',
+    ' data-featured-src="{{post.featured_media.src}}"',
+    ' data-featured-width="{{post.featured_media.width}}"',
+    ' data-featured-height="{{post.featured_media.height}}"',
+    ' data-featured-alt="{{post.featured_media.alt}}"',
+    ' data-featured-srcset="{{post.featured_media.srcset}}">',
+    '{{post.title}}',
+    '</article>',
+  ].join(''));
+  themePackage.templates.set('page', [
+    '<section',
+    ' data-featured-src="{{page.featured_media.src}}"',
+    ' data-featured-srcset="{{page.featured_media.srcset}}">',
+    '{{page.title}}',
+    '</section>',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  const pageHtml = getFileContent(writer.getFiles(), 'about/index.html');
+
+  assert.match(postHtml, /data-avatar-src="https:\/\/media\.example\.com\/avatars\/admin\.jpg"/);
+  assert.match(postHtml, /data-avatar-srcset="[^"]*w=512&amp;fit=scale-down&amp;format=auto 512w/);
+  assert.match(postHtml, /data-featured-src="https:\/\/media\.example\.com\/originals\/hello\.jpg"/);
+  assert.match(postHtml, /data-featured-width="1500"/);
+  assert.match(postHtml, /data-featured-height="900"/);
+  assert.match(postHtml, /data-featured-alt="Hello cover"/);
+  assert.match(postHtml, /w=1280&amp;fit=scale-down&amp;format=auto 1280w/);
+  assert.match(postHtml, /w=1500&amp;fit=scale-down&amp;format=auto 1500w/);
+  assert.doesNotMatch(postHtml, /w=1600&amp;fit=scale-down&amp;format=auto 1600w/);
+  assert.match(pageHtml, /data-featured-src="https:\/\/media\.example\.com\/originals\/about\.png"/);
+  assert.match(pageHtml, /w=640&amp;fit=scale-down&amp;format=auto 640w/);
+  assert.doesNotMatch(pageHtml, /w=768&amp;fit=scale-down&amp;format=auto 768w/);
+});
+
+test('buildSite omits managed media srcset when delivery mode or media host is unavailable', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.site.mediaBaseUrl = '';
+  previewData.site.mediaDeliveryMode = 'media_domain';
+  previewData.content.posts[0].featured_image = '/originals/hello.jpg';
+  previewData.content.posts[1].featured_image = 'https://cdn.example.com/external.jpg';
+  previewData.content.media = [
+    { src: '/originals/hello.jpg', width: 1200, height: 800, alt: 'Local cover' },
+    { src: 'https://cdn.example.com/external.jpg', width: 1200, height: 800, alt: 'External cover' },
+  ];
+
+  themePackage.templates.set('post', [
+    '<article',
+    ' data-featured-src="{{post.featured_media.src}}"',
+    ' data-featured-srcset="{{post.featured_media.srcset}}">',
+    '{{post.title}}',
+    '</article>',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const localPostHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  const externalPostHtml = getFileContent(writer.getFiles(), 'posts/theme-blocks-deep-dive/index.html');
+
+  assert.match(localPostHtml, /data-featured-src="\/originals\/hello\.jpg"/);
+  assert.match(localPostHtml, /data-featured-srcset=""/);
+  assert.match(externalPostHtml, /data-featured-src="https:\/\/cdn\.example\.com\/external\.jpg"/);
+  assert.match(externalPostHtml, /data-featured-srcset=""/);
+});
+
+test('buildSite leaves managed media undefined when registry does not match media fields', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.site.mediaBaseUrl = 'https://media.example.com';
+  previewData.site.mediaDeliveryMode = 'media_domain';
+  previewData.content.posts[0].featured_image = '/originals/hello.jpg';
+  previewData.content.media = [
+    { src: '/originals/other.jpg', width: 1200, height: 800, alt: 'Other cover' },
+  ];
+
+  themePackage.templates.set('post', [
+    '<article',
+    ' data-featured-src="{{post.featured_media.src}}"',
+    ' data-featured-srcset="{{post.featured_media.srcset}}">',
+    '{{post.title}}',
+    '</article>',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  assert.match(postHtml, /data-featured-src=""/);
+  assert.match(postHtml, /data-featured-srcset=""/);
+});
+
 test('buildSite preserves relative media fields when site.mediaBaseUrl is missing', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
