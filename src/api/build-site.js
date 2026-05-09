@@ -197,6 +197,7 @@ async function renderRoute(state, templateName, route) {
     {
       menus: state.previewData.menus,
       widgets: state.widgets,
+      collections: state.renderData.collections,
       taxonomies: state.renderData.taxonomies,
       ...route,
       route: routeContext,
@@ -243,6 +244,7 @@ async function renderFrontPage(state, route) {
       {
         menus: state.previewData.menus,
         widgets: state.widgets,
+        collections: state.renderData.collections,
         taxonomies: state.renderData.taxonomies,
         page,
         route: routeContext,
@@ -273,6 +275,7 @@ async function renderFrontPage(state, route) {
     {
       menus: state.previewData.menus,
       widgets: state.widgets,
+      collections: state.renderData.collections,
       taxonomies: state.renderData.taxonomies,
       ...route,
       route: routeContext,
@@ -303,6 +306,7 @@ async function renderPost(state, post) {
     {
       menus: state.previewData.menus,
       widgets: state.widgets,
+      collections: state.renderData.collections,
       taxonomies: state.renderData.taxonomies,
       post,
       route: buildRouteContext('post', currentUrl),
@@ -340,6 +344,7 @@ async function renderPage(state, page) {
     {
       menus: state.previewData.menus,
       widgets: state.widgets,
+      collections: state.renderData.collections,
       taxonomies: state.renderData.taxonomies,
       page,
       route: buildRouteContext('page', currentUrl),
@@ -376,6 +381,7 @@ async function maybeRenderNotFoundPage(state) {
     {
       menus: state.previewData.menus,
       widgets: state.widgets,
+      collections: state.renderData.collections,
       taxonomies: state.renderData.taxonomies,
       route: buildRouteContext('not_found', '/404.html'),
       meta: buildPageMeta(state.previewData.site, {
@@ -413,6 +419,8 @@ function normalizePreviewData(previewData) {
   return {
     ...previewData,
     site: normalizedSite,
+    menus: normalizeRecordMap(previewData.menus),
+    collections: normalizeCollections(previewData.collections),
     widgets: normalizeWidgetAreas(previewData.widgets, normalizedSite.mediaBaseUrl),
     custom_css: normalizeCustomCss(previewData.custom_css),
     custom_html: normalizeCustomHtml(previewData.custom_html),
@@ -438,6 +446,32 @@ function normalizePreviewData(previewData) {
       tags: [...previewData.content.tags],
     },
   };
+}
+
+function normalizeRecordMap(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return { ...value };
+}
+
+function normalizeCollections(collections) {
+  if (!collections || typeof collections !== 'object' || Array.isArray(collections)) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(collections).map(([collectionId, collection]) => [
+      collectionId,
+      {
+        ...collection,
+        title: normalizeOptionalString(collection?.title),
+        description: normalizeOptionalString(collection?.description),
+        items: Array.isArray(collection?.items) ? collection.items.map((item) => ({ ...item })) : [],
+      },
+    ]),
+  );
 }
 
 function normalizeWidgetAreas(widgetAreas, mediaBaseUrl) {
@@ -590,6 +624,7 @@ function createRenderData(previewData, themeMetadata = {}) {
   }));
   const pages = previewData.content.pages.map((page) => preparePage(page, previewData.site));
   const postBySlug = new Map(posts.map((post) => [post.slug, post]));
+  const pageBySlug = new Map(pages.map((page) => [page.slug, page]));
   const frontPage = previewData.site.front_page;
   const postIndex = previewData.site.post_index;
   const effectivePostIndexEnabled = postIndex.enabled !== false && themeSupportsPostIndex;
@@ -610,6 +645,7 @@ function createRenderData(previewData, themeMetadata = {}) {
     posts,
     pages: preparedPages,
     postBySlug,
+    collections: resolveCollections(previewData.collections, postBySlug, pageBySlug, frontPage),
     taxonomies: buildGlobalTaxonomies(previewData, categoryCountBySlug, tagCountBySlug),
     frontPageRoute,
     indexRoutes: buildPostIndexRoutes({
@@ -665,6 +701,68 @@ function buildGlobalTaxonomies(previewData, categoryCountBySlug, tagCountBySlug)
   return {
     categories: buildGlobalTaxonomyItems(previewData.site, 'categories', previewData.content.categories, categoryCountBySlug),
     tags: buildGlobalTaxonomyItems(previewData.site, 'tags', previewData.content.tags, tagCountBySlug),
+  };
+}
+
+function resolveCollections(collections, postBySlug, pageBySlug, frontPage) {
+  if (!collections || typeof collections !== 'object') {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(collections).map(([collectionId, collection]) => [
+      collectionId,
+      {
+        id: collectionId,
+        title: normalizeOptionalString(collection?.title),
+        description: normalizeOptionalString(collection?.description),
+        items: resolveCollectionItems(collectionId, collection?.items, postBySlug, pageBySlug, frontPage),
+      },
+    ]),
+  );
+}
+
+function resolveCollectionItems(collectionId, items, postBySlug, pageBySlug, frontPage) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+
+  return items.map((item, index) => resolveCollectionItem(collectionId, item, index, postBySlug, pageBySlug, frontPage));
+}
+
+function resolveCollectionItem(collectionId, item, index, postBySlug, pageBySlug, frontPage) {
+  if (item?.type === 'post') {
+    const post = postBySlug.get(item.slug);
+    if (!post) {
+      throw new Error(`Invalid collection "${collectionId}": item ${index + 1} references missing post slug "${item.slug}".`);
+    }
+    return {
+      type: 'post',
+      meta: post.meta,
+      ...buildStructuredPostSummary(post),
+    };
+  }
+
+  if (item?.type === 'page') {
+    const page = pageBySlug.get(item.slug);
+    if (!page) {
+      throw new Error(`Invalid collection "${collectionId}": item ${index + 1} references missing page slug "${item.slug}".`);
+    }
+    return buildCollectionPageSummary(page, frontPage);
+  }
+
+  throw new Error(`Invalid collection "${collectionId}": item ${index + 1} has unsupported type "${item?.type}".`);
+}
+
+function buildCollectionPageSummary(page, frontPage) {
+  return {
+    type: 'page',
+    title: page.title,
+    slug: page.slug,
+    url: frontPage?.type === 'page' && frontPage.page_slug === page.slug ? '/' : page.url,
+    excerpt: page.excerpt || '',
+    featured_image: page.featured_image || '',
+    meta: page.meta,
   };
 }
 
@@ -1533,7 +1631,8 @@ async function normalizeAndValidateThemePackage(themePackage) {
     ...(themePackage.metadata.features ? { features: themePackage.metadata.features } : {}),
     ...(themePackage.metadata.menuSlots ? { menuSlots: themePackage.metadata.menuSlots } : {}),
     ...(themePackage.metadata.widgetAreas ? { widgetAreas: themePackage.metadata.widgetAreas } : {}),
-    settings: themePackage.metadata.settings || {},
+    ...(themePackage.metadata.siteMeta ? { siteMeta: themePackage.metadata.siteMeta } : {}),
+    ...(themePackage.metadata.collectionSlots ? { collectionSlots: themePackage.metadata.collectionSlots } : {}),
   }));
 
   for (const [templateName, templateContent] of themePackage.templates.entries()) {
@@ -1569,7 +1668,6 @@ function normalizeThemePackageMetadata(sourceMetadata, manifest) {
   return {
     ...manifest,
     ...(sourceMetadata?.thumbnail ? { thumbnail: sourceMetadata.thumbnail } : {}),
-    settings: sourceMetadata?.settings || {},
   };
 }
 

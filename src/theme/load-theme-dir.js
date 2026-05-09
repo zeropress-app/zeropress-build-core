@@ -51,7 +51,6 @@ export async function loadThemePackageFromDir(themeDir) {
     metadata: {
       ...manifest,
       thumbnail: themeJson.thumbnail,
-      settings: themeJson.settings || {},
     },
     templates,
     partials,

@@ -4,7 +4,6 @@ import type { ThemeManifest } from '@zeropress/theme-validator';
 export interface ThemePackage {
   metadata: ThemeManifest & {
     thumbnail?: string;
-    settings?: Record<string, unknown>;
   };
   templates: Map<string, string>;
   partials: Map<string, string>;

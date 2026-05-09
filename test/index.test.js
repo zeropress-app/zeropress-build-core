@@ -43,7 +43,6 @@ async function loadGoldenThemePackage() {
   return {
     metadata: {
       ...metadata,
-      settings: metadata.settings || {},
     },
     templates,
     partials,
@@ -664,9 +663,6 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
           description: '  Right rail widgets  ',
         },
       },
-      settings: {
-        accent: 'sand',
-      },
       thumbnail: '/preview.png',
     }, null, 2));
     await fs.writeFile(path.join(themeDir, 'layout.html'), '<main>{{slot:content}}</main>');
@@ -702,9 +698,6 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
           title: 'Sidebar Widgets',
           description: 'Right rail widgets',
         },
-      },
-      settings: {
-        accent: 'sand',
       },
       thumbnail: '/preview.png',
     });
@@ -2408,6 +2401,109 @@ test('buildSite renders v0.5 raw content and resolves structured post author dat
   assert.match(pageHtml, /docs\|2\|/);
   assert.match(pageHtml, /<p>First paragraph\.<\/p>/);
   assert.match(pageHtml, /<p>Second paragraph\.<\/p>/);
+});
+
+test('buildSite accepts missing menus and widgets and preserves site meta', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  delete previewData.menus;
+  delete previewData.widgets;
+  previewData.site.meta = {
+    issue: 'Spring 2026',
+    show_sponsor_banner: false,
+  };
+  themePackage.templates.set('index', [
+    '<h1>{{site.meta.issue}}</h1>',
+    '{{menu:primary}}',
+    '{{#if menus.primary.items}}MENU{{/if}}',
+    '{{#if widgets.sidebar.items}}WIDGET{{/if}}',
+    '{{#if site.meta.show_sponsor_banner}}SPONSOR{{/if}}',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /Spring 2026/);
+  assert.doesNotMatch(indexHtml, /MENU/);
+  assert.doesNotMatch(indexHtml, /WIDGET/);
+  assert.doesNotMatch(indexHtml, /SPONSOR/);
+});
+
+test('buildSite resolves named collections in every render context', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.content.posts[0].meta = {
+    badge: 'Feature',
+  };
+  previewData.content.pages[0].meta = {
+    badge: 'Reference',
+  };
+  previewData.collections = {
+    'cover-story': {
+      title: 'Cover Story',
+      items: [
+        { type: 'post', slug: previewData.content.posts[0].slug },
+        { type: 'page', slug: previewData.content.pages[0].slug },
+      ],
+    },
+  };
+
+  const collectionTemplate = [
+    '<section>{{collections.cover-story.title}}',
+    '{{#for item in collections.cover-story.items}}',
+    '<a data-type="{{item.type}}" data-badge="{{item.meta.badge}}" href="{{item.url}}">{{item.title}}</a>',
+    '{{/for}}</section>',
+  ].join('');
+  themePackage.templates.set('index', collectionTemplate);
+  themePackage.templates.set('post', collectionTemplate);
+  themePackage.templates.set('page', collectionTemplate);
+  themePackage.templates.set('404', collectionTemplate);
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  for (const outputPath of ['index.html', 'posts/hello-zeropress/index.html', 'about/index.html', '404.html']) {
+    const html = getFileContent(writer.getFiles(), outputPath);
+    assert.match(html, /Cover Story/);
+    assert.match(html, /data-type="post" data-badge="Feature" href="\/posts\/hello-zeropress\/"/);
+    assert.match(html, /data-type="page" data-badge="Reference" href="\/about\/"/);
+  }
+});
+
+test('buildSite rejects collections that reference missing content slugs', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.collections = {
+    features: {
+      items: [
+        { type: 'post', slug: 'missing-post' },
+      ],
+    },
+  };
+
+  await assert.rejects(
+    buildSite({
+      previewData,
+      themePackage,
+      writer,
+      options: { generateSpecialFiles: false },
+    }),
+    /Invalid collection "features": item 1 references missing post slug "missing-post"/,
+  );
 });
 
 test('buildSite keeps ZeroPress template syntax inside markdown page content literal', async () => {
