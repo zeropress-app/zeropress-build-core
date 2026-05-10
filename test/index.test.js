@@ -546,6 +546,79 @@ test('buildSite injects trusted custom HTML into rendered HTML routes', async ()
   assert.doesNotMatch(sitemapXml, /zp-custom-head|vendor\/app\.js/);
 });
 
+test('buildSite injects favicon links before custom CSS and custom HTML', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.favicon = {
+    icon: '/explicit.ico',
+  };
+  previewData.custom_css = {
+    content: 'body { color: rgb(10, 20, 30); }',
+  };
+  previewData.custom_html = {
+    head_end: {
+      content: '<meta name="zp-custom-head" content="ok">',
+    },
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: {
+      favicon: {
+        icon: '/favicon.ico',
+        svg: '/favicon.svg',
+        png: '/favicon.png',
+        apple_touch_icon: '/apple-touch-icon.png',
+      },
+    },
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /<link rel="icon" href="\/explicit\.ico" sizes="any">/);
+  assert.doesNotMatch(indexHtml, /href="\/favicon\.ico"/);
+  assert.doesNotMatch(indexHtml, /href="\/favicon\.svg"/);
+
+  const iconIndex = indexHtml.indexOf('<link rel="icon" href="/explicit.ico" sizes="any">');
+  const customCssLinkIndex = indexHtml.indexOf('<link rel="stylesheet" href="/assets/zeropress-custom');
+  const customHeadIndex = indexHtml.indexOf('<meta name="zp-custom-head" content="ok">');
+  const headCloseIndex = indexHtml.indexOf('</head>');
+  assert.ok(iconIndex > -1, 'Expected favicon link to be injected');
+  assert.ok(customCssLinkIndex > iconIndex, 'Expected custom CSS after favicon links');
+  assert.ok(customHeadIndex > customCssLinkIndex, 'Expected custom HTML after custom CSS');
+  assert.ok(headCloseIndex > customHeadIndex, 'Expected custom HTML before </head>');
+});
+
+test('buildSite injects discovered favicon option when preview-data has no explicit favicon', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: {
+      generateSpecialFiles: false,
+      favicon: {
+        icon: '/favicon.ico',
+        svg: '/favicon.svg',
+        png: '/favicon.png',
+        apple_touch_icon: '/apple-touch-icon.png',
+      },
+    },
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /<link rel="icon" href="\/favicon\.ico" sizes="any">/);
+  assert.match(indexHtml, /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml">/);
+  assert.match(indexHtml, /<link rel="icon" href="\/favicon\.png" type="image\/png">/);
+  assert.match(indexHtml, /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png">/);
+});
+
 test('buildSite runtime 0.5 renders resolved widgets with escaping and safe URL filtering', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -1160,6 +1233,14 @@ test('buildSite supports standalone front page HTML', async () => {
     type: 'standalone_html',
     html: '<!doctype html><html><head><title>Launch</title></head><body><h1>Launch</h1><script>window.launch = true;</script></body></html>',
   };
+  previewData.site.favicon = {
+    icon: '/favicon.ico',
+  };
+  previewData.custom_html = {
+    head_end: {
+      content: '<meta name="zp-custom-head" content="ok">',
+    },
+  };
   previewData.site.post_index = {
     enabled: true,
     path: '/blog/',
@@ -1178,6 +1259,7 @@ test('buildSite supports standalone front page HTML', async () => {
   const feedXml = getFileContent(files, 'feed.xml');
 
   assert.equal(rootHtml, previewData.site.front_page.html);
+  assert.doesNotMatch(rootHtml, /favicon\.ico|zp-custom-head/);
   assert.equal(files.some((file) => file.path === 'blog/index.html'), true);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/<\/loc>/);
   assert.doesNotMatch(feedXml, /Launch/);

@@ -117,7 +117,7 @@ async function createBuildState(input, options) {
   const engine = new ZeroPressEngine();
   const assetProcessor = new AssetProcessor();
   const summaries = [];
-  const previewData = normalizePreviewData(input.previewData);
+  const previewData = normalizePreviewData(input.previewData, options);
   const renderData = createRenderData(previewData, themePackage.metadata);
 
   engine.initialize(themePackage);
@@ -143,6 +143,7 @@ async function createBuildState(input, options) {
     assetMap,
     customCssHref: customCssAsset ? `/${customCssAsset.path}` : '',
     customHtml: previewData.custom_html,
+    favicon: previewData.site.favicon,
     commentPolicyContent: buildCommentPolicyManifest(renderData.posts),
     options,
     generatedAt: new Date(),
@@ -404,13 +405,14 @@ async function maybeRenderNotFoundPage(state) {
   await writeOutput(state.writer, state.summaries, '404.html', html, 'text/html');
 }
 
-function normalizePreviewData(previewData) {
+function normalizePreviewData(previewData, options = {}) {
   const normalizedSite = {
     ...previewData.site,
     mediaBaseUrl: normalizeOptionalString(previewData.site.mediaBaseUrl),
     mediaDeliveryMode: MEDIA_DELIVERY_MODES.has(previewData.site.mediaDeliveryMode)
       ? previewData.site.mediaDeliveryMode
       : 'none',
+    favicon: normalizeSiteFavicon(previewData.site.favicon || options.favicon),
     postsPerPage: Number.isInteger(previewData.site.postsPerPage) && previewData.site.postsPerPage > 0
       ? previewData.site.postsPerPage
       : DEFAULT_POSTS_PER_PAGE,
@@ -682,6 +684,22 @@ function normalizeCustomHtml(customHtml) {
     ...(headEnd ? { head_end: { content: headEnd } } : {}),
     ...(bodyEnd ? { body_end: { content: bodyEnd } } : {}),
   };
+}
+
+function normalizeSiteFavicon(favicon) {
+  if (!favicon || typeof favicon !== 'object') {
+    return undefined;
+  }
+
+  const normalized = {};
+  for (const key of ['icon', 'svg', 'png', 'apple_touch_icon']) {
+    const value = normalizeOptionalString(favicon[key]);
+    if (value) {
+      normalized[key] = value;
+    }
+  }
+
+  return Object.keys(normalized).length ? normalized : undefined;
 }
 
 function normalizePermalinks(permalinks) {
@@ -2319,9 +2337,41 @@ function sha256(content) {
 }
 
 function injectSiteCustomizations(html, state) {
-  let next = injectCustomCssAssetLink(html, state.customCssHref);
+  let next = injectFaviconLinks(html, state.favicon);
+  next = injectCustomCssAssetLink(next, state.customCssHref);
   next = injectCustomHtml(next, state.customHtml);
   return next;
+}
+
+function injectFaviconLinks(html, favicon) {
+  const links = buildFaviconLinks(favicon);
+  if (!links) {
+    return html;
+  }
+
+  return html.replace('</head>', `${links}\n</head>`);
+}
+
+function buildFaviconLinks(favicon) {
+  if (!favicon || typeof favicon !== 'object') {
+    return '';
+  }
+
+  const lines = [];
+  if (normalizeOptionalString(favicon.icon)) {
+    lines.push(`  <link rel="icon" href="${escapeHtml(favicon.icon)}" sizes="any">`);
+  }
+  if (normalizeOptionalString(favicon.svg)) {
+    lines.push(`  <link rel="icon" href="${escapeHtml(favicon.svg)}" type="image/svg+xml">`);
+  }
+  if (normalizeOptionalString(favicon.png)) {
+    lines.push(`  <link rel="icon" href="${escapeHtml(favicon.png)}" type="image/png">`);
+  }
+  if (normalizeOptionalString(favicon.apple_touch_icon)) {
+    lines.push(`  <link rel="apple-touch-icon" href="${escapeHtml(favicon.apple_touch_icon)}">`);
+  }
+
+  return lines.join('\n');
 }
 
 function injectCustomCssAssetLink(html, href) {
