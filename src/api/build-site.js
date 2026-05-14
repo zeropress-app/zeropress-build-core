@@ -144,6 +144,7 @@ async function createBuildState(input, options) {
     customCssHref: customCssAsset ? `/${customCssAsset.path}` : '',
     customHtml: previewData.custom_html,
     favicon: previewData.site.favicon,
+    exposeGenerator: previewData.site.expose_generator !== false,
     commentPolicyContent: buildCommentPolicyManifest(renderData.posts),
     options,
     generatedAt: new Date(),
@@ -421,6 +422,7 @@ function normalizePreviewData(previewData, options = {}) {
     timezone: normalizeNonEmptyString(previewData.site.timezone, DEFAULT_TIMEZONE),
     locale: normalizeLocale(previewData.site.locale || DEFAULT_LOCALE),
     disallow_comments: previewData.site.disallow_comments === true,
+    expose_generator: previewData.site.expose_generator !== false,
     indexing: previewData.site.indexing !== false,
     permalinks: normalizePermalinks(previewData.site.permalinks),
     front_page: normalizeFrontPage(previewData.site.front_page),
@@ -2333,6 +2335,7 @@ function sha256(content) {
 
 function injectSiteCustomizations(html, state) {
   let next = injectFaviconLinks(html, state.favicon);
+  next = injectGeneratorMeta(next, state.exposeGenerator);
   next = injectCustomCssAssetLink(next, state.customCssHref);
   next = injectCustomHtml(next, state.customHtml);
   return next;
@@ -2367,6 +2370,14 @@ function buildFaviconLinks(favicon) {
   }
 
   return lines.join('\n');
+}
+
+function injectGeneratorMeta(html, exposeGenerator) {
+  if (exposeGenerator === false) {
+    return html;
+  }
+
+  return html.replace('</head>', '  <meta name="generator" content="ZeroPress">\n</head>');
 }
 
 function injectCustomCssAssetLink(html, href) {

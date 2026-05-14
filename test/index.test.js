@@ -577,17 +577,64 @@ test('buildSite injects favicon links before custom CSS and custom HTML', async 
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
   assert.match(indexHtml, /<link rel="icon" href="\/explicit\.ico" sizes="any">/);
+  assert.match(indexHtml, /<meta name="generator" content="ZeroPress">/);
   assert.doesNotMatch(indexHtml, /href="\/favicon\.ico"/);
   assert.doesNotMatch(indexHtml, /href="\/favicon\.svg"/);
 
   const iconIndex = indexHtml.indexOf('<link rel="icon" href="/explicit.ico" sizes="any">');
+  const generatorIndex = indexHtml.indexOf('<meta name="generator" content="ZeroPress">');
   const customCssLinkIndex = indexHtml.indexOf('<link rel="stylesheet" href="/assets/zeropress-custom');
   const customHeadIndex = indexHtml.indexOf('<meta name="zp-custom-head" content="ok">');
   const headCloseIndex = indexHtml.indexOf('</head>');
   assert.ok(iconIndex > -1, 'Expected favicon link to be injected');
-  assert.ok(customCssLinkIndex > iconIndex, 'Expected custom CSS after favicon links');
+  assert.ok(generatorIndex > iconIndex, 'Expected generator meta after favicon links');
+  assert.ok(customCssLinkIndex > generatorIndex, 'Expected custom CSS after generator meta');
   assert.ok(customHeadIndex > customCssLinkIndex, 'Expected custom HTML after custom CSS');
   assert.ok(headCloseIndex > customHeadIndex, 'Expected custom HTML before </head>');
+});
+
+test('buildSite can omit generator meta while preserving custom head HTML', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.expose_generator = false;
+  previewData.custom_html = {
+    head_end: {
+      content: '<meta name="generator" content="Custom Generator">',
+    },
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.doesNotMatch(indexHtml, /content="ZeroPress"/);
+  assert.match(indexHtml, /<meta name="generator" content="Custom Generator">/);
+});
+
+test('buildSite does not deduplicate custom generator meta', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.custom_html = {
+    head_end: {
+      content: '<meta name="generator" content="Custom Generator">',
+    },
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.equal([...indexHtml.matchAll(/<meta name="generator"/g)].length, 2);
+  assert.match(indexHtml, /<meta name="generator" content="ZeroPress">/);
+  assert.match(indexHtml, /<meta name="generator" content="Custom Generator">/);
 });
 
 test('buildSite injects discovered favicon option when preview-data has no explicit favicon', async () => {
@@ -1267,7 +1314,7 @@ test('buildSite supports standalone front page HTML', async () => {
   const feedXml = getFileContent(files, 'feed.xml');
 
   assert.equal(rootHtml, previewData.site.front_page.html);
-  assert.doesNotMatch(rootHtml, /favicon\.ico|zp-custom-head/);
+  assert.doesNotMatch(rootHtml, /favicon\.ico|zp-custom-head|name="generator"/);
   assert.equal(files.some((file) => file.path === 'blog/index.html'), true);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/<\/loc>/);
   assert.doesNotMatch(feedXml, /Launch/);
