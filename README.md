@@ -197,14 +197,14 @@ It also emits a comments allowlist artifact:
 
 Comment availability is derived from preview-data policy:
 
-- `site.disallowComments`
+- `site.disallow_comments`
 - `content.posts[].allow_comments`
 
 The canonical `preview-data v0.4` site contract uses:
 
 - `site.locale`
 - `site.timezone`
-- `site.disallowComments`
+- `site.disallow_comments`
 
 Optional route templates behave as rendering capabilities, not guaranteed outputs:
 

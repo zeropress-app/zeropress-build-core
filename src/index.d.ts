@@ -1,4 +1,4 @@
-import type { PreviewDataV05 } from '@zeropress/preview-data-validator';
+import type { PreviewDataV06 } from '@zeropress/preview-data-validator';
 import type { ThemeManifest } from '@zeropress/theme-validator';
 
 export interface ThemePackage {
@@ -51,14 +51,14 @@ export interface BuildSiteResult {
 }
 
 export function buildSite(input: {
-  previewData: PreviewDataV05;
+  previewData: PreviewDataV06;
   themePackage: ThemePackage;
   writer: BuildWriter;
   options?: BuildOptions;
 }): Promise<BuildSiteResult>;
 
 export function buildSiteFromThemeDir(input: {
-  previewData: PreviewDataV05;
+  previewData: PreviewDataV06;
   themeDir: string;
   writer: BuildWriter;
   options?: BuildOptions;

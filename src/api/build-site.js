@@ -408,19 +408,19 @@ async function maybeRenderNotFoundPage(state) {
 function normalizePreviewData(previewData, options = {}) {
   const normalizedSite = {
     ...previewData.site,
-    mediaBaseUrl: normalizeOptionalString(previewData.site.mediaBaseUrl),
-    mediaDeliveryMode: MEDIA_DELIVERY_MODES.has(previewData.site.mediaDeliveryMode)
-      ? previewData.site.mediaDeliveryMode
+    media_base_url: normalizeOptionalString(previewData.site.media_base_url),
+    media_delivery_mode: MEDIA_DELIVERY_MODES.has(previewData.site.media_delivery_mode)
+      ? previewData.site.media_delivery_mode
       : 'none',
     favicon: normalizeSiteFavicon(previewData.site.favicon || options.favicon),
-    postsPerPage: Number.isInteger(previewData.site.postsPerPage) && previewData.site.postsPerPage > 0
-      ? previewData.site.postsPerPage
+    posts_per_page: Number.isInteger(previewData.site.posts_per_page) && previewData.site.posts_per_page > 0
+      ? previewData.site.posts_per_page
       : DEFAULT_POSTS_PER_PAGE,
-    dateFormat: normalizeNonEmptyString(previewData.site.dateFormat, DEFAULT_DATE_FORMAT),
-    timeFormat: typeof previewData.site.timeFormat === 'string' ? previewData.site.timeFormat : DEFAULT_TIME_FORMAT,
+    date_format: normalizeNonEmptyString(previewData.site.date_format, DEFAULT_DATE_FORMAT),
+    time_format: typeof previewData.site.time_format === 'string' ? previewData.site.time_format : DEFAULT_TIME_FORMAT,
     timezone: normalizeNonEmptyString(previewData.site.timezone, DEFAULT_TIMEZONE),
     locale: normalizeLocale(previewData.site.locale || DEFAULT_LOCALE),
-    disallowComments: previewData.site.disallowComments === true,
+    disallow_comments: previewData.site.disallow_comments === true,
     indexing: previewData.site.indexing !== false,
     permalinks: normalizePermalinks(previewData.site.permalinks),
     front_page: normalizeFrontPage(previewData.site.front_page),
@@ -435,13 +435,13 @@ function normalizePreviewData(previewData, options = {}) {
     site: normalizedSite,
     menus: normalizeRecordMap(previewData.menus),
     collections: normalizeCollections(previewData.collections),
-    widgets: normalizeWidgetAreas(previewData.widgets, normalizedSite.mediaBaseUrl),
+    widgets: normalizeWidgetAreas(previewData.widgets, normalizedSite.media_base_url),
     custom_css: normalizeCustomCss(previewData.custom_css),
     custom_html: normalizeCustomHtml(previewData.custom_html),
     content: {
       ...previewData.content,
       authors: previewData.content.authors.map((author) => {
-        const avatar = normalizeMediaField(author.avatar, normalizedSite.mediaBaseUrl);
+        const avatar = normalizeMediaField(author.avatar, normalizedSite.media_base_url);
         const avatarMedia = deriveManagedMedia(avatar, mediaRegistry, normalizedSite);
         return {
           ...author,
@@ -451,7 +451,7 @@ function normalizePreviewData(previewData, options = {}) {
       }),
       posts: previewData.content.posts
         .map((post) => {
-          const featuredImage = normalizeMediaField(post.featured_image, normalizedSite.mediaBaseUrl);
+          const featuredImage = normalizeMediaField(post.featured_image, normalizedSite.media_base_url);
           const featuredMedia = deriveManagedMedia(featuredImage, mediaRegistry, normalizedSite);
           return {
             ...post,
@@ -463,7 +463,7 @@ function normalizePreviewData(previewData, options = {}) {
         })
         .sort((left, right) => toDate(right.published_at_iso).getTime() - toDate(left.published_at_iso).getTime()),
       pages: previewData.content.pages.map((page) => {
-        const featuredImage = normalizeMediaField(page.featured_image, normalizedSite.mediaBaseUrl);
+        const featuredImage = normalizeMediaField(page.featured_image, normalizedSite.media_base_url);
         const featuredMedia = deriveManagedMedia(featuredImage, mediaRegistry, normalizedSite);
         return {
           ...page,
@@ -496,7 +496,7 @@ function normalizeContentMedia(mediaItems, site) {
       if (!item || typeof item !== 'object') {
         return null;
       }
-      const src = normalizeMediaField(item.src, site.mediaBaseUrl);
+      const src = normalizeMediaField(item.src, site.media_base_url);
       const width = Number.isInteger(item.width) && item.width > 0 ? item.width : 0;
       const height = Number.isInteger(item.height) && item.height > 0 ? item.height : 0;
       if (!src || !width || !height) {
@@ -538,12 +538,12 @@ function deriveManagedMedia(src, mediaRegistry, site) {
 }
 
 function buildResponsiveImageSrcset(media, site) {
-  if (site.mediaDeliveryMode !== 'media_domain') {
+  if (site.media_delivery_mode !== 'media_domain') {
     return '';
   }
 
-  const mediaBaseUrl = normalizeOptionalString(site.mediaBaseUrl);
-  if (!mediaBaseUrl || !isUrlUnderMediaBase(media.src, mediaBaseUrl) || !isResponsiveRasterImage(media.src)) {
+  const media_base_url = normalizeOptionalString(site.media_base_url);
+  if (!media_base_url || !isUrlUnderMediaBase(media.src, media_base_url) || !isResponsiveRasterImage(media.src)) {
     return '';
   }
 
@@ -570,10 +570,10 @@ function buildResponsiveImageVariantUrl(src, width) {
   }
 }
 
-function isUrlUnderMediaBase(src, mediaBaseUrl) {
+function isUrlUnderMediaBase(src, media_base_url) {
   try {
     const sourceUrl = new URL(src);
-    const baseUrl = new URL(mediaBaseUrl);
+    const baseUrl = new URL(media_base_url);
     const basePath = baseUrl.pathname.endsWith('/') ? baseUrl.pathname : `${baseUrl.pathname}/`;
     return sourceUrl.origin === baseUrl.origin && sourceUrl.pathname.startsWith(basePath);
   } catch {
@@ -610,19 +610,19 @@ function normalizeCollections(collections) {
   );
 }
 
-function normalizeWidgetAreas(widgetAreas, mediaBaseUrl) {
-  if (!widgetAreas || typeof widgetAreas !== 'object') {
+function normalizeWidgetAreas(widget_areas, media_base_url) {
+  if (!widget_areas || typeof widget_areas !== 'object') {
     return {};
   }
 
   return Object.fromEntries(
-    Object.entries(widgetAreas).map(([widgetAreaId, widgetArea]) => [
+    Object.entries(widget_areas).map(([widgetAreaId, widgetArea]) => [
       widgetAreaId,
       {
         ...widgetArea,
         name: normalizeNonEmptyString(widgetArea?.name, widgetAreaId),
         items: Array.isArray(widgetArea?.items)
-          ? widgetArea.items.map((item) => normalizeWidgetItem(item, mediaBaseUrl))
+          ? widgetArea.items.map((item) => normalizeWidgetItem(item, media_base_url))
           : [],
       },
     ]),
@@ -631,21 +631,15 @@ function normalizeWidgetAreas(widgetAreas, mediaBaseUrl) {
 
 function normalizeSiteFooter(footer) {
   const source = footer && typeof footer === 'object' && !Array.isArray(footer) ? footer : {};
-  const attribution = source.attribution && typeof source.attribution === 'object' && !Array.isArray(source.attribution)
-    ? source.attribution
-    : {};
 
   return {
     ...source,
     copyright_text: normalizeOptionalString(source.copyright_text),
-    attribution: {
-      ...attribution,
-      enabled: attribution.enabled !== false,
-    },
+    attribution: source.attribution !== false,
   };
 }
 
-function normalizeWidgetItem(item, mediaBaseUrl) {
+function normalizeWidgetItem(item, media_base_url) {
   const normalizedItem = {
     ...item,
     title: typeof item?.title === 'string' ? item.title.trim() : '',
@@ -656,7 +650,7 @@ function normalizeWidgetItem(item, mediaBaseUrl) {
       ...normalizedItem,
       settings: {
         ...item.settings,
-        avatar: normalizeMediaField(item.settings.avatar, mediaBaseUrl),
+        avatar: normalizeMediaField(item.settings.avatar, media_base_url),
       },
     };
   }
@@ -733,21 +727,21 @@ function normalizeFrontPage(frontPage) {
   };
 }
 
-function normalizePostIndex(postIndex) {
-  if (!postIndex || typeof postIndex !== 'object') {
+function normalizePostIndex(post_index) {
+  if (!post_index || typeof post_index !== 'object') {
     return { ...DEFAULT_POST_INDEX };
   }
 
   return {
-    enabled: postIndex.enabled !== false,
-    path: normalizeNonEmptyString(postIndex.path, DEFAULT_POST_INDEX.path),
-    paginate: postIndex.paginate !== false,
+    enabled: post_index.enabled !== false,
+    path: normalizeNonEmptyString(post_index.path, DEFAULT_POST_INDEX.path),
+    paginate: post_index.paginate !== false,
   };
 }
 
 function createRenderData(previewData, themeMetadata = {}) {
   const themeSupportsComments = themeMetadata?.features?.comments === true;
-  const themeSupportsPostIndex = themeMetadata?.features?.postIndex !== false;
+  const themeSupportsPostIndex = themeMetadata?.features?.post_index !== false;
   const authorsById = new Map(previewData.content.authors.map((author) => [author.id, author]));
   const categoriesBySlug = new Map(previewData.content.categories.map((category) => [category.slug, category]));
   const tagsBySlug = new Map(previewData.content.tags.map((tag) => [tag.slug, tag]));
@@ -778,16 +772,16 @@ function createRenderData(previewData, themeMetadata = {}) {
   const postBySlug = new Map(posts.map((post) => [post.slug, post]));
   const pageBySlug = new Map(pages.map((page) => [page.slug, page]));
   const frontPage = previewData.site.front_page;
-  const postIndex = previewData.site.post_index;
-  const effectivePostIndexEnabled = postIndex.enabled !== false && themeSupportsPostIndex;
-  const effectivePostIndexPaginate = effectivePostIndexEnabled && postIndex.paginate !== false;
-  const postIndexBasePath = normalizeRoutePath(postIndex.path || DEFAULT_POST_INDEX.path);
+  const post_index = previewData.site.post_index;
+  const effectivePostIndexEnabled = post_index.enabled !== false && themeSupportsPostIndex;
+  const effectivePostIndexPaginate = effectivePostIndexEnabled && post_index.paginate !== false;
+  const post_indexBasePath = normalizeRoutePath(post_index.path || DEFAULT_POST_INDEX.path);
 
-  if (frontPage.type !== 'theme_index' && effectivePostIndexEnabled && postIndexBasePath === '/') {
+  if (frontPage.type !== 'theme_index' && effectivePostIndexEnabled && post_indexBasePath === '/') {
     throw new Error('Invalid front page configuration: site.front_page occupies "/" so site.post_index.path must not be "/". Set site.post_index.path to a non-root path or disable site.post_index.');
   }
 
-  const frontPageRoute = buildFrontPageRoute(frontPage, pages, effectivePostIndexEnabled, postIndexBasePath);
+  const frontPageRoute = buildFrontPageRoute(frontPage, pages, effectivePostIndexEnabled, post_indexBasePath);
   const pageFrontPageSlug = frontPage.type === 'page' ? frontPage.page_slug : '';
   const preparedPages = pageFrontPageSlug
     ? pages.filter((page) => page.slug !== pageFrontPageSlug)
@@ -804,15 +798,15 @@ function createRenderData(previewData, themeMetadata = {}) {
       enabled: effectivePostIndexEnabled,
       paginate: effectivePostIndexPaginate,
       items: previewData.content.posts,
-      postsPerPage: previewData.site.postsPerPage,
-      basePath: postIndexBasePath,
+      posts_per_page: previewData.site.posts_per_page,
+      basePath: post_indexBasePath,
       outputStyle: previewData.site.permalinks.output_style,
       postBySlug,
       frontPage,
     }),
     archiveRoutes: buildPaginatedCollection({
       items: previewData.content.posts,
-      postsPerPage: previewData.site.postsPerPage,
+      posts_per_page: previewData.site.posts_per_page,
       basePath: '/archive/',
       outputStyle: previewData.site.permalinks.output_style,
     }).map((entry) => ({
@@ -828,7 +822,7 @@ function createRenderData(previewData, themeMetadata = {}) {
       items: previewData.content.categories,
       postsBySlug: categoryPostsBySlug,
       postBySlug,
-      postsPerPage: previewData.site.postsPerPage,
+      posts_per_page: previewData.site.posts_per_page,
       outputStyle: previewData.site.permalinks.output_style,
       buildBasePath: (category) => resolvePermalink(previewData.site, 'categories', category).path,
       renderExtras: (category) => ({
@@ -839,7 +833,7 @@ function createRenderData(previewData, themeMetadata = {}) {
       items: previewData.content.tags,
       postsBySlug: tagPostsBySlug,
       postBySlug,
-      postsPerPage: previewData.site.postsPerPage,
+      posts_per_page: previewData.site.posts_per_page,
       outputStyle: previewData.site.permalinks.output_style,
       buildBasePath: (tag) => resolvePermalink(previewData.site, 'tags', tag).path,
       renderExtras: (tag) => ({
@@ -919,9 +913,9 @@ function buildCollectionPageSummary(page, frontPage) {
   };
 }
 
-function buildFrontPageRoute(frontPage, pages, effectivePostIndexEnabled, postIndexBasePath) {
+function buildFrontPageRoute(frontPage, pages, effectivePostIndexEnabled, post_indexBasePath) {
   if (frontPage.type === 'theme_index') {
-    if (effectivePostIndexEnabled && postIndexBasePath === '/') {
+    if (effectivePostIndexEnabled && post_indexBasePath === '/') {
       return null;
     }
 
@@ -967,7 +961,7 @@ function buildPostIndexRoutes(options) {
   }
 
   if (!options.paginate) {
-    const items = options.items.slice(0, options.postsPerPage);
+    const items = options.items.slice(0, options.posts_per_page);
     return [{
       path: options.basePath,
       route_type: 'post_index',
@@ -982,7 +976,7 @@ function buildPostIndexRoutes(options) {
 
   return buildPaginatedCollection({
     items: options.items,
-    postsPerPage: options.postsPerPage,
+    posts_per_page: options.posts_per_page,
     basePath: options.basePath,
     outputStyle: options.outputStyle,
   }).map((entry) => ({
@@ -1301,7 +1295,7 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
     published_at: formatTimestamp(post.published_at_iso, site),
     updated_at: formatTimestamp(post.updated_at_iso, site),
     reading_time: calculateReadingTime(renderedDocument.html),
-    comments_enabled: themeSupportsComments && site.disallowComments !== true && post.allow_comments === true,
+    comments_enabled: themeSupportsComments && site.disallow_comments !== true && post.allow_comments === true,
   };
 }
 
@@ -1328,7 +1322,7 @@ function buildTaxonomyRoutes(options) {
 
     const paginated = buildPaginatedCollection({
       items: matchedPosts,
-      postsPerPage: options.postsPerPage,
+      posts_per_page: options.posts_per_page,
       basePath: options.buildBasePath(item),
       outputStyle: options.outputStyle,
     });
@@ -1352,14 +1346,14 @@ function buildTaxonomyRoutes(options) {
 function buildPaginatedCollection(options) {
   const basePath = normalizePaginationBasePath(options.basePath);
   const outputStyle = PERMALINK_OUTPUT_STYLES.has(options.outputStyle) ? options.outputStyle : DEFAULT_PERMALINKS.output_style;
-  const postsPerPage = Number.isInteger(options.postsPerPage) && options.postsPerPage > 0 ? options.postsPerPage : DEFAULT_POSTS_PER_PAGE;
+  const posts_per_page = Number.isInteger(options.posts_per_page) && options.posts_per_page > 0 ? options.posts_per_page : DEFAULT_POSTS_PER_PAGE;
   const totalPosts = options.items.length;
-  const totalPages = Math.max(1, Math.ceil(totalPosts / postsPerPage));
+  const totalPages = Math.max(1, Math.ceil(totalPosts / posts_per_page));
   const pages = [];
 
   for (let page = 1; page <= totalPages; page += 1) {
-    const start = (page - 1) * postsPerPage;
-    const end = start + postsPerPage;
+    const start = (page - 1) * posts_per_page;
+    const end = start + posts_per_page;
 
     pages.push({
       path: buildPaginatedPath(basePath, page),
@@ -1646,14 +1640,14 @@ function formatArchiveLabel(date, site) {
 function formatTimestamp(value, site) {
   const date = toDate(value);
   const locale = normalizeLocale(site.locale || DEFAULT_LOCALE);
-  const dateFormat = normalizeNonEmptyString(site.dateFormat, DEFAULT_DATE_FORMAT);
-  const timeFormat = typeof site.timeFormat === 'string' ? site.timeFormat : DEFAULT_TIME_FORMAT;
+  const date_format = normalizeNonEmptyString(site.date_format, DEFAULT_DATE_FORMAT);
+  const time_format = typeof site.time_format === 'string' ? site.time_format : DEFAULT_TIME_FORMAT;
   const siteTimezone = normalizeNonEmptyString(site.timezone, DEFAULT_TIMEZONE);
 
   const dateParts = new Intl.DateTimeFormat(locale, {
     timeZone: siteTimezone,
     year: 'numeric',
-    month: dateFormat === 'MMMM D, YYYY' ? 'long' : '2-digit',
+    month: date_format === 'MMMM D, YYYY' ? 'long' : '2-digit',
     day: '2-digit',
   }).formatToParts(date);
 
@@ -1662,15 +1656,15 @@ function formatTimestamp(value, site) {
   const day = dateParts.find((part) => part.type === 'day')?.value || '';
 
   let formattedDate = `${year}-${month}-${day}`;
-  if (dateFormat === 'DD/MM/YYYY') {
+  if (date_format === 'DD/MM/YYYY') {
     formattedDate = `${day}/${month}/${year}`;
-  } else if (dateFormat === 'MM/DD/YYYY') {
+  } else if (date_format === 'MM/DD/YYYY') {
     formattedDate = `${month}/${day}/${year}`;
-  } else if (dateFormat === 'MMMM D, YYYY') {
+  } else if (date_format === 'MMMM D, YYYY') {
     formattedDate = `${month} ${String(Number(day))}, ${year}`;
   }
 
-  if (!timeFormat) {
+  if (!time_format) {
     return formattedDate;
   }
 
@@ -1678,14 +1672,14 @@ function formatTimestamp(value, site) {
     timeZone: siteTimezone,
     hour: '2-digit',
     minute: '2-digit',
-    hour12: timeFormat === 'hh:mm A',
+    hour12: time_format === 'hh:mm A',
   }).formatToParts(date);
 
   const hour = timeParts.find((part) => part.type === 'hour')?.value || '';
   const minute = timeParts.find((part) => part.type === 'minute')?.value || '';
   const dayPeriod = (timeParts.find((part) => part.type === 'dayPeriod')?.value || '').toUpperCase();
 
-  const formattedTime = timeFormat === 'hh:mm A'
+  const formattedTime = time_format === 'hh:mm A'
     ? `${hour}:${minute}${dayPeriod ? ` ${dayPeriod}` : ''}`
     : `${hour}:${minute}`;
 
@@ -1785,11 +1779,12 @@ async function normalizeAndValidateThemePackage(themePackage) {
     ...(themePackage.metadata.author ? { author: themePackage.metadata.author } : {}),
     ...(themePackage.metadata.description ? { description: themePackage.metadata.description } : {}),
     ...(themePackage.metadata.thumbnail ? { thumbnail: themePackage.metadata.thumbnail } : {}),
+    ...(themePackage.metadata.links ? { links: themePackage.metadata.links } : {}),
     ...(themePackage.metadata.features ? { features: themePackage.metadata.features } : {}),
-    ...(themePackage.metadata.menuSlots ? { menuSlots: themePackage.metadata.menuSlots } : {}),
-    ...(themePackage.metadata.widgetAreas ? { widgetAreas: themePackage.metadata.widgetAreas } : {}),
-    ...(themePackage.metadata.siteMeta ? { siteMeta: themePackage.metadata.siteMeta } : {}),
-    ...(themePackage.metadata.collectionSlots ? { collectionSlots: themePackage.metadata.collectionSlots } : {}),
+    ...(themePackage.metadata.menu_slots ? { menu_slots: themePackage.metadata.menu_slots } : {}),
+    ...(themePackage.metadata.widget_areas ? { widget_areas: themePackage.metadata.widget_areas } : {}),
+    ...(themePackage.metadata.site_meta ? { site_meta: themePackage.metadata.site_meta } : {}),
+    ...(themePackage.metadata.collection_slots ? { collection_slots: themePackage.metadata.collection_slots } : {}),
   }));
 
   for (const [templateName, templateContent] of themePackage.templates.entries()) {
@@ -1982,7 +1977,7 @@ function resolveMetaImageUrl(image) {
   return '';
 }
 
-function normalizeMediaField(value, mediaBaseUrl) {
+function normalizeMediaField(value, media_base_url) {
   if (value === undefined) {
     return undefined;
   }
@@ -1996,7 +1991,7 @@ function normalizeMediaField(value, mediaBaseUrl) {
     return normalizeAbsoluteUrl(normalizedValue, SAFE_MEDIA_PROTOCOLS);
   }
 
-  const normalizedBaseUrl = normalizeOptionalString(mediaBaseUrl);
+  const normalizedBaseUrl = normalizeOptionalString(media_base_url);
   if (!normalizedBaseUrl) {
     return normalizedValue;
   }

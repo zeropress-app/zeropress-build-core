@@ -275,16 +275,14 @@ test('buildSite exposes optional site.footer fields to themes', async () => {
   const previewData = await loadDefaultPreviewData();
   previewData.site.footer = {
     copyright_text: 'Copyright 2026 Example Corp.',
-    attribution: {
-      enabled: false,
-    },
+    attribution: false,
   };
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
   themePackage.templates.set('layout', [
     '<main>{{slot:content}}</main>',
     '<footer>',
     '{{#if site.footer.copyright_text}}<p>{{site.footer.copyright_text}}</p>{{#else_if site.title}}<p>{{site.title}}</p>{{/if}}',
-    '{{#if site.footer.attribution.enabled}}<p>Published with ZeroPress.</p>{{/if}}',
+    '{{#if site.footer.attribution}}<p>Published with ZeroPress.</p>{{/if}}',
     '</footer>',
   ].join(''));
 
@@ -431,7 +429,7 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
     {{/for}}
   </aside>
 </section>`);
-  previewData.site.mediaBaseUrl = 'https://media.example.com';
+  previewData.site.media_base_url = 'https://media.example.com';
 
   previewData.widgets = {
     sidebar: {
@@ -619,12 +617,12 @@ test('buildSite injects discovered favicon option when preview-data has no expli
   assert.match(indexHtml, /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png">/);
 });
 
-test('buildSite runtime 0.5 renders resolved widgets with escaping and safe URL filtering', async () => {
+test('buildSite runtime 0.6 renders resolved widgets with escaping and safe URL filtering', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  themePackage.metadata.runtime = '0.5';
+  themePackage.metadata.runtime = '0.6';
   themePackage.templates.set('index', `
 <section class="index-page">
   <aside class="sidebar-stack">
@@ -652,7 +650,7 @@ test('buildSite runtime 0.5 renders resolved widgets with escaping and safe URL 
   </aside>
 </section>`);
 
-  previewData.site.mediaBaseUrl = 'https://media.example.com';
+  previewData.site.media_base_url = 'https://media.example.com';
   previewData.widgets = {
     sidebar: {
       name: 'Sidebar Widgets',
@@ -717,20 +715,25 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
       slug: 'test-theme',
       version: '1.0.0',
       license: 'MIT',
-      runtime: '0.5',
+      runtime: '0.6',
       author: '  ZeroPress  ',
       description: '  Theme fixture  ',
       features: {
         comments: true,
         newsletter: false,
       },
-      menuSlots: {
+      links: {
+        homepage: '  https://example.com/theme  ',
+        support: '  mailto:support@example.com  ',
+        license: '  https://example.com/theme/license  ',
+      },
+      menu_slots: {
         primary: {
           title: '  Primary Menu  ',
           description: '  Main header navigation  ',
         },
       },
-      widgetAreas: {
+      widget_areas: {
         sidebar: {
           title: '  Sidebar Widgets  ',
           description: '  Right rail widgets  ',
@@ -753,20 +756,25 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
       slug: 'test-theme',
       version: '1.0.0',
       license: 'MIT',
-      runtime: '0.5',
+      runtime: '0.6',
       author: 'ZeroPress',
       description: 'Theme fixture',
       features: {
         comments: true,
         newsletter: false,
       },
-      menuSlots: {
+      links: {
+        homepage: 'https://example.com/theme',
+        support: 'mailto:support@example.com',
+        license: 'https://example.com/theme/license',
+      },
+      menu_slots: {
         primary: {
           title: 'Primary Menu',
           description: 'Main header navigation',
         },
       },
-      widgetAreas: {
+      widget_areas: {
         sidebar: {
           title: 'Sidebar Widgets',
           description: 'Right rail widgets',
@@ -788,7 +796,7 @@ test('loadThemePackageFromDir preserves theme capability metadata for internal f
   });
 });
 
-test('buildSite rejects theme packages that do not target runtime 0.5', async () => {
+test('buildSite rejects theme packages that do not target runtime 0.6', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
@@ -802,7 +810,7 @@ test('buildSite rejects theme packages that do not target runtime 0.5', async ()
       writer,
       options: { generateSpecialFiles: false },
     }),
-    /Theme validation failed: theme\.json field 'runtime' must be one of: 0\.5/,
+    /Theme validation failed: theme\.json field 'runtime' must be one of: 0\.6/,
   );
 });
 
@@ -827,7 +835,7 @@ test('buildSiteFromThemeDir loads the golden fixture theme directory and Filesys
   }
 });
 
-test('buildSiteFromThemeDir rejects themes that do not target runtime 0.5', async () => {
+test('buildSiteFromThemeDir rejects themes that do not target runtime 0.6', async () => {
   const themeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-theme-'));
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-out-'));
 
@@ -855,7 +863,7 @@ test('buildSiteFromThemeDir rejects themes that do not target runtime 0.5', asyn
         writer,
         options: { generateSpecialFiles: false },
       }),
-      /Theme validation failed: theme\.json field 'runtime' must be one of: 0\.5/,
+      /Theme validation failed: theme\.json field 'runtime' must be one of: 0\.6/,
     );
   } finally {
     await fs.rm(themeDir, { recursive: true, force: true });
@@ -914,12 +922,12 @@ test('buildSite renders nested partials in templates and layout slot partials', 
   assert.match(indexHtml, /<main><main class="index-shell"><aside class="sidebar-stack"><section class="widget-card"><h2>Note<\/h2><div class="widget-copy"><p>Sidebar <strong>markdown<\/strong><\/p>\s*<\/div><\/section><\/aside><\/main><\/main>/);
 });
 
-test('buildSite runtime 0.5 exposes structured posts, archive groups, and pagination without legacy helpers', async () => {
+test('buildSite runtime 0.6 exposes structured posts, archive groups, and pagination without legacy helpers', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  themePackage.metadata.runtime = '0.5';
+  themePackage.metadata.runtime = '0.6';
   themePackage.templates.set('index', [
     '<section>',
     '  <div class="structured-posts">',
@@ -1005,7 +1013,7 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  previewData.site.postsPerPage = 1;
+  previewData.site.posts_per_page = 1;
   previewData.site.permalinks = {
     output_style: 'html-extension',
     posts: '/posts/:public_id',
@@ -1013,7 +1021,7 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
     categories: '/topics/:slug/',
     tags: '/labels/:slug/',
   };
-  previewData.content.pages[0].path = 'spec/preview-data-v0.5';
+  previewData.content.pages[0].path = 'spec/preview-data-v0.6';
   previewData.content.pages.push({
     ...previewData.content.pages[0],
     title: 'CLI Tools',
@@ -1033,7 +1041,7 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   const paths = new Set(files.map((file) => file.path));
   assert.equal(paths.has('posts/101.html'), true);
   assert.equal(paths.has('posts/101/index.html'), false);
-  assert.equal(paths.has('spec/preview-data-v0.5.html'), true);
+  assert.equal(paths.has('spec/preview-data-v0.6.html'), true);
   assert.equal(paths.has('cli/index.html'), true);
   assert.equal(paths.has('cli.html'), false);
   assert.equal(paths.has('topics/general.html'), true);
@@ -1045,7 +1053,7 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
 
   const indexHtml = getFileContent(files, 'index.html');
   const postHtml = getFileContent(files, 'posts/101.html');
-  const pageHtml = getFileContent(files, 'spec/preview-data-v0.5.html');
+  const pageHtml = getFileContent(files, 'spec/preview-data-v0.6.html');
   const indexPageHtml = getFileContent(files, 'cli/index.html');
   const categoryHtml = getFileContent(files, 'topics/general.html');
   const tagHtml = getFileContent(files, 'labels/intro.html');
@@ -1057,25 +1065,25 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   assert.match(postHtml, /<link rel="canonical" href="https:\/\/example\.com\/posts\/101">/);
   assert.match(postHtml, /<a href="\/topics\/general" class="category-link">General<\/a>/);
   assert.match(postHtml, /<a href="\/labels\/intro" class="tag-link">Intro<\/a>/);
-  assert.match(pageHtml, /<link rel="canonical" href="https:\/\/example\.com\/spec\/preview-data-v0\.5">/);
+  assert.match(pageHtml, /<link rel="canonical" href="https:\/\/example\.com\/spec\/preview-data-v0\.6">/);
   assert.match(indexPageHtml, /<link rel="canonical" href="https:\/\/example\.com\/cli\/">/);
   assert.doesNotMatch(indexPageHtml, /https:\/\/example\.com\/cli\/index/);
   assert.match(categoryHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
   assert.match(tagHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/posts\/101<\/loc>/);
-  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/spec\/preview-data-v0\.5<\/loc>/);
+  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/spec\/preview-data-v0\.6<\/loc>/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/cli\/<\/loc>/);
   assert.doesNotMatch(sitemapXml, /https:\/\/example\.com\/cli\/index/);
   assert.match(feedXml, /<link>https:\/\/example\.com\/posts\/101<\/link>/);
 });
 
-test('buildSite treats theme postIndex=false as effective post index disabled', async () => {
+test('buildSite treats theme post_index=false as effective post index disabled', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
   themePackage.metadata.features = {
     ...(themePackage.metadata.features || {}),
-    postIndex: false,
+    post_index: false,
   };
   themePackage.templates.set('index', [
     '<section data-route="{{route.type}}" data-front="{{route.is_front_page}}" data-post-index="{{route.is_post_index}}" data-pagination="{{pagination.enabled}}">',
@@ -1104,7 +1112,7 @@ test('buildSite supports a non-paginated root post index', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
-  previewData.site.postsPerPage = 1;
+  previewData.site.posts_per_page = 1;
   previewData.site.post_index = {
     enabled: true,
     path: '/',
@@ -1138,7 +1146,7 @@ test('buildSite supports front page page content with a separate post index', as
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
-  previewData.site.postsPerPage = 1;
+  previewData.site.posts_per_page = 1;
   previewData.site.front_page = {
     type: 'page',
     page_slug: 'about',
@@ -1444,7 +1452,7 @@ test('buildSite exposes pagination.window for compact page navigation', async ()
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
   const templatePost = previewData.content.posts[0];
 
-  previewData.site.postsPerPage = 1;
+  previewData.site.posts_per_page = 1;
   previewData.content.posts = Array.from({ length: 10 }, (_, index) => ({
     ...templatePost,
     public_id: index + 1,
@@ -1474,12 +1482,12 @@ test('buildSite exposes pagination.window for compact page navigation', async ()
   assert.match(fifthPageHtml, /<a class="page" href="\/">1<\/a>\s*<span class="gap">…<\/span>\s*<a class="page" href="\/page\/4\/">4<\/a>\s*<a class="page current" href="\/page\/5\/">5<\/a>\s*<a class="page" href="\/page\/6\/">6<\/a>\s*<span class="gap">…<\/span>\s*<a class="page" href="\/page\/10\/">10<\/a>/);
 });
 
-test('buildSite runtime 0.5 exposes structured post surroundings without legacy post helpers', async () => {
+test('buildSite runtime 0.6 exposes structured post surroundings without legacy post helpers', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  themePackage.metadata.runtime = '0.5';
+  themePackage.metadata.runtime = '0.6';
   themePackage.templates.set('post', [
     '<article class="structured-post-shell">',
     '  <span class="structured-author">{{post.author.display_name}}</span>',
@@ -1745,7 +1753,7 @@ test('buildSite renders SEO meta for post and page routes', async () => {
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.mediaBaseUrl = 'https://media.example.com';
+  previewData.site.media_base_url = 'https://media.example.com';
   previewData.content.posts[0].featured_image = '/images/post-share.png';
   previewData.content.pages[0].excerpt = 'About page summary';
   previewData.content.pages[0].featured_image = './images/page-share.png';
@@ -1775,13 +1783,13 @@ test('buildSite renders SEO meta for post and page routes', async () => {
   assert.doesNotMatch(pageHtml, /property="article:modified_time"/);
 });
 
-test('buildSite omits canonical and og:url when site.url is empty and still emits og:image from mediaBaseUrl', async () => {
+test('buildSite omits canonical and og:url when site.url is empty and still emits og:image from media_base_url', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
   previewData.site.url = '';
-  previewData.site.mediaBaseUrl = 'https://media.example.com';
+  previewData.site.media_base_url = 'https://media.example.com';
   previewData.content.posts[0].featured_image = '/images/post-share.png';
   previewData.content.pages[0].featured_image = 'https://cdn.example.com/page-share.png';
 
@@ -1803,12 +1811,12 @@ test('buildSite omits canonical and og:url when site.url is empty and still emit
   assert.match(pageHtml, /property="og:image" content="https:\/\/cdn\.example\.com\/page-share\.png"/);
 });
 
-test('buildSite normalizes media fields against site.mediaBaseUrl before rendering', async () => {
+test('buildSite normalizes media fields against site.media_base_url before rendering', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.mediaBaseUrl = 'https://media.example.com/base/';
+  previewData.site.media_base_url = 'https://media.example.com/base/';
   previewData.content.authors[0].avatar = '/avatars/author.png?size=96';
   previewData.content.posts[0].featured_image = './images/post-share.png?fit=cover';
   previewData.content.pages[0].featured_image = '/images/page-share.png?format=webp';
@@ -1842,8 +1850,8 @@ test('buildSite derives managed media and responsive srcset from content media r
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.mediaBaseUrl = 'https://media.example.com';
-  previewData.site.mediaDeliveryMode = 'media_domain';
+  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.media_delivery_mode = 'media_domain';
   previewData.content.authors[0].avatar = '/avatars/admin.jpg';
   previewData.content.posts[0].featured_image = '/originals/hello.jpg';
   previewData.content.pages[0].featured_image = '/originals/about.png';
@@ -1902,8 +1910,8 @@ test('buildSite omits managed media srcset when delivery mode or media host is u
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.mediaBaseUrl = '';
-  previewData.site.mediaDeliveryMode = 'media_domain';
+  previewData.site.media_base_url = '';
+  previewData.site.media_delivery_mode = 'media_domain';
   previewData.content.posts[0].featured_image = '/originals/hello.jpg';
   previewData.content.posts[1].featured_image = 'https://cdn.example.com/external.jpg';
   previewData.content.media = [
@@ -1940,8 +1948,8 @@ test('buildSite leaves managed media undefined when registry does not match medi
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.mediaBaseUrl = 'https://media.example.com';
-  previewData.site.mediaDeliveryMode = 'media_domain';
+  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.media_delivery_mode = 'media_domain';
   previewData.content.posts[0].featured_image = '/originals/hello.jpg';
   previewData.content.media = [
     { src: '/originals/other.jpg', width: 1200, height: 800, alt: 'Other cover' },
@@ -1967,7 +1975,7 @@ test('buildSite leaves managed media undefined when registry does not match medi
   assert.match(postHtml, /data-featured-srcset=""/);
 });
 
-test('buildSite preserves relative media fields when site.mediaBaseUrl is missing', async () => {
+test('buildSite preserves relative media fields when site.media_base_url is missing', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
@@ -2189,12 +2197,12 @@ test('buildSite skips 404.html when the theme does not provide a 404 template', 
   assert.equal(writer.getFiles().some((file) => file.path === '404.html'), false);
 });
 
-test('buildSite omits comment container markup when site.disallowComments is true', async () => {
+test('buildSite omits comment container markup when site.disallow_comments is true', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.disallowComments = true;
+  previewData.site.disallow_comments = true;
 
   await buildSite({
     previewData,
@@ -2584,7 +2592,7 @@ test('buildSite preserves markdown task list and alert HTML for pages and posts'
   assert.doesNotMatch(pageHtml, /\[!TIP\]/);
 });
 
-test('buildSite renders v0.5 raw content and resolves structured post author data from authors', async () => {
+test('buildSite renders v0.6 raw content and resolves structured post author data from authors', async () => {
   const writer = new MemoryWriter();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
   themePackage.templates.set('post', '<article class="post-entry">{{post.author.display_name}}|{{post.author.avatar}}|{{post.comments_enabled}}|{{post.slug}}|{{post.public_id}}|{{post.meta.badge}}|{{post.meta.rank}}|{{post.meta.featured}}|{{post.html}}</article>');
@@ -2592,20 +2600,20 @@ test('buildSite renders v0.5 raw content and resolves structured post author dat
 
   await buildSite({
     previewData: {
-      version: '0.5',
+      version: '0.6',
       generator: 'test-suite',
       generated_at: '2026-04-02T00:00:00Z',
       site: {
         title: 'ZeroPress',
         description: 'Test preview data',
         url: 'https://example.com',
-        mediaBaseUrl: 'https://media.example.com',
+        media_base_url: 'https://media.example.com',
         locale: 'en-US',
-        postsPerPage: 10,
-        dateFormat: 'YYYY-MM-DD',
-        timeFormat: 'HH:mm',
+        posts_per_page: 10,
+        date_format: 'YYYY-MM-DD',
+        time_format: 'HH:mm',
         timezone: 'UTC',
-        disallowComments: true,
+        disallow_comments: true,
       },
       content: {
         authors: [

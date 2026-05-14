@@ -50,7 +50,7 @@ export class ZeroPressEngine {
   }
 
   renderTemplate(template, data) {
-    if (this.themePackage?.metadata?.runtime !== '0.5') {
+    if (this.themePackage?.metadata?.runtime !== '0.6') {
       throw new Error(`Unsupported theme runtime: ${this.themePackage?.metadata?.runtime || 'unknown'}`);
     }
 

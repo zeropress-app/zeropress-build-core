@@ -1,18 +1,18 @@
 {
-  "version": "0.5",
+  "version": "0.6",
   "generator": "zeropress-theme",
   "generated_at": "2026-04-02T00:00:00Z",
   "site": {
     "title": "ZeroPress Medium Preview",
     "description": "Medium preview data",
     "url": "https://example.kr",
-    "mediaBaseUrl": "",
+    "media_base_url": "",
     "locale": "ko-KR",
-    "postsPerPage": 2,
-    "dateFormat": "YYYY-MM-DD",
-    "timeFormat": "HH:mm",
+    "posts_per_page": 2,
+    "date_format": "YYYY-MM-DD",
+    "time_format": "HH:mm",
     "timezone": "UTC",
-    "disallowComments": false
+    "disallow_comments": false
   },
   "content": {
     "authors": [
