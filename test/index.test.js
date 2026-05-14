@@ -2085,6 +2085,27 @@ test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async ()
   assert.equal(manifest.files.some((file) => file.path === 'feed.xml'), false);
 });
 
+test('buildSite can add a stylesheet processing instruction to sitemap.xml', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: {
+      sitemapStylesheetHref: '/sitemap.xsl',
+    },
+  });
+
+  const sitemapXml = getFileContent(writer.getFiles(), 'sitemap.xml');
+  assert.match(
+    sitemapXml,
+    /^<\?xml version="1\.0" encoding="UTF-8"\?>\n<\?xml-stylesheet type="text\/xsl" href="\/sitemap\.xsl"\?>\n<urlset/,
+  );
+});
+
 test('buildSite renders fallback robots.txt from site.indexing policy', async () => {
   const themePackage = await loadGoldenThemePackage();
 

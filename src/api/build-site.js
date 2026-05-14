@@ -95,7 +95,13 @@ export async function buildSite(input) {
   if (options.generateSpecialFiles) {
     await maybeRenderNotFoundPage(state);
     if (hasCanonicalSiteUrl(state.previewData.site.url)) {
-      await writeOutput(state.writer, state.summaries, 'sitemap.xml', buildSitemapXml(state.previewData.site, state.emitted, state.generatedAt), 'application/xml');
+      await writeOutput(
+        state.writer,
+        state.summaries,
+        'sitemap.xml',
+        buildSitemapXml(state.previewData.site, state.emitted, state.generatedAt, options.sitemapStylesheetHref),
+        'application/xml',
+      );
       await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.generatedAt), 'application/rss+xml');
     }
     if (shouldGenerateRobotsTxt(options)) {
@@ -2403,7 +2409,7 @@ function injectCustomHtml(html, customHtml) {
   return next;
 }
 
-function buildSitemapXml(site, emitted, generatedAt) {
+function buildSitemapXml(site, emitted, generatedAt, stylesheetHref = '') {
   const entries = [
     ...(emitted.frontPage
       ? [{
@@ -2442,7 +2448,12 @@ function buildSitemapXml(site, emitted, generatedAt) {
     return `  <url>\n    <loc>${loc}</loc>${lastmod}\n    <changefreq>${entry.changefreq}</changefreq>\n    <priority>${entry.priority.toFixed(1)}</priority>\n  </url>`;
   }).join('\n');
 
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>`;
+  const normalizedStylesheetHref = normalizeOptionalString(stylesheetHref);
+  const stylesheet = normalizedStylesheetHref
+    ? `\n<?xml-stylesheet type="text/xsl" href="${escapeXml(normalizedStylesheetHref)}"?>`
+    : '';
+
+  return `<?xml version="1.0" encoding="UTF-8"?>${stylesheet}\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>`;
 }
 
 function buildFeedXml(site, emitted, generatedAt) {

@@ -28,6 +28,7 @@ export interface BuildOptions {
     png?: string;
     apple_touch_icon?: string;
   };
+  sitemapStylesheetHref?: string;
   generateSpecialFiles?: boolean;
   generateRobotsTxt?: boolean;
   writeManifest?: boolean;

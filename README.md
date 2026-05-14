@@ -119,6 +119,7 @@ Notes:
 - `previewData` must already satisfy the canonical preview-data contract
 - `themePackage` must already be a validated in-memory theme package
 - `sitemap.xml` and `feed.xml` are emitted only when `site.url` is a non-empty canonical URL
+- callers may pass `sitemapStylesheetHref` to add an XML stylesheet processing instruction to generated `sitemap.xml`
 - fallback `robots.txt` is emitted when `generateSpecialFiles` is enabled and `generateRobotsTxt` is not `false`
 - fallback `robots.txt` uses `site.indexing`; `false` emits `Disallow: /`, while missing or `true` emits `Allow: /`
 - callers that disable fallback robots because a public `robots.txt` exists should copy that file as-is; sitemap directives in custom robots files are caller/user responsibility
