@@ -9,8 +9,9 @@
     "media_base_url": "",
     "locale": "ko-KR",
     "posts_per_page": 2,
-    "date_format": "YYYY-MM-DD",
-    "time_format": "HH:mm",
+    "datetime_display": "static",
+    "date_style": "medium",
+    "time_style": "none",
     "timezone": "UTC",
     "disallow_comments": false
   },

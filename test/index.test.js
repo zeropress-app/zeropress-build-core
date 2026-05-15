@@ -99,6 +99,28 @@ function createAssetBuffer(source = 'body { color: red; }') {
   return Buffer.from(source, 'utf8');
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function formatExpectedIntlTimestamp(value, site) {
+  if (site.date_style === 'none' && site.time_style === 'none') {
+    return '';
+  }
+
+  const options = {
+    timeZone: site.timezone,
+  };
+  if (site.date_style !== 'none') {
+    options.dateStyle = site.date_style;
+  }
+  if (site.time_style !== 'none') {
+    options.timeStyle = site.time_style;
+  }
+
+  return new Intl.DateTimeFormat(site.locale, options).format(new Date(value));
+}
+
 function createInterpolatingRenderer() {
   const resolvePath = (data, templatePath) => templatePath.split('.').reduce((current, segment) => {
     if (current == null || typeof current !== 'object') {
@@ -1052,7 +1074,7 @@ test('buildSite runtime 0.6 exposes structured posts, archive groups, and pagina
   assert.match(tagHtml, /<a class="tag-link-item" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a>/);
 
   assert.match(archiveHtml, /<section class="archive-group">\s*<h2>2026-02<\/h2>/);
-  assert.match(archiveHtml, /<a class="archive-post" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a><time datetime="2026-02-14T09:00:00Z">2026-02-14 09:00<\/time>/);
+  assert.match(archiveHtml, /<a class="archive-post" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a><time datetime="2026-02-14T09:00:00Z">Feb 14, 2026<\/time>/);
 });
 
 test('buildSite applies html-extension permalinks and page path overrides', async () => {
@@ -2057,6 +2079,53 @@ test('buildSite preserves relative media fields when site.media_base_url is miss
   assert.doesNotMatch(pageHtml, /property="og:image"/);
 });
 
+test('buildSite formats timestamps with Intl datetime styles and exposes datetime_display', async () => {
+  const publishedAt = '2026-05-15T13:12:34Z';
+  const cases = [
+    ['short', 'short'],
+    ['medium', 'medium'],
+    ['long', 'long'],
+    ['full', 'full'],
+    ['none', 'none'],
+  ];
+
+  for (const [date_style, time_style] of cases) {
+    const writer = new MemoryWriter();
+    const previewData = await loadDefaultPreviewData();
+    const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+    previewData.site.locale = 'ko-KR';
+    previewData.site.timezone = 'Asia/Seoul';
+    previewData.site.datetime_display = 'client';
+    previewData.site.date_style = date_style;
+    previewData.site.time_style = time_style;
+    previewData.content.posts = [{
+      ...previewData.content.posts[0],
+      published_at_iso: publishedAt,
+      updated_at_iso: publishedAt,
+    }];
+    themePackage.templates.set('post', '<time datetime="{{post.published_at_iso}}" data-display="{{site.datetime_display}}">{{post.published_at}}</time>');
+
+    await buildSite({
+      previewData,
+      themePackage,
+      writer,
+      options: { generateSpecialFiles: false },
+    });
+
+    const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+    const expected = formatExpectedIntlTimestamp(publishedAt, {
+      locale: 'ko-KR',
+      timezone: 'Asia/Seoul',
+      date_style,
+      time_style,
+    });
+
+    assert.match(postHtml, /data-display="client"/);
+    assert.match(postHtml, new RegExp(`<time datetime="2026-05-15T13:12:34Z" data-display="client">${escapeRegExp(expected)}<\\/time>`));
+    assert.match(postHtml, /datetime="2026-05-15T13:12:34Z"/);
+  }
+});
+
 test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -2678,8 +2747,9 @@ test('buildSite renders v0.6 raw content and resolves structured post author dat
         media_base_url: 'https://media.example.com',
         locale: 'en-US',
         posts_per_page: 10,
-        date_format: 'YYYY-MM-DD',
-        time_format: 'HH:mm',
+        datetime_display: 'static',
+        date_style: 'medium',
+        time_style: 'none',
         timezone: 'UTC',
         disallow_comments: true,
       },

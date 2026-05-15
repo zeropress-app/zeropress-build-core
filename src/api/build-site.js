@@ -14,10 +14,13 @@ const DEFAULT_OPTIONS = {
 };
 
 const DEFAULT_POSTS_PER_PAGE = 10;
-const DEFAULT_DATE_FORMAT = 'YYYY-MM-DD';
-const DEFAULT_TIME_FORMAT = 'HH:mm';
+const DEFAULT_DATETIME_DISPLAY = 'static';
+const DEFAULT_DATE_STYLE = 'medium';
+const DEFAULT_TIME_STYLE = 'none';
 const DEFAULT_TIMEZONE = 'UTC';
 const DEFAULT_LOCALE = 'en-US';
+const DATETIME_DISPLAY_MODES = new Set(['static', 'client']);
+const DATETIME_STYLES = new Set(['none', 'short', 'medium', 'long', 'full']);
 const DEFAULT_PERMALINKS = Object.freeze({
   output_style: 'directory',
   posts: '/posts/:slug/',
@@ -423,8 +426,15 @@ function normalizePreviewData(previewData, options = {}) {
     posts_per_page: Number.isInteger(previewData.site.posts_per_page) && previewData.site.posts_per_page > 0
       ? previewData.site.posts_per_page
       : DEFAULT_POSTS_PER_PAGE,
-    date_format: normalizeNonEmptyString(previewData.site.date_format, DEFAULT_DATE_FORMAT),
-    time_format: typeof previewData.site.time_format === 'string' ? previewData.site.time_format : DEFAULT_TIME_FORMAT,
+    datetime_display: DATETIME_DISPLAY_MODES.has(previewData.site.datetime_display)
+      ? previewData.site.datetime_display
+      : DEFAULT_DATETIME_DISPLAY,
+    date_style: DATETIME_STYLES.has(previewData.site.date_style)
+      ? previewData.site.date_style
+      : DEFAULT_DATE_STYLE,
+    time_style: DATETIME_STYLES.has(previewData.site.time_style)
+      ? previewData.site.time_style
+      : DEFAULT_TIME_STYLE,
     timezone: normalizeNonEmptyString(previewData.site.timezone, DEFAULT_TIMEZONE),
     locale: normalizeLocale(previewData.site.locale || DEFAULT_LOCALE),
     disallow_comments: previewData.site.disallow_comments === true,
@@ -1648,50 +1658,25 @@ function formatArchiveLabel(date, site) {
 function formatTimestamp(value, site) {
   const date = toDate(value);
   const locale = normalizeLocale(site.locale || DEFAULT_LOCALE);
-  const date_format = normalizeNonEmptyString(site.date_format, DEFAULT_DATE_FORMAT);
-  const time_format = typeof site.time_format === 'string' ? site.time_format : DEFAULT_TIME_FORMAT;
+  const dateStyle = DATETIME_STYLES.has(site.date_style) ? site.date_style : DEFAULT_DATE_STYLE;
+  const timeStyle = DATETIME_STYLES.has(site.time_style) ? site.time_style : DEFAULT_TIME_STYLE;
   const siteTimezone = normalizeNonEmptyString(site.timezone, DEFAULT_TIMEZONE);
 
-  const dateParts = new Intl.DateTimeFormat(locale, {
-    timeZone: siteTimezone,
-    year: 'numeric',
-    month: date_format === 'MMMM D, YYYY' ? 'long' : '2-digit',
-    day: '2-digit',
-  }).formatToParts(date);
-
-  const year = dateParts.find((part) => part.type === 'year')?.value || '';
-  const month = dateParts.find((part) => part.type === 'month')?.value || '';
-  const day = dateParts.find((part) => part.type === 'day')?.value || '';
-
-  let formattedDate = `${year}-${month}-${day}`;
-  if (date_format === 'DD/MM/YYYY') {
-    formattedDate = `${day}/${month}/${year}`;
-  } else if (date_format === 'MM/DD/YYYY') {
-    formattedDate = `${month}/${day}/${year}`;
-  } else if (date_format === 'MMMM D, YYYY') {
-    formattedDate = `${month} ${String(Number(day))}, ${year}`;
+  if (dateStyle === 'none' && timeStyle === 'none') {
+    return '';
   }
 
-  if (!time_format) {
-    return formattedDate;
+  const options = {
+    timeZone: siteTimezone,
+  };
+  if (dateStyle !== 'none') {
+    options.dateStyle = dateStyle;
+  }
+  if (timeStyle !== 'none') {
+    options.timeStyle = timeStyle;
   }
 
-  const timeParts = new Intl.DateTimeFormat(locale, {
-    timeZone: siteTimezone,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: time_format === 'hh:mm A',
-  }).formatToParts(date);
-
-  const hour = timeParts.find((part) => part.type === 'hour')?.value || '';
-  const minute = timeParts.find((part) => part.type === 'minute')?.value || '';
-  const dayPeriod = (timeParts.find((part) => part.type === 'dayPeriod')?.value || '').toUpperCase();
-
-  const formattedTime = time_format === 'hh:mm A'
-    ? `${hour}:${minute}${dayPeriod ? ` ${dayPeriod}` : ''}`
-    : `${hour}:${minute}`;
-
-  return `${formattedDate} ${formattedTime}`.trim();
+  return new Intl.DateTimeFormat(locale, options).format(date);
 }
 
 function calculateReadingTime(html) {

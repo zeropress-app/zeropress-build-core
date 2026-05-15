@@ -189,6 +189,7 @@ Build-core now derives:
 - pagination HTML
 - taxonomy link HTML
 - formatted `published_at` / `updated_at`
+- datetime formatting from `site.locale`, `site.timezone`, `site.date_style`, and `site.time_style`
 - `reading_time`
 - `comments_enabled`
 
