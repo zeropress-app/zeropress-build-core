@@ -790,6 +790,8 @@ function createRenderData(previewData, themeMetadata = {}) {
   const postBySlug = new Map(posts.map((post) => [post.slug, post]));
   const pageBySlug = new Map(pages.map((page) => [page.slug, page]));
   const frontPage = previewData.site.front_page;
+  const collections = resolveCollections(previewData.collections, postBySlug, pageBySlug, frontPage);
+  attachCollectionCursors(posts, pages, collections);
   const post_index = previewData.site.post_index;
   const effectivePostIndexEnabled = post_index.enabled !== false && themeSupportsPostIndex;
   const effectivePostIndexPaginate = effectivePostIndexEnabled && post_index.paginate !== false;
@@ -809,7 +811,7 @@ function createRenderData(previewData, themeMetadata = {}) {
     posts,
     pages: preparedPages,
     postBySlug,
-    collections: resolveCollections(previewData.collections, postBySlug, pageBySlug, frontPage),
+    collections,
     taxonomies: buildGlobalTaxonomies(previewData, categoryCountBySlug, tagCountBySlug),
     frontPageRoute,
     indexRoutes: buildPostIndexRoutes({
@@ -874,15 +876,19 @@ function resolveCollections(collections, postBySlug, pageBySlug, frontPage) {
   }
 
   return Object.fromEntries(
-    Object.entries(collections).map(([collectionId, collection]) => [
-      collectionId,
-      {
-        id: collectionId,
-        title: normalizeOptionalString(collection?.title),
-        description: normalizeOptionalString(collection?.description),
-        items: resolveCollectionItems(collectionId, collection?.items, postBySlug, pageBySlug, frontPage),
-      },
-    ]),
+    Object.entries(collections).map(([collectionId, collection]) => {
+      const items = resolveCollectionItems(collectionId, collection?.items, postBySlug, pageBySlug, frontPage);
+      return [
+        collectionId,
+        {
+          id: collectionId,
+          title: normalizeOptionalString(collection?.title),
+          description: normalizeOptionalString(collection?.description),
+          count: items.length,
+          items,
+        },
+      ];
+    }),
   );
 }
 
@@ -928,6 +934,62 @@ function buildCollectionPageSummary(page, frontPage) {
     featured_image: page.featured_image || '',
     ...(page.featured_media ? { featured_media: { ...page.featured_media } } : {}),
     meta: page.meta,
+  };
+}
+
+function attachCollectionCursors(posts, pages, collections) {
+  const postTargets = new Map(posts.map((post) => [post.slug, post]));
+  const pageTargets = new Map(pages.map((page) => [page.slug, page]));
+
+  for (const [collectionId, collection] of Object.entries(collections || {})) {
+    const items = Array.isArray(collection.items) ? collection.items : [];
+
+    items.forEach((item, index) => {
+      const target = item.type === 'post'
+        ? postTargets.get(item.slug)
+        : item.type === 'page'
+          ? pageTargets.get(item.slug)
+          : null;
+
+      if (!target) {
+        return;
+      }
+
+      target.collection_cursors = target.collection_cursors || {};
+      target.collection_cursors[collectionId] = buildCollectionCursor(collectionId, collection, items, index);
+    });
+  }
+}
+
+function buildCollectionCursor(collectionId, collection, items, index) {
+  const count = items.length;
+
+  return {
+    collection_id: collectionId,
+    collection_title: collection.title || '',
+    index,
+    position: index + 1,
+    count,
+    first: index === 0,
+    last: index === count - 1,
+    prev: index > 0 ? buildCollectionCursorItemSummary(items[index - 1]) : null,
+    next: index < count - 1 ? buildCollectionCursorItemSummary(items[index + 1]) : null,
+  };
+}
+
+function buildCollectionCursorItemSummary(item) {
+  if (!item) {
+    return null;
+  }
+
+  return {
+    type: item.type,
+    title: item.title,
+    slug: item.slug,
+    url: item.url,
+    excerpt: item.excerpt || '',
+    featured_image: item.featured_image || '',
+    meta: item.meta,
   };
 }
 

@@ -2875,7 +2875,7 @@ test('buildSite resolves named collections in every render context', async () =>
   };
 
   const collectionTemplate = [
-    '<section>{{collections.cover-story.title}}',
+    '<section>{{collections.cover-story.title}} count={{collections.cover-story.count}}',
     '{{#for item in collections.cover-story.items}}',
     '<a data-type="{{item.type}}" data-badge="{{item.meta.badge}}" href="{{item.url}}">{{item.title}}</a>',
     '{{/for}}</section>',
@@ -2894,9 +2894,84 @@ test('buildSite resolves named collections in every render context', async () =>
   for (const outputPath of ['index.html', 'posts/hello-zeropress/index.html', 'about/index.html', '404.html']) {
     const html = getFileContent(writer.getFiles(), outputPath);
     assert.match(html, /Cover Story/);
+    assert.match(html, /count=2/);
     assert.match(html, /data-type="post" data-badge="Feature" href="\/posts\/hello-zeropress\/"/);
     assert.match(html, /data-type="page" data-badge="Reference" href="\/about\/"/);
   }
+});
+
+test('buildSite exposes collection counts and route collection cursors', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.front_page = { type: 'page', page_slug: 'about' };
+  previewData.site.post_index = { enabled: true, path: '/blog/', paginate: true };
+  previewData.collections = {
+    work: {
+      title: 'Selected Work',
+      items: [
+        { type: 'post', slug: 'hello-zeropress' },
+        { type: 'page', slug: 'about' },
+        { type: 'post', slug: 'theme-blocks-deep-dive' },
+      ],
+    },
+    secondary: {
+      title: 'Secondary Work',
+      items: [
+        { type: 'post', slug: 'hello-zeropress' },
+        { type: 'post', slug: 'archive-patterns' },
+      ],
+    },
+    empty: {
+      title: 'Empty Collection',
+      items: [],
+    },
+  };
+
+  themePackage.templates.set('post', [
+    'work-count={{collections.work.count}} empty-count={{collections.empty.count}}',
+    '{{#if collections.empty.items}}BAD-empty-items{{/if}}',
+    '{{#if collections.empty.count}}BAD-empty-count{{/if}}',
+    '{{#if post.collection_cursors.work.prev}} work-prev={{post.collection_cursors.work.prev.title}}:{{post.collection_cursors.work.prev.url}}{{/if}}',
+    '{{#if post.collection_cursors.work.next}} work-next={{post.collection_cursors.work.next.type}}:{{post.collection_cursors.work.next.title}}:{{post.collection_cursors.work.next.url}}{{/if}}',
+    '{{#if post.collection_cursors.work.first}} work-first{{/if}}',
+    '{{#if post.collection_cursors.work.last}} work-last{{/if}}',
+    '{{#if post.collection_cursors.secondary.next}} secondary-next={{post.collection_cursors.secondary.next.title}}{{/if}}',
+  ].join(''));
+  themePackage.templates.set('page', [
+    'work-count={{collections.work.count}} empty-count={{collections.empty.count}}',
+    ' page-pos={{page.collection_cursors.work.position}}/{{page.collection_cursors.work.count}}',
+    ' page-prev={{page.collection_cursors.work.prev.title}}:{{page.collection_cursors.work.prev.url}}',
+    ' page-next={{page.collection_cursors.work.next.title}}:{{page.collection_cursors.work.next.url}}',
+    '{{#for item in collections.work.items}}<a href="{{item.url}}">{{item.title}}</a>{{/for}}',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const firstPostHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  assert.match(firstPostHtml, /work-count=3 empty-count=0/);
+  assert.doesNotMatch(firstPostHtml, /BAD-empty/);
+  assert.match(firstPostHtml, /work-first/);
+  assert.doesNotMatch(firstPostHtml, /work-prev=/);
+  assert.match(firstPostHtml, /work-next=page:About:\//);
+  assert.match(firstPostHtml, /secondary-next=Archive Patterns/);
+
+  const secondPostHtml = getFileContent(writer.getFiles(), 'posts/theme-blocks-deep-dive/index.html');
+  assert.match(secondPostHtml, /work-last/);
+  assert.match(secondPostHtml, /work-prev=About:\//);
+  assert.doesNotMatch(secondPostHtml, /work-next=/);
+
+  const frontPageHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(frontPageHtml, /page-pos=2\/3/);
+  assert.match(frontPageHtml, /page-prev=Hello ZeroPress:\/posts\/hello-zeropress\//);
+  assert.match(frontPageHtml, /page-next=Theme Blocks Deep Dive:\/posts\/theme-blocks-deep-dive\//);
+  assert.match(frontPageHtml, /<a href="\/">About<\/a>/);
 });
 
 test('buildSite rejects collections that reference missing content slugs', async () => {
