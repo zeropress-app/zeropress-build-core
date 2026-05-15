@@ -879,7 +879,7 @@ test('buildSite rejects theme packages that do not target runtime 0.6', async ()
       writer,
       options: { generateSpecialFiles: false },
     }),
-    /Theme validation failed:[\s\S]*Code: INVALID_RUNTIME_VERSION[\s\S]*Reason: theme\.json field 'runtime' must be one of: 0\.6/,
+    /Theme validation failed[\s\S]*ERROR INVALID_RUNTIME_VERSION[\s\S]*Reason: theme\.json field 'runtime' must be one of: 0\.6/,
   );
 });
 
@@ -932,7 +932,7 @@ test('buildSiteFromThemeDir rejects themes that do not target runtime 0.6', asyn
         writer,
         options: { generateSpecialFiles: false },
       }),
-      /Theme validation failed:[\s\S]*Code: INVALID_RUNTIME_VERSION[\s\S]*Reason: theme\.json field 'runtime' must be one of: 0\.6/,
+      /Theme validation failed[\s\S]*ERROR INVALID_RUNTIME_VERSION[\s\S]*Reason: theme\.json field 'runtime' must be one of: 0\.6/,
     );
   } finally {
     await fs.rm(themeDir, { recursive: true, force: true });
