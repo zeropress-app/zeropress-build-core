@@ -11,7 +11,7 @@ export async function loadThemePackageFromDir(themeDir) {
 
   const validation = await validateThemeFiles(fileMap);
   if (!validation.ok) {
-    throw new Error(`Theme validation failed: ${validation.errors[0]?.message || 'Unknown error'}`);
+    throw new Error(`Theme validation failed:\n${formatThemeValidationIssue(validation.errors[0])}`);
   }
 
   const rawThemeJson = String(fileMap.get('theme.json'));
@@ -56,6 +56,32 @@ export async function loadThemePackageFromDir(themeDir) {
     partials,
     assets,
   };
+}
+
+function formatThemeValidationIssue(issue) {
+  if (!issue) {
+    return 'Reason: Unknown error';
+  }
+
+  const lines = [];
+  if (issue.path) {
+    lines.push(`File: ${issue.path}`);
+  }
+  if (Number.isInteger(issue.line) && Number.isInteger(issue.column)) {
+    lines.push(`Line: ${issue.line}, Column: ${issue.column}`);
+  }
+  if (issue.category) {
+    lines.push(`Category: ${issue.category}`);
+  }
+  if (issue.code) {
+    lines.push(`Code: ${issue.code}`);
+  }
+  lines.push(`Reason: ${issue.message || 'Unknown error'}`);
+  if (issue.hint) {
+    lines.push('', 'Hint:', issue.hint);
+  }
+
+  return lines.join('\n');
 }
 
 async function readThemeDir(fs, path, rootDir, currentDir, fileMap) {
