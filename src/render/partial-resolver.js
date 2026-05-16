@@ -1,7 +1,10 @@
 const PARTIAL_NAME_REGEX = /^[a-zA-Z_][a-zA-Z0-9_-]*(?:\/[a-zA-Z_][a-zA-Z0-9_-]*)*$/;
 const IDENTIFIER_REGEX = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+const PATH_SEGMENT_SOURCE = '[a-zA-Z_][a-zA-Z0-9_]*(?:-[a-zA-Z0-9_]+)*';
+const PATH_REGEX = new RegExp(`^${PATH_SEGMENT_SOURCE}(?:\\.${PATH_SEGMENT_SOURCE})*$`);
+const NUMBER_LITERAL_REGEX = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
 
-export function parsePartialToken(token) {
+export function parsePartialToken(token, options = {}) {
   const source = String(token || '').trim();
   if (!source.startsWith('partial:')) {
     throw new Error(`Invalid partial token: ${source}`);
@@ -19,12 +22,12 @@ export function parsePartialToken(token) {
   }
 
   const argsSource = expression.slice(name.length).trim();
-  const args = parsePartialArgs(argsSource);
+  const args = parsePartialArgs(argsSource, options);
 
   return { name, args };
 }
 
-function parsePartialArgs(source) {
+function parsePartialArgs(source, options = {}) {
   if (!source) {
     return {};
   }
@@ -86,20 +89,44 @@ function parsePartialArgs(source) {
         throw new Error(`Unclosed string literal for partial argument "${key}"`);
       }
 
-      args[key] = JSON.parse(source.slice(index, cursor + 1));
+      args[key] = { kind: 'literal', value: JSON.parse(source.slice(index, cursor + 1)) };
       index = cursor + 1;
       continue;
     }
 
     if (source.startsWith('true', index) && isValueBoundary(source, index + 4)) {
-      args[key] = true;
+      args[key] = { kind: 'literal', value: true };
       index += 4;
       continue;
     }
 
     if (source.startsWith('false', index) && isValueBoundary(source, index + 5)) {
-      args[key] = false;
+      args[key] = { kind: 'literal', value: false };
       index += 5;
+      continue;
+    }
+
+    if (source.startsWith('null', index) && isValueBoundary(source, index + 4)) {
+      args[key] = { kind: 'literal', value: null };
+      index += 4;
+      continue;
+    }
+
+    const valueMatch = /^\S+/.exec(source.slice(index));
+    if (!valueMatch) {
+      throw new Error(`Missing partial argument value for "${key}"`);
+    }
+
+    const valueToken = valueMatch[0];
+    if (NUMBER_LITERAL_REGEX.test(valueToken)) {
+      args[key] = { kind: 'literal', value: Number(valueToken) };
+      index += valueToken.length;
+      continue;
+    }
+
+    if (PATH_REGEX.test(valueToken) && isAllowedPathArgument(valueToken, options)) {
+      args[key] = { kind: 'path', path: valueToken };
+      index += valueToken.length;
       continue;
     }
 
@@ -111,4 +138,13 @@ function parsePartialArgs(source) {
 
 function isValueBoundary(source, index) {
   return index >= source.length || /\s/.test(source[index]);
+}
+
+function isAllowedPathArgument(valueToken, options) {
+  if (valueToken.includes('.')) {
+    return true;
+  }
+
+  const allowedSingleSegmentPaths = options?.allowedSingleSegmentPaths;
+  return allowedSingleSegmentPaths instanceof Set && allowedSingleSegmentPaths.has(valueToken);
 }

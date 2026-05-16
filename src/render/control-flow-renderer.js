@@ -16,6 +16,30 @@ const COMPARISON_TAG_OPERATORS = {
   if_starts_with: 'starts_with',
   else_if_starts_with: 'starts_with',
 };
+const PARTIAL_ARG_ROOT_PATHS = new Set([
+  'archive',
+  'author',
+  'category',
+  'collection',
+  'collections',
+  'currentUrl',
+  'language',
+  'menu',
+  'menus',
+  'meta',
+  'page',
+  'pagination',
+  'partial',
+  'post',
+  'posts',
+  'route',
+  'site',
+  'tag',
+  'taxonomies',
+  'taxonomy',
+  'widget',
+  'widgets',
+]);
 
 function getComparisonBlockTag(token) {
   for (const tagName of COMPARISON_BLOCK_TAGS) {
@@ -148,7 +172,7 @@ export class ControlFlowRenderer {
 
   parse(template) {
     const source = String(template || '');
-    const { nodes, nextIndex, stopTag } = this.parseNodes(source, 0, new Set());
+    const { nodes, nextIndex, stopTag } = this.parseNodes(source, 0, new Set(), PARTIAL_ARG_ROOT_PATHS);
     if (stopTag) {
       throw new Error(`Unexpected closing tag ${stopTag}`);
     }
@@ -158,7 +182,7 @@ export class ControlFlowRenderer {
     return nodes;
   }
 
-  parseNodes(source, startIndex, stopTags) {
+  parseNodes(source, startIndex, stopTags, partialArgScope) {
     const nodes = [];
     let index = startIndex;
 
@@ -234,7 +258,7 @@ export class ControlFlowRenderer {
       }
 
       if (token.startsWith('partial:')) {
-        const { name, args } = parsePartialToken(token);
+        const { name, args } = parsePartialToken(token, { allowedSingleSegmentPaths: partialArgScope });
         nodes.push({ type: 'partial', name, args });
         index = tokenEnd + 2;
         continue;
@@ -243,7 +267,7 @@ export class ControlFlowRenderer {
       const comparisonBlockTag = getComparisonBlockTag(token);
       if (comparisonBlockTag) {
         const expression = token.slice(`#${comparisonBlockTag} `.length).trim();
-        const block = this.parseComparisonBlock(source, tokenEnd + 2, comparisonBlockTag, expression);
+        const block = this.parseComparisonBlock(source, tokenEnd + 2, comparisonBlockTag, expression, partialArgScope);
         nodes.push(block.node);
         index = block.nextIndex;
         continue;
@@ -251,7 +275,7 @@ export class ControlFlowRenderer {
 
       if (token.startsWith('#if ')) {
         const expression = token.slice('#if '.length).trim();
-        const block = this.parseIfBlock(source, tokenEnd + 2, expression);
+        const block = this.parseIfBlock(source, tokenEnd + 2, expression, partialArgScope);
         nodes.push(block.node);
         index = block.nextIndex;
         continue;
@@ -264,7 +288,8 @@ export class ControlFlowRenderer {
           throw new Error(`Invalid for expression: ${expression}`);
         }
         const [, itemName, path] = match;
-        const forResult = this.parseNodes(source, tokenEnd + 2, new Set(['for']));
+        const forScope = new Set([...partialArgScope, itemName, 'loop']);
+        const forResult = this.parseNodes(source, tokenEnd + 2, new Set(['for']), forScope);
         if (forResult.stopTag !== 'for') {
           throw new Error('Unclosed for block');
         }
@@ -285,7 +310,7 @@ export class ControlFlowRenderer {
     return { nodes, nextIndex: source.length, stopTag: null };
   }
 
-  parseIfBlock(source, startIndex, initialPath) {
+  parseIfBlock(source, startIndex, initialPath, partialArgScope) {
     if (!PATH_REGEX.test(initialPath)) {
       throw new Error(`Invalid if expression: ${initialPath}`);
     }
@@ -296,14 +321,14 @@ export class ControlFlowRenderer {
     let currentPath = initialPath;
 
     while (true) {
-      const branchResult = this.parseNodes(source, nextIndex, new Set(['else', 'else_if', 'if']));
+      const branchResult = this.parseNodes(source, nextIndex, new Set(['else', 'else_if', 'if']), partialArgScope);
       branches.push({
         path: currentPath,
         consequent: branchResult.nodes,
       });
 
       if (branchResult.stopTag === 'else') {
-        const elseResult = this.parseNodes(source, branchResult.nextIndex, new Set(['if']));
+        const elseResult = this.parseNodes(source, branchResult.nextIndex, new Set(['if']), partialArgScope);
         if (elseResult.stopTag !== 'if') {
           throw new Error('Unclosed if block after else');
         }
@@ -339,7 +364,7 @@ export class ControlFlowRenderer {
     };
   }
 
-  parseComparisonBlock(source, startIndex, tagName, expression) {
+  parseComparisonBlock(source, startIndex, tagName, expression, partialArgScope) {
     const initialBranch = this.parseComparisonBranchExpression(expression, tagName);
     const branches = [];
     let alternate = [];
@@ -348,7 +373,7 @@ export class ControlFlowRenderer {
     const elseIfTag = `else_${tagName}`;
 
     while (true) {
-      const branchResult = this.parseNodes(source, nextIndex, new Set(['else', elseIfTag, tagName]));
+      const branchResult = this.parseNodes(source, nextIndex, new Set(['else', elseIfTag, tagName]), partialArgScope);
       branches.push({
         operator: currentBranch.operator,
         left: currentBranch.left,
@@ -357,7 +382,7 @@ export class ControlFlowRenderer {
       });
 
       if (branchResult.stopTag === 'else') {
-        const elseResult = this.parseNodes(source, branchResult.nextIndex, new Set([tagName]));
+        const elseResult = this.parseNodes(source, branchResult.nextIndex, new Set([tagName]), partialArgScope);
         if (elseResult.stopTag !== tagName) {
           throw new Error(`Unclosed ${tagName} block after else`);
         }
@@ -470,15 +495,33 @@ export class ControlFlowRenderer {
     }
 
     const partialTemplate = String(partials.get(node.name) || '');
+    const partialArgs = this.resolvePartialArgs(node.args, data);
     const partialData = {
       ...data,
-      partial: { ...node.args },
+      partial: {
+        ...(data?.partial && typeof data.partial === 'object' ? data.partial : {}),
+        ...partialArgs,
+      },
     };
 
     return this.renderTemplate(partialTemplate, partialData, {
       ...renderOptions,
       partialStack: [...activeStack, node.name],
     });
+  }
+
+  resolvePartialArgs(args, data) {
+    const resolved = {};
+    for (const [key, operand] of Object.entries(args || {})) {
+      if (operand?.kind === 'literal') {
+        resolved[key] = operand.value;
+        continue;
+      }
+      if (operand?.kind === 'path') {
+        resolved[key] = this.resolvePath(data, operand.path);
+      }
+    }
+    return resolved;
   }
 
   evaluateComparison(entry, data) {

@@ -270,21 +270,51 @@ test('ControlFlowRenderer rejects malformed comparison helpers', () => {
 test('ControlFlowRenderer renders partial arguments and nested partial shadowing', () => {
   const renderer = createInterpolatingRenderer();
   const output = renderer.render(
-    '{{partial:card variant="compact" show_excerpt=true}}',
+    '{{#for item in collections.work.items}}{{partial:card project=item variant="compact" show_excerpt=true limit=3 fallback=null missing=does.not.exist}}{{/for}}',
     {
-      post: {
-        excerpt: 'Structured partial args',
+      collections: {
+        work: {
+          items: [
+            {
+              title: 'Partial aliases',
+              excerpt: 'Structured partial args',
+              tags: ['templates'],
+            },
+          ],
+        },
       },
     },
     {
       partials: new Map([
-        ['card', '<article data-variant="{{partial.variant}}">{{#if partial.show_excerpt}}<p>{{post.excerpt}}</p>{{/if}}{{partial:badge variant="nested"}}<span class="after">{{partial.variant}}</span></article>'],
-        ['badge', '<em>{{partial.variant}}</em>'],
+        ['card', '<article data-variant="{{partial.variant}}" data-limit="{{partial.limit}}">{{partial.project.title}}{{#if partial.show_excerpt}}<p>{{partial.project.excerpt}}</p>{{/if}}{{#if partial.project.tags}}<b>tags</b>{{/if}}{{#if partial.fallback}}bad-null{{/if}}{{#if partial.missing}}bad-missing{{#else}}missing{{/if}}{{partial:badge variant="nested"}}<span class="after">{{partial.variant}}</span></article>'],
+        ['badge', '<em>{{partial.project.title}}/{{partial.variant}}</em>'],
       ]),
     },
   );
 
-  assert.equal(output, '<article data-variant="compact"><p>Structured partial args</p><em>nested</em><span class="after">compact</span></article>');
+  assert.equal(output, '<article data-variant="compact" data-limit="3">Partial aliases<p>Structured partial args</p><b>tags</b>missing<em>Partial aliases/nested</em><span class="after">compact</span></article>');
+});
+
+test('ControlFlowRenderer rejects malformed partial argument values', () => {
+  const renderer = createInterpolatingRenderer();
+  const renderOptions = { partials: new Map([['card', '<p>Card</p>']]) };
+
+  assert.throws(
+    () => renderer.render('{{partial:card item=posts.items[0]}}', {}, renderOptions),
+    /Unsupported partial argument value/,
+  );
+  assert.throws(
+    () => renderer.render('{{partial:card visible=post&&page}}', {}, renderOptions),
+    /Unsupported partial argument value/,
+  );
+  assert.throws(
+    () => renderer.render('{{partial:card variant=compact}}', {}, renderOptions),
+    /Unsupported partial argument value/,
+  );
+  assert.throws(
+    () => renderer.render('{{partial:card count=1 count=2}}', {}, renderOptions),
+    /Duplicate partial argument/,
+  );
 });
 
 test('buildSite matches the golden fixture for the default preview payload', async () => {
