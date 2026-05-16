@@ -2947,8 +2947,20 @@ test('buildSite resolves named collections in every render context', async () =>
   previewData.content.posts[0].meta = {
     badge: 'Feature',
   };
+  previewData.content.posts[0].data = {
+    stack: ['ZeroPress', 'Cloudflare'],
+    facts: [
+      { label: 'Role', value: 'Writing' },
+      { label: 'Year', value: 2026 },
+    ],
+  };
   previewData.content.pages[0].meta = {
     badge: 'Reference',
+  };
+  previewData.content.pages[0].data = {
+    swatches: [
+      { name: 'Ink', value: '#111111' },
+    ],
   };
   previewData.collections = {
     'cover-story': {
@@ -2963,7 +2975,7 @@ test('buildSite resolves named collections in every render context', async () =>
   const collectionTemplate = [
     '<section>{{collections.cover-story.title}} count={{collections.cover-story.count}}',
     '{{#for item in collections.cover-story.items}}',
-    '<a data-type="{{item.type}}" data-badge="{{item.meta.badge}}" href="{{item.url}}">{{item.title}}</a>',
+    '<a data-type="{{item.type}}" data-badge="{{item.meta.badge}}" data-stack="{{#for stack in item.data.stack}}{{stack}};{{/for}}" data-swatch="{{#for swatch in item.data.swatches}}{{swatch.name}}={{swatch.value}}{{/for}}" href="{{item.url}}">{{item.title}}</a>',
     '{{/for}}</section>',
   ].join('');
   themePackage.templates.set('index', collectionTemplate);
@@ -2981,8 +2993,8 @@ test('buildSite resolves named collections in every render context', async () =>
     const html = getFileContent(writer.getFiles(), outputPath);
     assert.match(html, /Cover Story/);
     assert.match(html, /count=2/);
-    assert.match(html, /data-type="post" data-badge="Feature" href="\/posts\/hello-zeropress\/"/);
-    assert.match(html, /data-type="page" data-badge="Reference" href="\/about\/"/);
+    assert.match(html, /data-type="post" data-badge="Feature" data-stack="ZeroPress;Cloudflare;" data-swatch="" href="\/posts\/hello-zeropress\/"/);
+    assert.match(html, /data-type="page" data-badge="Reference" data-stack="" data-swatch="Ink=#111111" href="\/about\/"/);
   }
 });
 
@@ -3014,8 +3026,19 @@ test('buildSite exposes collection counts and route collection cursors', async (
       items: [],
     },
   };
+  previewData.content.posts[0].data = {
+    stack: ['ZeroPress', 'SQLite'],
+    facts: 'not an array',
+    payload: { html: '<strong>safe</strong>' },
+  };
+  previewData.content.pages[0].data = {
+    facts: [{ label: 'Type', value: 'Front Page' }],
+  };
 
   themePackage.templates.set('post', [
+    'stack={{#for item in post.data.stack}}{{item}};{{/for}}',
+    'facts={{#for fact in post.data.facts}}{{fact.label}}{{/for}}',
+    'object={{post.data.payload}} html={{post.data.payload.html}}',
     'work-count={{collections.work.count}} empty-count={{collections.empty.count}}',
     '{{#if collections.empty.items}}BAD-empty-items{{/if}}',
     '{{#if collections.empty.count}}BAD-empty-count{{/if}}',
@@ -3028,6 +3051,8 @@ test('buildSite exposes collection counts and route collection cursors', async (
   themePackage.templates.set('page', [
     'work-count={{collections.work.count}} empty-count={{collections.empty.count}}',
     ' page-pos={{page.collection_cursors.work.position}}/{{page.collection_cursors.work.count}}',
+    ' page-facts={{#for fact in page.data.facts}}{{fact.label}}={{fact.value}}{{/for}}',
+    ' page-prev-stack={{#for item in page.collection_cursors.work.prev.data.stack}}{{item}};{{/for}}',
     ' page-prev={{page.collection_cursors.work.prev.title}}:{{page.collection_cursors.work.prev.url}}',
     ' page-next={{page.collection_cursors.work.next.title}}:{{page.collection_cursors.work.next.url}}',
     '{{#for item in collections.work.items}}<a href="{{item.url}}">{{item.title}}</a>{{/for}}',
@@ -3041,6 +3066,7 @@ test('buildSite exposes collection counts and route collection cursors', async (
   });
 
   const firstPostHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  assert.match(firstPostHtml, /stack=ZeroPress;SQLite;facts=object=\[object Object\] html=&lt;strong&gt;safe&lt;\/strong&gt;work-count=3/);
   assert.match(firstPostHtml, /work-count=3 empty-count=0/);
   assert.doesNotMatch(firstPostHtml, /BAD-empty/);
   assert.match(firstPostHtml, /work-first/);
@@ -3055,8 +3081,11 @@ test('buildSite exposes collection counts and route collection cursors', async (
 
   const frontPageHtml = getFileContent(writer.getFiles(), 'index.html');
   assert.match(frontPageHtml, /page-pos=2\/3/);
+  assert.match(frontPageHtml, /page-facts=Type=Front Page/);
+  assert.match(frontPageHtml, /page-prev-stack=ZeroPress;SQLite;/);
   assert.match(frontPageHtml, /page-prev=Hello ZeroPress:\/posts\/hello-zeropress\//);
   assert.match(frontPageHtml, /page-next=Theme Blocks Deep Dive:\/posts\/theme-blocks-deep-dive\//);
+  assert.match(frontPageHtml, /<a href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a>/);
   assert.match(frontPageHtml, /<a href="\/">About<\/a>/);
 });
 

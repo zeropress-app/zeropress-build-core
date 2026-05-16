@@ -94,6 +94,10 @@ export class VariableResolver {
       }
     }
 
+    if (variablePath === 'data' || variablePath.startsWith('data.') || variablePath.includes('.data.')) {
+      return false;
+    }
+
     const lastSegment = variablePath.split('.').pop();
     if (lastSegment === 'html' || lastSegment?.endsWith('_html')) {
       return true;

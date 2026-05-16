@@ -934,6 +934,7 @@ function buildCollectionPageSummary(page, frontPage) {
     featured_image: page.featured_image || '',
     ...(page.featured_media ? { featured_media: { ...page.featured_media } } : {}),
     meta: page.meta,
+    data: page.data,
   };
 }
 
@@ -990,6 +991,7 @@ function buildCollectionCursorItemSummary(item) {
     excerpt: item.excerpt || '',
     featured_image: item.featured_image || '',
     meta: item.meta,
+    data: item.data,
   };
 }
 
@@ -1358,6 +1360,7 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
     featured_image: post.featured_image,
     ...(post.featured_media ? { featured_media: { ...post.featured_media } } : {}),
     meta: post.meta,
+    data: post.data,
     status: post.status,
     allow_comments: post.allow_comments,
     category_slugs: post.category_slugs,
@@ -1609,6 +1612,8 @@ function buildStructuredPostSummary(post) {
     reading_time: post.reading_time,
     featured_image: post.featured_image,
     ...(post.featured_media ? { featured_media: { ...post.featured_media } } : {}),
+    meta: post.meta,
+    data: post.data,
     author: {
       display_name: post.author?.display_name || '',
       avatar: post.author?.avatar || '',
@@ -1631,6 +1636,7 @@ function buildAdjacentPostSummary(post) {
     excerpt: post.excerpt,
     published_at: post.published_at,
     published_at_iso: post.published_at_iso,
+    data: post.data,
   };
 }
 
