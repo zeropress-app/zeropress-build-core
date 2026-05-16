@@ -211,6 +211,62 @@ test('ControlFlowRenderer renders internal hyphens in data path segments', () =>
   assert.equal(output, 'Guides:guide;Reference;');
 });
 
+test('ControlFlowRenderer supports strict typed comparison helpers', () => {
+  const renderer = createInterpolatingRenderer();
+  const output = renderer.render([
+    '{{#if_eq loop_index 4}}number{{#else}}no-number{{/if_eq}}',
+    '{{#if_eq loop_index "4"}}bad-string{{#else}}strict-string{{/if_eq}}',
+    '{{#if_eq site.footer.attribution true}}footer{{/if_eq}}',
+    '{{#if_eq route.type 4}}bad-route-number{{#else}}route-type-strict{{/if_eq}}',
+    '{{#if_eq route.url current.url}}active{{/if_eq}}',
+    '{{#if_neq loop.last true}},{{/if_neq}}',
+    '{{#if_in route.type "post" "page" "front_page" 4 "tag"}}in-route{{/if_in}}',
+    '{{#if_in numeric_route "4"}}bad-in-string{{#else}}strict-in{{/if_in}}',
+    '{{#if_starts_with route.url section.url}}prefix{{/if_starts_with}}',
+    '{{#if_starts_with route.type 4}}bad-prefix{{#else}}strict-prefix{{/if_starts_with}}',
+  ].join('|'), {
+    loop_index: 4,
+    loop: { last: false },
+    site: { footer: { attribution: true } },
+    route: { type: 'post', url: '/docs/install/' },
+    current: { url: '/docs/install/' },
+    section: { url: '/docs/' },
+    numeric_route: 4,
+  });
+
+  assert.equal(output, 'number|strict-string|footer|route-type-strict|active|,|in-route|strict-in|prefix|strict-prefix');
+});
+
+test('ControlFlowRenderer supports comparison else-if branches', () => {
+  const renderer = createInterpolatingRenderer();
+  const output = renderer.render([
+    '{{#if_neq route.type "post"}}not-post{{#else_if_neq route.type "page"}}not-page{{#else}}fallback{{/if_neq}}',
+    '{{#if_in route.type "tag"}}tag{{#else_if_in route.type "post" "page"}}content{{/if_in}}',
+    '{{#if_starts_with route.url "/blog/"}}blog{{#else_if_starts_with route.url "/docs/"}}docs{{/if_starts_with}}',
+  ].join('|'), {
+    route: { type: 'post', url: '/docs/install/' },
+  });
+
+  assert.equal(output, 'not-page|content|docs');
+});
+
+test('ControlFlowRenderer rejects malformed comparison helpers', () => {
+  const renderer = createInterpolatingRenderer();
+
+  assert.throws(
+    () => renderer.render('{{#if_eq site.footer.attribution}}bad{{/if_eq}}', {}),
+    /Invalid if_eq expression/,
+  );
+  assert.throws(
+    () => renderer.render('{{#if_in route.type}}bad{{/if_in}}', {}),
+    /Invalid if_in expression/,
+  );
+  assert.throws(
+    () => renderer.render('{{#if_eq route.type post page}}bad{{/if_eq}}', {}),
+    /Invalid if_eq expression/,
+  );
+});
+
 test('ControlFlowRenderer renders partial arguments and nested partial shadowing', () => {
   const renderer = createInterpolatingRenderer();
   const output = renderer.render(

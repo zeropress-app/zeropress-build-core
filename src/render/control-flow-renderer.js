@@ -3,7 +3,121 @@ import { parsePartialToken } from './partial-resolver.js';
 const PATH_SEGMENT_SOURCE = '[a-zA-Z_][a-zA-Z0-9_]*(?:-[a-zA-Z0-9_]+)*';
 const PATH_REGEX = new RegExp(`^${PATH_SEGMENT_SOURCE}(?:\\.${PATH_SEGMENT_SOURCE})*$`);
 const FOR_EXPRESSION_REGEX = new RegExp(`^([a-zA-Z_][a-zA-Z0-9_]*)\\s+in\\s+(${PATH_SEGMENT_SOURCE}(?:\\.${PATH_SEGMENT_SOURCE})*)$`);
-const IF_EQ_EXPRESSION_REGEX = new RegExp(`^(${PATH_SEGMENT_SOURCE}(?:\\.${PATH_SEGMENT_SOURCE})*)\\s+("(?:[^"\\\\]|\\\\.)*")$`);
+const NUMBER_LITERAL_REGEX = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+const COMPARISON_BLOCK_TAGS = new Set(['if_eq', 'if_neq', 'if_in', 'if_starts_with']);
+const COMPARISON_ELSE_IF_TAGS = new Set(['else_if_eq', 'else_if_neq', 'else_if_in', 'else_if_starts_with']);
+const COMPARISON_TAG_OPERATORS = {
+  if_eq: 'eq',
+  else_if_eq: 'eq',
+  if_neq: 'neq',
+  else_if_neq: 'neq',
+  if_in: 'in',
+  else_if_in: 'in',
+  if_starts_with: 'starts_with',
+  else_if_starts_with: 'starts_with',
+};
+
+function getComparisonBlockTag(token) {
+  for (const tagName of COMPARISON_BLOCK_TAGS) {
+    if (token.startsWith(`#${tagName} `)) {
+      return tagName;
+    }
+  }
+  return '';
+}
+
+function getComparisonElseIfTag(token) {
+  for (const tagName of COMPARISON_ELSE_IF_TAGS) {
+    if (token.startsWith(`#${tagName} `)) {
+      return tagName;
+    }
+  }
+  return '';
+}
+
+function tokenizeExpression(expression) {
+  const tokens = [];
+  let index = 0;
+
+  while (index < expression.length) {
+    while (/\s/.test(expression[index] || '')) {
+      index += 1;
+    }
+    if (index >= expression.length) {
+      break;
+    }
+
+    if (expression[index] === '"') {
+      const start = index;
+      index += 1;
+      let escaped = false;
+      while (index < expression.length) {
+        const char = expression[index];
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === '"') {
+          index += 1;
+          tokens.push(expression.slice(start, index));
+          break;
+        }
+        index += 1;
+      }
+      if (tokens[tokens.length - 1] !== expression.slice(start, index)) {
+        throw new Error(`Unclosed string literal in expression: ${expression}`);
+      }
+      continue;
+    }
+
+    const start = index;
+    while (index < expression.length && !/\s/.test(expression[index])) {
+      index += 1;
+    }
+    tokens.push(expression.slice(start, index));
+  }
+
+  return tokens;
+}
+
+function parsePathOperand(token, tagName, expression) {
+  if (!PATH_REGEX.test(token)) {
+    throw new Error(`Invalid ${tagName} expression: ${expression}`);
+  }
+  return { kind: 'path', path: token };
+}
+
+function parseComparisonOperand(token, tagName, expression) {
+  if (token.startsWith('"')) {
+    try {
+      const value = JSON.parse(token);
+      if (typeof value !== 'string') {
+        throw new Error('Expected string literal');
+      }
+      return { kind: 'literal', value };
+    } catch {
+      throw new Error(`Invalid ${tagName} expression: ${expression}`);
+    }
+  }
+
+  if (token === 'true') {
+    return { kind: 'literal', value: true };
+  }
+  if (token === 'false') {
+    return { kind: 'literal', value: false };
+  }
+  if (token === 'null') {
+    return { kind: 'literal', value: null };
+  }
+  if (NUMBER_LITERAL_REGEX.test(token)) {
+    return { kind: 'literal', value: Number(token) };
+  }
+  if (PATH_REGEX.test(token)) {
+    return { kind: 'path', path: token };
+  }
+
+  throw new Error(`Invalid ${tagName} expression: ${expression}`);
+}
 
 export class ControlFlowRenderer {
   constructor(options = {}) {
@@ -104,9 +218,10 @@ export class ControlFlowRenderer {
         return { nodes, nextIndex: tokenEnd + 2, stopTag: 'else' };
       }
 
-      if (token.startsWith('#else_if_eq ')) {
-        if (!stopTags.has('else_if_eq')) {
-          throw new Error('Unexpected else_if_eq tag');
+      const comparisonElseIfTag = getComparisonElseIfTag(token);
+      if (comparisonElseIfTag) {
+        if (!stopTags.has(comparisonElseIfTag)) {
+          throw new Error(`Unexpected ${comparisonElseIfTag} tag`);
         }
         return { nodes, nextIndex: tokenEnd + 2, stopTag: token };
       }
@@ -125,9 +240,10 @@ export class ControlFlowRenderer {
         continue;
       }
 
-      if (token.startsWith('#if_eq ')) {
-        const expression = token.slice('#if_eq '.length).trim();
-        const block = this.parseIfEqBlock(source, tokenEnd + 2, expression);
+      const comparisonBlockTag = getComparisonBlockTag(token);
+      if (comparisonBlockTag) {
+        const expression = token.slice(`#${comparisonBlockTag} `.length).trim();
+        const block = this.parseComparisonBlock(source, tokenEnd + 2, comparisonBlockTag, expression);
         nodes.push(block.node);
         index = block.nextIndex;
         continue;
@@ -223,51 +339,53 @@ export class ControlFlowRenderer {
     };
   }
 
-  parseIfEqBlock(source, startIndex, expression) {
-    const initialBranch = this.parseIfEqBranchExpression(expression, 'if_eq');
+  parseComparisonBlock(source, startIndex, tagName, expression) {
+    const initialBranch = this.parseComparisonBranchExpression(expression, tagName);
     const branches = [];
     let alternate = [];
     let nextIndex = startIndex;
     let currentBranch = initialBranch;
+    const elseIfTag = `else_${tagName}`;
 
     while (true) {
-      const branchResult = this.parseNodes(source, nextIndex, new Set(['else', 'else_if_eq', 'if_eq']));
+      const branchResult = this.parseNodes(source, nextIndex, new Set(['else', elseIfTag, tagName]));
       branches.push({
-        path: currentBranch.path,
-        literal: currentBranch.literal,
+        operator: currentBranch.operator,
+        left: currentBranch.left,
+        operands: currentBranch.operands,
         consequent: branchResult.nodes,
       });
 
       if (branchResult.stopTag === 'else') {
-        const elseResult = this.parseNodes(source, branchResult.nextIndex, new Set(['if_eq']));
-        if (elseResult.stopTag !== 'if_eq') {
-          throw new Error('Unclosed if_eq block after else');
+        const elseResult = this.parseNodes(source, branchResult.nextIndex, new Set([tagName]));
+        if (elseResult.stopTag !== tagName) {
+          throw new Error(`Unclosed ${tagName} block after else`);
         }
         alternate = elseResult.nodes;
         nextIndex = elseResult.nextIndex;
         break;
       }
 
-      if (typeof branchResult.stopTag === 'string' && branchResult.stopTag.startsWith('#else_if_eq ')) {
-        currentBranch = this.parseIfEqBranchExpression(
-          branchResult.stopTag.slice('#else_if_eq '.length).trim(),
-          'else_if_eq',
+      if (typeof branchResult.stopTag === 'string' && branchResult.stopTag.startsWith(`#${elseIfTag} `)) {
+        currentBranch = this.parseComparisonBranchExpression(
+          branchResult.stopTag.slice(`#${elseIfTag} `.length).trim(),
+          elseIfTag,
         );
         nextIndex = branchResult.nextIndex;
         continue;
       }
 
-      if (branchResult.stopTag === 'if_eq') {
+      if (branchResult.stopTag === tagName) {
         nextIndex = branchResult.nextIndex;
         break;
       }
 
-      throw new Error('Unclosed if_eq block');
+      throw new Error(`Unclosed ${tagName} block`);
     }
 
     return {
       node: {
-        type: 'if_eq',
+        type: 'comparison',
         branches,
         alternate,
       },
@@ -275,16 +393,23 @@ export class ControlFlowRenderer {
     };
   }
 
-  parseIfEqBranchExpression(expression, tagName) {
-    const match = IF_EQ_EXPRESSION_REGEX.exec(expression);
-    if (!match) {
+  parseComparisonBranchExpression(expression, tagName) {
+    const operator = COMPARISON_TAG_OPERATORS[tagName];
+    const tokens = tokenizeExpression(expression);
+    if (
+      !operator
+      || (operator === 'in' && tokens.length < 2)
+      || (operator !== 'in' && tokens.length !== 2)
+    ) {
       throw new Error(`Invalid ${tagName} expression: ${expression}`);
     }
 
-    const [, path, literalSource] = match;
+    const left = parsePathOperand(tokens[0], tagName, expression);
+    const operands = tokens.slice(1).map((token) => parseComparisonOperand(token, tagName, expression));
     return {
-      path,
-      literal: JSON.parse(literalSource),
+      operator,
+      left,
+      operands,
     };
   }
 
@@ -302,8 +427,8 @@ export class ControlFlowRenderer {
           ? this.renderNodes(branch.consequent, data, renderOptions)
           : this.renderNodes(node.alternate, data, renderOptions);
       }
-      case 'if_eq': {
-        const branch = node.branches.find((entry) => this.resolvePath(data, entry.path) === entry.literal);
+      case 'comparison': {
+        const branch = node.branches.find((entry) => this.evaluateComparison(entry, data));
         return branch
           ? this.renderNodes(branch.consequent, data, renderOptions)
           : this.renderNodes(node.alternate, data, renderOptions);
@@ -354,6 +479,50 @@ export class ControlFlowRenderer {
       ...renderOptions,
       partialStack: [...activeStack, node.name],
     });
+  }
+
+  evaluateComparison(entry, data) {
+    const left = this.evaluateOperand(entry.left, data);
+    const operands = entry.operands.map((operand) => this.evaluateOperand(operand, data));
+
+    if (entry.operator === 'eq') {
+      const right = operands[0];
+      return !left.missing && !right.missing && left.value === right.value;
+    }
+
+    if (entry.operator === 'neq') {
+      const right = operands[0];
+      return left.missing || right.missing || left.value !== right.value;
+    }
+
+    if (entry.operator === 'in') {
+      if (left.missing) {
+        return false;
+      }
+      return operands.some((operand) => !operand.missing && left.value === operand.value);
+    }
+
+    if (entry.operator === 'starts_with') {
+      const right = operands[0];
+      return (
+        !left.missing
+        && !right.missing
+        && typeof left.value === 'string'
+        && typeof right.value === 'string'
+        && left.value.startsWith(right.value)
+      );
+    }
+
+    return false;
+  }
+
+  evaluateOperand(operand, data) {
+    if (operand.kind === 'literal') {
+      return { value: operand.value, missing: false };
+    }
+
+    const value = this.resolvePath(data, operand.path);
+    return { value, missing: value === undefined };
   }
 
   isTruthy(value) {
