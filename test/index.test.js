@@ -2848,6 +2848,39 @@ test('renderDocument preserves standard markdown compatibility output', () => {
   assert.match(mermaid.html, /<code class="language-mermaid">/);
 });
 
+test('renderDocument preserves safe semantic media HTML in markdown', () => {
+  const document = renderDocument([
+    '<figure class="gallery-item" onclick="alert(1)">',
+    '<picture class="responsive-media">',
+    '<source media="(min-width: 900px)" srcset="/images/hero-large.webp 1200w, /images/hero.webp 800w" sizes="(min-width: 900px) 720px, 100vw" type="image/webp">',
+    '<img src="/images/hero.jpg" srcset="/images/hero.jpg 800w, /images/hero@2x.jpg 1600w" sizes="100vw" alt="Hero" width="800" height="450" loading="lazy" decoding="async" style="width:100%">',
+    '</picture>',
+    '<figcaption id="hero-caption">Hero caption</figcaption>',
+    '</figure>',
+  ].join('\n'), 'markdown');
+
+  assert.match(document.html, /<figure class="gallery-item">/);
+  assert.match(document.html, /<picture class="responsive-media">/);
+  assert.match(document.html, /<source media="\(min-width: 900px\)" srcset="\/images\/hero-large\.webp 1200w, \/images\/hero\.webp 800w" sizes="\(min-width: 900px\) 720px, 100vw" type="image\/webp" \/>/);
+  assert.match(document.html, /<img src="\/images\/hero\.jpg" srcset="\/images\/hero\.jpg 800w, \/images\/hero@2x\.jpg 1600w" sizes="100vw" alt="Hero" width="800" height="450" loading="lazy" decoding="async" \/>/);
+  assert.match(document.html, /<figcaption id="hero-caption">Hero caption<\/figcaption>/);
+  assert.doesNotMatch(document.html, /onclick/);
+  assert.doesNotMatch(document.html, /style=/);
+});
+
+test('renderDocument removes unsafe srcset candidates from semantic media HTML', () => {
+  const document = renderDocument([
+    '<picture>',
+    '<source srcset="javascript:alert(1) 1x" type="image/webp">',
+    '<img src="/safe.jpg" srcset="javascript:alert(1) 1x" alt="Safe">',
+    '</picture>',
+  ].join('\n'), 'markdown');
+
+  assert.match(document.html, /<source type="image\/webp" \/>/);
+  assert.match(document.html, /<img src="\/safe\.jpg" alt="Safe" \/>/);
+  assert.doesNotMatch(document.html, /javascript:alert/);
+});
+
 test('renderDocument renders GFM-compatible task lists', () => {
   const document = renderDocument([
     '- [x] Done',

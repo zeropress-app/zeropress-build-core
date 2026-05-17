@@ -306,6 +306,7 @@ function sanitizeHtml(html) {
     'a', 'img',
     'ul', 'ol', 'li',
     'blockquote', 'aside',
+    'figure', 'figcaption', 'picture', 'source',
     'table', 'thead', 'tbody', 'tr', 'th', 'td',
     'div', 'span', 'nav',
     'iframe', 'input',
@@ -314,9 +315,10 @@ function sanitizeHtml(html) {
   const allowedAttributes = {
     a: new Set(['href', 'title', 'class', 'id']),
     aside: new Set(['role', 'class', 'id']),
-    img: new Set(['src', 'alt', 'title', 'class', 'id', 'width', 'height']),
+    img: new Set(['src', 'srcset', 'sizes', 'alt', 'title', 'class', 'id', 'width', 'height', 'loading', 'decoding']),
     iframe: new Set(['src', 'width', 'height', 'frameborder', 'allowfullscreen', 'class']),
     input: new Set(['type', 'checked', 'disabled', 'class', 'id']),
+    source: new Set(['src', 'srcset', 'sizes', 'type', 'media', 'width', 'height', 'class', 'id']),
     '*': new Set(['class', 'id']),
   };
 
@@ -357,6 +359,10 @@ function sanitizeHtml(html) {
           continue;
         }
 
+        if (attributeName === 'srcset' && !isSafeSrcset(attributeValue, safeUriPattern)) {
+          continue;
+        }
+
         if (normalizedTag === 'input' && attributeName === 'type' && attributeValue !== 'checkbox') {
           continue;
         }
@@ -365,7 +371,7 @@ function sanitizeHtml(html) {
       }
     }
 
-    const isSelfClosing = match.endsWith('/>') || normalizedTag === 'br' || normalizedTag === 'hr' || normalizedTag === 'img' || normalizedTag === 'input';
+    const isSelfClosing = match.endsWith('/>') || normalizedTag === 'br' || normalizedTag === 'hr' || normalizedTag === 'img' || normalizedTag === 'input' || normalizedTag === 'source';
     const attributeSuffix = filteredAttributes.length > 0 ? ` ${filteredAttributes.join(' ')}` : '';
     return isSelfClosing ? `<${normalizedTag}${attributeSuffix} />` : `<${normalizedTag}${attributeSuffix}>`;
   });
@@ -380,6 +386,18 @@ function sanitizeHtml(html) {
       return part.replace(/&(?!(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;');
     })
     .join('');
+}
+
+function isSafeSrcset(value, safeUriPattern) {
+  const candidates = String(value)
+    .split(',')
+    .map((candidate) => candidate.trim())
+    .filter(Boolean);
+
+  return candidates.length > 0 && candidates.every((candidate) => {
+    const [url] = candidate.split(/\s+/);
+    return Boolean(url) && safeUriPattern.test(url);
+  });
 }
 
 function slugify(value) {
