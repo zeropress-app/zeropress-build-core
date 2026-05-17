@@ -3158,3 +3158,38 @@ test('buildSite keeps ZeroPress template syntax inside markdown page content lit
   assert.match(pageHtml, /\{\{\/if\}\}/);
   assert.doesNotMatch(pageHtml, /ZeroPress Preview<\/h1>/);
 });
+
+test('buildSite preserves dollar replacement tokens inside content slot HTML', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  themePackage.templates.set('layout', '<main>{{slot:content}}</main>');
+  themePackage.templates.set('post', '<article>{{post.html}}</article>');
+  previewData.content.posts = [
+    {
+      ...previewData.content.posts[0],
+      title: 'Replacement Tokens',
+      slug: 'replacement-tokens',
+      content: [
+        '```apache',
+        '<FilesMatch \\.php$>',
+        'return "$";',
+        '```',
+      ].join('\n'),
+      document_type: 'markdown',
+    },
+  ];
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/replacement-tokens/index.html');
+  assert.match(postHtml, /&lt;FilesMatch \\.php\$&gt;/);
+  assert.match(postHtml, /\$&quot;/);
+  assert.doesNotMatch(postHtml, /ZEROPRESS_CONTENT_SLOT/);
+});

@@ -37,7 +37,7 @@ export class ZeroPressEngine {
     const renderData = this.combineRenderData(data, context);
     const renderedContent = this.renderTemplate(template, renderData);
     const layoutWithSlots = this.slotResolver.resolve(layout, this.themePackage.partials, CONTENT_SLOT_PLACEHOLDER);
-    return this.renderTemplate(layoutWithSlots, renderData).replaceAll(CONTENT_SLOT_PLACEHOLDER, renderedContent);
+    return this.renderTemplate(layoutWithSlots, renderData).replaceAll(CONTENT_SLOT_PLACEHOLDER, () => renderedContent);
   }
 
   combineRenderData(data, context) {
