@@ -57,6 +57,14 @@
       "contentType": "application/json"
     },
     {
+      "path": "_zeropress/search.json",
+      "contentType": "application/json"
+    },
+    {
+      "path": "_zeropress/search.js",
+      "contentType": "application/javascript"
+    },
+    {
       "path": "404.html",
       "contentType": "text/html"
     },

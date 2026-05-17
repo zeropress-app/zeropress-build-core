@@ -38,12 +38,23 @@ const DEFAULT_POST_INDEX = Object.freeze({
 });
 const PERMALINK_OUTPUT_STYLES = new Set(['directory', 'html-extension']);
 const COMMENT_POLICY_OUTPUT_PATH = '_zeropress/comment-policy.json';
+const SEARCH_INDEX_OUTPUT_PATH = '_zeropress/search.json';
+const SEARCH_ADAPTER_OUTPUT_PATH = '_zeropress/search.js';
 const OUTPUT_PATH_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
 const SAFE_MEDIA_PROTOCOLS = new Set(['http:', 'https:']);
 const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 const MEDIA_DELIVERY_MODES = new Set(['none', 'media_domain']);
 const RESPONSIVE_IMAGE_WIDTHS = [320, 480, 768, 1024, 1280, 1600, 1920];
 const RESPONSIVE_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'avif']);
+const SEARCH_FIELD_WEIGHTS = Object.freeze({
+  title: 5,
+  headings: 3,
+  tags: 2.5,
+  categories: 2,
+  excerpt: 1.5,
+  content_text: 1,
+});
+const SEARCH_RECENCY_BOOST_MAX = 0.15;
 export async function buildSite(input) {
   const options = { ...DEFAULT_OPTIONS, ...(input.options || {}) };
   const state = await createBuildState(input, options);
@@ -96,6 +107,8 @@ export async function buildSite(input) {
   );
 
   if (options.generateSpecialFiles) {
+    await writeOutput(state.writer, state.summaries, SEARCH_INDEX_OUTPUT_PATH, buildSearchIndexJson(state), 'application/json');
+    await writeOutput(state.writer, state.summaries, SEARCH_ADAPTER_OUTPUT_PATH, buildSearchAdapterJs(), 'application/javascript');
     await maybeRenderNotFoundPage(state);
     if (hasCanonicalSiteUrl(state.previewData.site.url)) {
       await writeOutput(
@@ -2345,6 +2358,7 @@ function assertPlannedOutputPathsSafe(state) {
   ];
 
   if (state.options.generateSpecialFiles) {
+    plannedPaths.push(SEARCH_INDEX_OUTPUT_PATH, SEARCH_ADAPTER_OUTPUT_PATH);
     plannedPaths.push('404.html');
     if (shouldGenerateRobotsTxt(state.options)) {
       plannedPaths.push('robots.txt');
@@ -2515,6 +2529,404 @@ function injectCustomHtml(html, customHtml) {
   }
 
   return next;
+}
+
+function buildSearchIndexJson(state) {
+  return `${JSON.stringify(buildSearchIndexItems(state), null, 2)}\n`;
+}
+
+function buildSearchIndexItems(state) {
+  const posts = state.renderData.posts
+    .filter((post) => post.status === 'published')
+    .map((post) => ({
+      id: `post:${post.slug}`,
+      type: 'post',
+      title: post.title,
+      url: post.url,
+      excerpt: normalizeSearchText(post.excerpt),
+      headings: buildSearchHeadings(post.toc),
+      categories: Array.isArray(post.categories) ? post.categories.map((category) => category.name).filter(Boolean) : [],
+      tags: Array.isArray(post.tags) ? post.tags.map((tag) => tag.name).filter(Boolean) : [],
+      published_at_iso: normalizeIsoTimestamp(post.published_at_iso),
+      updated_at_iso: normalizeIsoTimestamp(post.updated_at_iso),
+      content_text: htmlToSearchText(post.html),
+    }));
+
+  const frontPagePage = state.renderData.frontPageRoute?.front_page_type === 'page'
+    ? state.renderData.frontPageRoute.page
+    : null;
+  const frontPageItems = frontPagePage && frontPagePage.status === 'published'
+    ? [buildSearchPageItem(frontPagePage, '/')]
+    : [];
+  const pageItems = state.renderData.pages
+    .filter((page) => page.status === 'published')
+    .map((page) => buildSearchPageItem(page, page.url));
+
+  return [...posts, ...frontPageItems, ...pageItems];
+}
+
+function buildSearchPageItem(page, url) {
+  return {
+    id: `page:${page.slug}`,
+    type: 'page',
+    title: page.title,
+    url,
+    excerpt: normalizeSearchText(page.excerpt),
+    headings: buildSearchHeadings(page.toc),
+    categories: [],
+    tags: [],
+    published_at_iso: '',
+    updated_at_iso: '',
+    content_text: htmlToSearchText(page.html),
+  };
+}
+
+function buildSearchHeadings(toc) {
+  return Array.isArray(toc)
+    ? toc.map((item) => normalizeSearchText(item?.title)).filter(Boolean)
+    : [];
+}
+
+function htmlToSearchText(html) {
+  return normalizeSearchText(decodeHtmlEntities(
+    String(html || '')
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<!--[\s\S]*?-->/g, ' ')
+      .replace(/<[^>]+>/g, ' '),
+  ));
+}
+
+function decodeHtmlEntities(value) {
+  const namedEntities = {
+    amp: '&',
+    lt: '<',
+    gt: '>',
+    quot: '"',
+    apos: "'",
+    nbsp: ' ',
+  };
+
+  return String(value || '').replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]+);/g, (match, entity) => {
+    if (entity.startsWith('#x')) {
+      const codePoint = Number.parseInt(entity.slice(2), 16);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+    if (entity.startsWith('#')) {
+      const codePoint = Number.parseInt(entity.slice(1), 10);
+      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
+    }
+    return Object.prototype.hasOwnProperty.call(namedEntities, entity) ? namedEntities[entity] : match;
+  });
+}
+
+function normalizeSearchText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function buildSearchAdapterJs() {
+  const fieldWeightsJson = JSON.stringify(SEARCH_FIELD_WEIGHTS, null, 2);
+  return `const FIELD_WEIGHTS = ${fieldWeightsJson};
+const FIELD_NAMES = Object.keys(FIELD_WEIGHTS);
+const RECENCY_BOOST_MAX = ${SEARCH_RECENCY_BOOST_MAX};
+const DEFAULT_LIMIT = 20;
+const BM25_K1 = 1.2;
+const BM25_B = 0.75;
+
+let preparedIndexPromise;
+
+export async function preload() {
+  await loadPreparedIndex();
+}
+
+export async function search(query, options = {}) {
+  const prepared = await loadPreparedIndex();
+  const terms = tokenize(query);
+  const phrase = normalizeText(query);
+  if (terms.length === 0 && !phrase) {
+    return { results: [] };
+  }
+
+  const hits = [];
+  for (const document of prepared.documents) {
+    const score = scoreDocument(document, terms, phrase, prepared);
+    if (score > 0) {
+      hits.push({ document, score });
+    }
+  }
+
+  const limit = normalizeLimit(options.limit);
+  hits.sort((left, right) => right.score - left.score || left.document.raw.title.localeCompare(right.document.raw.title));
+
+  return {
+    results: hits.slice(0, limit).map((hit) => ({
+      id: hit.document.raw.id,
+      score: Number(hit.score.toFixed(6)),
+      data: async () => buildResultData(hit.document.raw, query),
+    })),
+  };
+}
+
+async function loadPreparedIndex() {
+  if (!preparedIndexPromise) {
+    preparedIndexPromise = fetch(new URL('./search.json', import.meta.url))
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error('ZeroPress search index not found');
+        }
+        return response.json();
+      })
+      .then((items) => prepareIndex(Array.isArray(items) ? items : []));
+  }
+
+  return preparedIndexPromise;
+}
+
+function prepareIndex(items) {
+  const documents = items.map((item) => prepareDocument(item));
+  const documentFrequencies = new Map();
+  const averageLengths = Object.fromEntries(FIELD_NAMES.map((fieldName) => [fieldName, 1]));
+  const newestPostTime = documents.reduce((newest, document) => {
+    if (document.raw.type !== 'post') {
+      return newest;
+    }
+    return Math.max(newest, document.publishedTime || 0);
+  }, 0);
+
+  for (const document of documents) {
+    const seenTerms = new Set();
+    for (const fieldName of FIELD_NAMES) {
+      for (const term of document.fieldTokens[fieldName]) {
+        seenTerms.add(term);
+      }
+    }
+    for (const term of seenTerms) {
+      documentFrequencies.set(term, (documentFrequencies.get(term) || 0) + 1);
+    }
+  }
+
+  for (const fieldName of FIELD_NAMES) {
+    const total = documents.reduce((sum, document) => sum + document.fieldLengths[fieldName], 0);
+    averageLengths[fieldName] = documents.length > 0 ? Math.max(1, total / documents.length) : 1;
+  }
+
+  return {
+    documents,
+    documentFrequencies,
+    averageLengths,
+    documentCount: documents.length,
+    newestPostTime,
+  };
+}
+
+function prepareDocument(item) {
+  const raw = normalizeItem(item);
+  const fields = {
+    title: raw.title,
+    headings: raw.headings.join(' '),
+    tags: raw.tags.join(' '),
+    categories: raw.categories.join(' '),
+    excerpt: raw.excerpt,
+    content_text: raw.content_text,
+  };
+  const fieldTexts = {};
+  const fieldTokens = {};
+  const fieldTermCounts = {};
+  const fieldLengths = {};
+
+  for (const [fieldName, value] of Object.entries(fields)) {
+    const normalizedText = normalizeText(value);
+    const tokens = tokenize(normalizedText);
+    fieldTexts[fieldName] = normalizedText;
+    fieldTokens[fieldName] = tokens;
+    fieldTermCounts[fieldName] = countTerms(tokens);
+    fieldLengths[fieldName] = Math.max(1, tokens.length);
+  }
+
+  return {
+    raw,
+    fieldTexts,
+    fieldTokens,
+    fieldTermCounts,
+    fieldLengths,
+    publishedTime: Date.parse(raw.published_at_iso) || 0,
+  };
+}
+
+function normalizeItem(item) {
+  return {
+    id: String(item && item.id || ''),
+    type: item && item.type === 'page' ? 'page' : 'post',
+    title: String(item && item.title || ''),
+    url: String(item && item.url || ''),
+    excerpt: String(item && item.excerpt || ''),
+    headings: Array.isArray(item && item.headings) ? item.headings.map(String) : [],
+    categories: Array.isArray(item && item.categories) ? item.categories.map(String) : [],
+    tags: Array.isArray(item && item.tags) ? item.tags.map(String) : [],
+    published_at_iso: String(item && item.published_at_iso || ''),
+    updated_at_iso: String(item && item.updated_at_iso || ''),
+    content_text: String(item && item.content_text || ''),
+  };
+}
+
+function scoreDocument(document, terms, phrase, prepared) {
+  let score = 0;
+  const uniqueTerms = Array.from(new Set(terms));
+
+  for (const term of uniqueTerms) {
+    const documentFrequency = prepared.documentFrequencies.get(term) || 0;
+    const idf = Math.log(1 + (prepared.documentCount - documentFrequency + 0.5) / (documentFrequency + 0.5));
+
+    for (const fieldName of FIELD_NAMES) {
+      const termFrequency = document.fieldTermCounts[fieldName].get(term) || 0;
+      if (termFrequency === 0) {
+        continue;
+      }
+
+      const fieldLength = document.fieldLengths[fieldName];
+      const averageLength = prepared.averageLengths[fieldName];
+      const denominator = termFrequency + BM25_K1 * (1 - BM25_B + BM25_B * (fieldLength / averageLength));
+      score += FIELD_WEIGHTS[fieldName] * idf * ((termFrequency * (BM25_K1 + 1)) / denominator);
+    }
+  }
+
+  if (phrase && phrase.length > 1) {
+    for (const fieldName of FIELD_NAMES) {
+      if (document.fieldTexts[fieldName].includes(phrase)) {
+        score += FIELD_WEIGHTS[fieldName] * 0.6;
+      }
+    }
+  }
+
+  if (score <= 0) {
+    return 0;
+  }
+
+  return score * (1 + recencyBoost(document, prepared.newestPostTime));
+}
+
+function recencyBoost(document, newestPostTime) {
+  if (document.raw.type !== 'post' || !document.publishedTime || !newestPostTime) {
+    return 0;
+  }
+  const ageMs = Math.max(0, newestPostTime - document.publishedTime);
+  const halfLifeMs = 180 * 24 * 60 * 60 * 1000;
+  return RECENCY_BOOST_MAX * Math.exp(-ageMs / halfLifeMs);
+}
+
+function buildResultData(item, query) {
+  const excerpt = buildExcerpt(item, query);
+  return {
+    url: item.url,
+    excerpt,
+    plain_excerpt: excerpt,
+    meta: {
+      title: item.title,
+      type: item.type,
+      published_at_iso: item.published_at_iso,
+      updated_at_iso: item.updated_at_iso,
+      categories: item.categories,
+      tags: item.tags,
+    },
+    sub_results: [],
+  };
+}
+
+function buildExcerpt(item, query) {
+  const explicitExcerpt = String(item.excerpt || '').trim();
+  if (explicitExcerpt) {
+    return explicitExcerpt;
+  }
+
+  const text = String(item.content_text || '').replace(/\\s+/g, ' ').trim();
+  if (!text) {
+    return '';
+  }
+
+  const normalizedText = normalizeText(text);
+  const terms = tokenize(query);
+  const firstMatch = terms.map((term) => normalizedText.indexOf(term)).filter((index) => index >= 0).sort((a, b) => a - b)[0];
+  const start = Math.max(0, (firstMatch || 0) - 80);
+  const end = Math.min(text.length, start + 180);
+  const prefix = start > 0 ? '...' : '';
+  const suffix = end < text.length ? '...' : '';
+  return prefix + text.slice(start, end).trim() + suffix;
+}
+
+function countTerms(tokens) {
+  const counts = new Map();
+  for (const token of tokens) {
+    counts.set(token, (counts.get(token) || 0) + 1);
+  }
+  return counts;
+}
+
+function tokenize(value) {
+  const text = normalizeText(value);
+  if (!text) {
+    return [];
+  }
+
+  const tokens = [];
+  if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+    try {
+      const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
+      for (const part of segmenter.segment(text)) {
+        if (part.isWordLike && isUsefulToken(part.segment)) {
+          tokens.push(part.segment);
+        }
+      }
+    } catch {
+      // Fall through to regex tokenization.
+    }
+  }
+
+  for (const match of text.matchAll(/[\\p{Letter}\\p{Number}]+/gu)) {
+    if (isUsefulToken(match[0])) {
+      tokens.push(match[0]);
+    }
+  }
+
+  for (const match of text.matchAll(/[\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}]+/gu)) {
+    tokens.push(...buildNgrams(match[0], 2));
+  }
+
+  return tokens;
+}
+
+function buildNgrams(value, size) {
+  const normalized = Array.from(value);
+  if (normalized.length <= size) {
+    return isUsefulToken(value) ? [value] : [];
+  }
+
+  const tokens = [];
+  for (let index = 0; index <= normalized.length - size; index += 1) {
+    tokens.push(normalized.slice(index, index + size).join(''));
+  }
+  tokens.push(value);
+  return tokens;
+}
+
+function isUsefulToken(value) {
+  const token = String(value || '').trim();
+  return token.length > 1 || /^\\d$/.test(token);
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .normalize('NFKC')
+    .toLowerCase()
+    .replace(/[\\u2018\\u2019]/g, "'")
+    .replace(/[_-]+/g, ' ')
+    .replace(/\\s+/g, ' ')
+    .trim();
+}
+
+function normalizeLimit(value) {
+  return Number.isInteger(value) && value > 0 ? Math.min(value, 100) : DEFAULT_LIMIT;
+}
+`;
 }
 
 function buildSitemapXml(site, emitted, generatedAt, stylesheetHref = '') {

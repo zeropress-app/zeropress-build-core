@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildSite, buildSiteFromThemeDir, FilesystemWriter, MemoryWriter } from '../src/index.js';
 import { ControlFlowRenderer } from '../src/render/control-flow-renderer.js';
 import { renderDocument } from '../src/render/content-renderer.js';
@@ -2322,6 +2322,133 @@ test('buildSite can disable fallback robots.txt while keeping other special file
 
   const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
   assert.equal(manifest.files.some((file) => file.path === 'robots.txt'), false);
+});
+
+test('buildSite emits native static search artifacts and adapter results', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.site.front_page = { type: 'page', page_slug: 'about' };
+  previewData.site.post_index = { enabled: false };
+  previewData.content.posts = [
+    {
+      ...previewData.content.posts[0],
+      title: 'Alpha Release',
+      slug: 'alpha-release',
+      content: '<p>General release notes</p>',
+      excerpt: '',
+      published_at_iso: '2026-02-14T09:00:00Z',
+      updated_at_iso: '2026-02-14T10:00:00Z',
+    },
+    {
+      ...previewData.content.posts[1],
+      title: 'Body Only',
+      slug: 'body-only',
+      content: '<p>Alpha appears only in body text.</p>',
+      excerpt: '',
+      published_at_iso: '2026-02-13T09:00:00Z',
+      updated_at_iso: '2026-02-13T10:00:00Z',
+    },
+    {
+      ...previewData.content.posts[2],
+      title: '서울 안내',
+      slug: 'seoul-guide',
+      content: '<p>한강과 서울 여행 정보를 정리합니다.</p>',
+      excerpt: '',
+      published_at_iso: '2026-02-12T09:00:00Z',
+      updated_at_iso: '2026-02-12T10:00:00Z',
+    },
+  ];
+  previewData.content.pages = [
+    {
+      title: 'About',
+      slug: 'about',
+      content: '## Search Heading\n\nAbout page 서울 content.',
+      document_type: 'markdown',
+      status: 'published',
+    },
+    {
+      title: 'Visible Page',
+      slug: 'visible-page',
+      content: '<script>hiddenSearchTerm()</script><style>.hidden{color:red}</style><p>Visible text for search.</p>',
+      document_type: 'html',
+      status: 'published',
+    },
+  ];
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { writeManifest: true },
+  });
+
+  const files = writer.getFiles();
+  const searchJson = getFileContent(files, '_zeropress/search.json');
+  const searchJs = getFileContent(files, '_zeropress/search.js');
+  const searchItems = JSON.parse(searchJson);
+  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
+
+  assert.equal(files.some((file) => file.path === '_zeropress/search.json'), true);
+  assert.equal(files.some((file) => file.path === '_zeropress/search.js'), true);
+  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.json'), true);
+  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.js'), true);
+  assert.deepEqual(searchItems.map((item) => item.id).sort(), [
+    'page:about',
+    'page:visible-page',
+    'post:alpha-release',
+    'post:body-only',
+    'post:seoul-guide',
+  ]);
+  assert.equal(searchItems.find((item) => item.id === 'page:about')?.url, '/');
+  assert.deepEqual(searchItems.find((item) => item.id === 'page:about')?.headings, ['Search Heading']);
+  assert.match(searchItems.find((item) => item.id === 'page:visible-page')?.content_text, /Visible text for search/);
+  assert.doesNotMatch(searchItems.find((item) => item.id === 'page:visible-page')?.content_text || '', /hiddenSearchTerm|color:red/);
+
+  const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-search-adapter-'));
+  const adapterPath = path.join(tempDir, 'search.js');
+  await fs.writeFile(adapterPath, searchJs);
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    assert.match(String(url), /search\.json$/);
+    return {
+      ok: true,
+      json: async () => searchItems,
+    };
+  };
+
+  try {
+    const searchModule = await import(`${pathToFileURL(adapterPath).href}?t=${Date.now()}`);
+    const alphaResults = await searchModule.search('alpha', { limit: 5 });
+    assert.equal(alphaResults.results.length >= 2, true);
+    assert.equal((await alphaResults.results[0].data()).meta.title, 'Alpha Release');
+    assert.equal((await alphaResults.results[1].data()).meta.title, 'Body Only');
+
+    const hangulResults = await searchModule.search('서울', { limit: 5 });
+    assert.equal(hangulResults.results.length > 0, true);
+    const hangulTitles = await Promise.all(hangulResults.results.map(async (result) => (await result.data()).meta.title));
+    assert.equal(hangulTitles.includes('서울 안내'), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('buildSite skips native search artifacts when special files are disabled', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const files = writer.getFiles();
+  assert.equal(files.some((file) => file.path === '_zeropress/search.json'), false);
+  assert.equal(files.some((file) => file.path === '_zeropress/search.js'), false);
 });
 
 test('buildSite skips archive routes when archive template is missing', async () => {
