@@ -465,7 +465,7 @@ test('buildSite renders custom menu loops with hyphenated slot ids', async () =>
   {{#for section in menus.docs-sidebar.items}}
     <section class="docs-sidebar__section">
       <h2>{{section.title}}</h2>
-      {{#for item in section.children}}<a href="{{item.url}}">{{item.title}}</a>{{/for}}
+      {{#for item in section.children}}<a class="icon-{{item.meta.icon}}" data-badge="{{item.meta.badge}}" href="{{item.url}}">{{item.title}}</a>{{/for}}
     </section>
   {{/for}}
 </main>
@@ -484,6 +484,10 @@ test('buildSite renders custom menu loops with hyphenated slot ids', async () =>
             url: '/docs/introduction/',
             type: 'custom',
             target: '_self',
+            meta: {
+              icon: 'book',
+              badge: 'Start <here>',
+            },
             children: [],
           },
         ],
@@ -502,7 +506,7 @@ test('buildSite renders custom menu loops with hyphenated slot ids', async () =>
 
   assert.match(indexHtml, /<section class="docs-sidebar__section">/);
   assert.match(indexHtml, /<h2>Getting Started<\/h2>/);
-  assert.match(indexHtml, /<a href="\/docs\/introduction\/">Introduction<\/a>/);
+  assert.match(indexHtml, /<a class="icon-book" data-badge="Start &lt;here&gt;" href="\/docs\/introduction\/">Introduction<\/a>/);
 });
 
 test('buildSite renders widget areas and injects preview-data custom CSS assets', async () => {
