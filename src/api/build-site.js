@@ -44,6 +44,7 @@ const OUTPUT_PATH_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
 const SAFE_MEDIA_PROTOCOLS = new Set(['http:', 'https:']);
 const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 const MEDIA_DELIVERY_MODES = new Set(['none', 'media_domain']);
+const DISCOVERABILITY_VALUES = new Set(['default', 'noindex', 'delist']);
 const RESPONSIVE_IMAGE_WIDTHS = [320, 480, 768, 1024, 1280, 1600, 1920];
 const RESPONSIVE_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'avif']);
 const SEARCH_FIELD_WEIGHTS = Object.freeze({
@@ -284,6 +285,7 @@ async function renderFrontPage(state, route) {
           description: page.excerpt,
           ogType: 'website',
           image: page.featured_image,
+          robotsNoindex: shouldNoindexDocument(page),
         }),
       },
       createRenderContext(state.previewData.site, currentUrl),
@@ -296,6 +298,7 @@ async function renderFrontPage(state, route) {
       title: page.title,
       description: page.excerpt,
       includeInFeed: false,
+      includeInSitemap: !isDelistedDocument(page),
     };
     return;
   }
@@ -348,6 +351,7 @@ async function renderPost(state, post) {
         image: post.featured_image,
         publishedTime: post.published_at_iso,
         modifiedTime: post.updated_at_iso,
+        robotsNoindex: shouldNoindexDocument(post),
       }),
     },
     createRenderContext(state.previewData.site, currentUrl),
@@ -355,14 +359,16 @@ async function renderPost(state, post) {
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   html = injectSiteCustomizations(html, state);
   await writeOutput(state.writer, state.summaries, routePathToOutputPath(post.url, state.previewData.site.permalinks.output_style), html, 'text/html');
-  state.emitted.posts.push({
-    url: currentUrl,
-    title: post.title,
-    description: post.excerpt,
-    publishedAt: post.published_at_iso,
-    updatedAt: post.updated_at_iso,
-    status: post.status,
-  });
+  if (!isDelistedDocument(post)) {
+    state.emitted.posts.push({
+      url: currentUrl,
+      title: post.title,
+      description: post.excerpt,
+      publishedAt: post.published_at_iso,
+      updatedAt: post.updated_at_iso,
+      status: post.status,
+    });
+  }
 }
 
 async function renderPage(state, page) {
@@ -385,6 +391,7 @@ async function renderPage(state, page) {
         description: page.excerpt,
         ogType: 'website',
         image: page.featured_image,
+        robotsNoindex: shouldNoindexDocument(page),
       }),
     },
     createRenderContext(state.previewData.site, currentUrl),
@@ -397,7 +404,7 @@ async function renderPage(state, page) {
     title: page.title,
     description: page.excerpt,
     status: page.status,
-    includeInSitemap: page.omit_from_sitemap !== true,
+    includeInSitemap: page.omit_from_sitemap !== true && !isDelistedDocument(page),
   });
 }
 
@@ -488,6 +495,7 @@ function normalizePreviewData(previewData, options = {}) {
             ...post,
             published_at_iso: normalizeIsoTimestamp(post.published_at_iso),
             updated_at_iso: normalizeIsoTimestamp(post.updated_at_iso),
+            discoverability: normalizeDiscoverability(post.discoverability),
             featured_image: featuredImage,
             ...(featuredMedia ? { featured_media: featuredMedia } : {}),
           };
@@ -498,6 +506,7 @@ function normalizePreviewData(previewData, options = {}) {
         const featuredMedia = deriveManagedMedia(featuredImage, mediaRegistry, normalizedSite);
         return {
           ...page,
+          discoverability: normalizeDiscoverability(page.discoverability),
           featured_image: featuredImage,
           ...(featuredMedia ? { featured_media: featuredMedia } : {}),
         };
@@ -515,6 +524,18 @@ function normalizeRecordMap(value) {
   }
 
   return { ...value };
+}
+
+function normalizeDiscoverability(value) {
+  return DISCOVERABILITY_VALUES.has(value) ? value : 'default';
+}
+
+function isDelistedDocument(document) {
+  return document?.discoverability === 'delist';
+}
+
+function shouldNoindexDocument(document) {
+  return document?.discoverability === 'noindex' || document?.discoverability === 'delist';
 }
 
 function normalizeContentMedia(mediaItems, site) {
@@ -780,8 +801,9 @@ function createRenderData(previewData, themeMetadata = {}) {
   const tagPostsBySlug = new Map();
   const categoryCountBySlug = new Map();
   const tagCountBySlug = new Map();
+  const discoverableSourcePosts = previewData.content.posts.filter((post) => !isDelistedDocument(post));
 
-  for (const post of previewData.content.posts) {
+  for (const post of discoverableSourcePosts) {
     for (const slug of post.category_slugs) {
       pushToSlugMap(categoryPostsBySlug, slug, post);
       categoryCountBySlug.set(slug, (categoryCountBySlug.get(slug) || 0) + 1);
@@ -794,10 +816,17 @@ function createRenderData(previewData, themeMetadata = {}) {
   }
 
   const preparedPosts = previewData.content.posts.map((post) => preparePost(post, previewData.site, authorsById, categoriesBySlug, tagsBySlug, themeSupportsComments));
-  const posts = preparedPosts.map((post, index) => ({
+  const discoverablePreparedPosts = preparedPosts.filter((post) => !isDelistedDocument(post));
+  const adjacentPostsBySlug = new Map(
+    discoverablePreparedPosts.map((post, index) => [post.slug, {
+      prev: index > 0 ? buildAdjacentPostSummary(discoverablePreparedPosts[index - 1]) : null,
+      next: index < discoverablePreparedPosts.length - 1 ? buildAdjacentPostSummary(discoverablePreparedPosts[index + 1]) : null,
+    }]),
+  );
+  const posts = preparedPosts.map((post) => ({
     ...post,
-    prev: index > 0 ? buildAdjacentPostSummary(preparedPosts[index - 1]) : null,
-    next: index < preparedPosts.length - 1 ? buildAdjacentPostSummary(preparedPosts[index + 1]) : null,
+    prev: adjacentPostsBySlug.get(post.slug)?.prev || null,
+    next: adjacentPostsBySlug.get(post.slug)?.next || null,
   }));
   const pages = previewData.content.pages.map((page) => preparePage(page, previewData.site));
   const postBySlug = new Map(posts.map((post) => [post.slug, post]));
@@ -830,7 +859,7 @@ function createRenderData(previewData, themeMetadata = {}) {
     indexRoutes: buildPostIndexRoutes({
       enabled: effectivePostIndexEnabled,
       paginate: effectivePostIndexPaginate,
-      items: previewData.content.posts,
+      items: discoverableSourcePosts,
       posts_per_page: previewData.site.posts_per_page,
       basePath: post_indexBasePath,
       outputStyle: previewData.site.permalinks.output_style,
@@ -838,7 +867,7 @@ function createRenderData(previewData, themeMetadata = {}) {
       frontPage,
     }),
     archiveRoutes: buildPaginatedCollection({
-      items: previewData.content.posts,
+      items: discoverableSourcePosts,
       posts_per_page: previewData.site.posts_per_page,
       basePath: '/archive/',
       outputStyle: previewData.site.permalinks.output_style,
@@ -1162,6 +1191,7 @@ function resolveWidgetItem(item, previewData, renderData, widgetAreaId, index) {
 function resolveRecentPostsWidget(baseWidget, settings, renderData) {
   const limit = clampInteger(settings?.limit, 5, 1, 20);
   const items = renderData.posts
+    .filter((post) => !isDelistedDocument(post))
     .slice(0, limit)
     .map((post) => ({
       title: post.title,
@@ -1375,6 +1405,7 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
     meta: post.meta,
     data: post.data,
     status: post.status,
+    discoverability: post.discoverability,
     allow_comments: post.allow_comments,
     category_slugs: post.category_slugs,
     tag_slugs: post.tag_slugs,
@@ -2026,6 +2057,7 @@ function buildPageMeta(site, options = {}) {
   const ogType = normalizeNonEmptyString(options.ogType, 'website');
   const publishedTime = normalizeOptionalString(options.publishedTime);
   const modifiedTime = normalizeOptionalString(options.modifiedTime);
+  const robotsNoindex = options.robotsNoindex === true;
 
   const meta = {
     title: escapeHtml(resolvedTitle),
@@ -2039,6 +2071,7 @@ function buildPageMeta(site, options = {}) {
     og_image: ogImage ? escapeHtml(ogImage) : '',
     article_published_time: publishedTime ? escapeHtml(publishedTime) : '',
     article_modified_time: modifiedTime ? escapeHtml(modifiedTime) : '',
+    robots_noindex: robotsNoindex,
   };
 
   return {
@@ -2058,6 +2091,9 @@ function buildMetaHeadTags(meta) {
 
   if (meta.description) {
     tags.push(`<meta name="description" content="${meta.description}">`);
+  }
+  if (meta.robots_noindex) {
+    tags.push('<meta name="robots" content="noindex">');
   }
   if (meta.canonical_url) {
     tags.push(`<link rel="canonical" href="${meta.canonical_url}">`);
@@ -2537,7 +2573,7 @@ function buildSearchIndexJson(state) {
 
 function buildSearchIndexItems(state) {
   const posts = state.renderData.posts
-    .filter((post) => post.status === 'published')
+    .filter((post) => post.status === 'published' && !isDelistedDocument(post))
     .map((post) => ({
       id: `post:${post.slug}`,
       type: 'post',
@@ -2555,11 +2591,11 @@ function buildSearchIndexItems(state) {
   const frontPagePage = state.renderData.frontPageRoute?.front_page_type === 'page'
     ? state.renderData.frontPageRoute.page
     : null;
-  const frontPageItems = frontPagePage && frontPagePage.status === 'published'
+  const frontPageItems = frontPagePage && frontPagePage.status === 'published' && !isDelistedDocument(frontPagePage)
     ? [buildSearchPageItem(frontPagePage, '/')]
     : [];
   const pageItems = state.renderData.pages
-    .filter((page) => page.status === 'published')
+    .filter((page) => page.status === 'published' && !isDelistedDocument(page))
     .map((page) => buildSearchPageItem(page, page.url));
 
   return [...posts, ...frontPageItems, ...pageItems];
@@ -2931,7 +2967,7 @@ function normalizeLimit(value) {
 
 function buildSitemapXml(site, emitted, generatedAt, stylesheetHref = '') {
   const entries = [
-    ...(emitted.frontPage
+    ...(emitted.frontPage && emitted.frontPage.includeInSitemap !== false
       ? [{
         url: emitted.frontPage.url,
         changefreq: 'daily',

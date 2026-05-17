@@ -2300,7 +2300,136 @@ test('buildSite renders fallback robots.txt from site.indexing policy', async ()
     assert.equal(robotsTxt.trim(), 'User-agent: *\nDisallow: /');
     assert.equal(files.some((file) => file.path === 'sitemap.xml'), true);
     assert.equal(files.some((file) => file.path === 'feed.xml'), true);
+    assert.doesNotMatch(getFileContent(files, 'posts/hello-zeropress/index.html'), /<meta name="robots" content="noindex">/);
   }
+});
+
+test('buildSite applies noindex discoverability without removing automatic listings', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.content.posts[0].discoverability = 'noindex';
+  previewData.content.pages[0].discoverability = 'noindex';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const files = writer.getFiles();
+  assert.match(getFileContent(files, 'posts/hello-zeropress/index.html'), /<meta name="robots" content="noindex">/);
+  assert.match(getFileContent(files, 'about/index.html'), /<meta name="robots" content="noindex">/);
+  assert.match(getFileContent(files, 'index.html'), /Hello ZeroPress/);
+  assert.match(getFileContent(files, 'sitemap.xml'), /https:\/\/example\.com\/posts\/hello-zeropress\//);
+  assert.match(getFileContent(files, 'sitemap.xml'), /https:\/\/example\.com\/about\//);
+  assert.match(getFileContent(files, 'feed.xml'), /Hello ZeroPress/);
+
+  const searchItems = JSON.parse(getFileContent(files, '_zeropress/search.json'));
+  assert.equal(searchItems.some((item) => item.id === 'post:hello-zeropress'), true);
+  assert.equal(searchItems.some((item) => item.id === 'page:about'), true);
+});
+
+test('buildSite delists posts from automatic discovery while preserving direct routes and explicit collections', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.content.posts[0].discoverability = 'delist';
+  previewData.widgets = {
+    sidebar: {
+      name: 'Sidebar',
+      items: [{ type: 'recent-posts', title: 'Recent', settings: { limit: 3 } }],
+    },
+  };
+  previewData.collections = {
+    featured: {
+      title: 'Featured',
+      items: [{ type: 'post', slug: 'hello-zeropress' }],
+    },
+  };
+  themePackage.templates.set('index', `${themePackage.templates.get('index')}
+<aside class="recent-widget">{{#for widget in widgets.sidebar.items}}{{#for item in widget.items}}<span>{{item.title}}</span>{{/for}}{{/for}}</aside>
+<section class="featured-collection">{{#for item in collections.featured.items}}<span>{{item.title}}</span>{{/for}}</section>`);
+  themePackage.templates.set('post', `${themePackage.templates.get('post')}
+<nav class="post-adjacent">{{#if post.prev}}<span class="prev">{{post.prev.title}}</span>{{/if}}{{#if post.next}}<span class="next">{{post.next.title}}</span>{{/if}}</nav>`);
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const files = writer.getFiles();
+  const delistedPostHtml = getFileContent(files, 'posts/hello-zeropress/index.html');
+  const nextPostHtml = getFileContent(files, 'posts/theme-blocks-deep-dive/index.html');
+  const indexHtml = getFileContent(files, 'index.html');
+  const categoryHtml = getFileContent(files, 'categories/general/index.html');
+  const tagHtml = getFileContent(files, 'tags/intro/index.html');
+  const archiveHtml = getFileContent(files, 'archive/index.html');
+  const sitemapXml = getFileContent(files, 'sitemap.xml');
+  const feedXml = getFileContent(files, 'feed.xml');
+  const searchItems = JSON.parse(getFileContent(files, '_zeropress/search.json'));
+  const postListHtml = indexHtml.match(/<div class="posts">([\s\S]*?)<\/div>\s*<aside class="recent-widget">/)?.[1] || '';
+  const recentWidgetHtml = indexHtml.match(/<aside class="recent-widget">([\s\S]*?)<\/aside>/)?.[1] || '';
+  const featuredCollectionHtml = indexHtml.match(/<section class="featured-collection">([\s\S]*?)<\/section>/)?.[1] || '';
+
+  assert.match(delistedPostHtml, /<meta name="robots" content="noindex">/);
+  assert.doesNotMatch(postListHtml, /Hello ZeroPress/);
+  assert.doesNotMatch(recentWidgetHtml, /Hello ZeroPress/);
+  assert.match(featuredCollectionHtml, /Hello ZeroPress/);
+  assert.doesNotMatch(categoryHtml, /Hello ZeroPress/);
+  assert.doesNotMatch(tagHtml, /Hello ZeroPress/);
+  assert.doesNotMatch(archiveHtml, /Hello ZeroPress/);
+  assert.doesNotMatch(nextPostHtml, /class="prev">Hello ZeroPress/);
+  assert.doesNotMatch(sitemapXml, /posts\/hello-zeropress\//);
+  assert.doesNotMatch(feedXml, /Hello ZeroPress/);
+  assert.equal(searchItems.some((item) => item.id === 'post:hello-zeropress'), false);
+});
+
+test('buildSite delists pages from sitemap and native search while preserving route HTML', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.content.pages[0].discoverability = 'delist';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const files = writer.getFiles();
+  assert.match(getFileContent(files, 'about/index.html'), /<meta name="robots" content="noindex">/);
+  assert.doesNotMatch(getFileContent(files, 'sitemap.xml'), /https:\/\/example\.com\/about\//);
+
+  const searchItems = JSON.parse(getFileContent(files, '_zeropress/search.json'));
+  assert.equal(searchItems.some((item) => item.id === 'page:about'), false);
+});
+
+test('buildSite delists page front pages from sitemap and native search while preserving root HTML', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.site.front_page = { type: 'page', page_slug: 'about' };
+  previewData.site.post_index = { enabled: false };
+  previewData.content.pages[0].discoverability = 'delist';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const files = writer.getFiles();
+  assert.match(getFileContent(files, 'index.html'), /<meta name="robots" content="noindex">/);
+  assert.doesNotMatch(getFileContent(files, 'sitemap.xml'), /https:\/\/example\.com\/<\/loc>/);
+
+  const searchItems = JSON.parse(getFileContent(files, '_zeropress/search.json'));
+  assert.equal(searchItems.some((item) => item.id === 'page:about'), false);
 });
 
 test('buildSite can disable fallback robots.txt while keeping other special files', async () => {
