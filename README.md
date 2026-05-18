@@ -4,12 +4,19 @@
 ![license](https://img.shields.io/npm/l/%40zeropress%2Fbuild-core)
 ![node](https://img.shields.io/node/v/%40zeropress%2Fbuild-core)
 
-Shared build core for ZeroPress.
+Shared deterministic rendering core for ZeroPress static output v0.6.
 
-This package is the deterministic rendering engine used by:
+This package is the canonical rendering core for preview-data and theme packages consumed directly by:
 
-- `zeropress-admin-api-v2`
-- [`@zeropress/build`](https://www.npmjs.com/package/@zeropress/build) package
+- [@zeropress/build](https://www.npmjs.com/package/@zeropress/build)
+- [@zeropress/theme](https://www.npmjs.com/package/@zeropress/theme)
+
+Public contract references:
+
+- [Preview Data v0.6 Spec](https://zeropress.dev/spec/preview-data-v0.6.html)
+- [Preview Data v0.6 Schema](https://zeropress.dev/schemas/preview-data.v0.6.schema.json)
+- [Theme Runtime v0.6 Spec](https://zeropress.dev/spec/theme-runtime-v0.6.html)
+- [Theme Runtime v0.6 Schema](https://zeropress.dev/schemas/theme.v0.6.runtime.schema.json)
 
 It accepts canonical preview-data plus a validated theme package and produces static HTML artifacts through a writer interface.
 
@@ -18,15 +25,11 @@ It accepts canonical preview-data plus a validated theme package and produces st
 - renderable preview-data entries
 - theme template capability
 
----
-
 ## Install
 
 ```bash
 npm install @zeropress/build-core
 ```
-
----
 
 ## Exports
 
@@ -38,8 +41,6 @@ import {
   FilesystemWriter,
 } from '@zeropress/build-core';
 ```
-
----
 
 ## Purpose
 
@@ -55,6 +56,9 @@ import {
   - `sitemap.xml`
   - `feed.xml`
   - fallback `robots.txt`
+  - `/_zeropress/comment-policy.json`
+  - `/_zeropress/search.json`
+  - `/_zeropress/search.js`
 - writing outputs through a pluggable writer
 
 It does not:
@@ -63,8 +67,6 @@ It does not:
 - package or validate theme directories on its own unless the caller uses `buildSiteFromThemeDir`
 - watch files, run a dev server, or perform deployment
 - talk to queues, KV, Durable Objects, R2, GitHub, or other infrastructure directly
-
----
 
 ## Core APIs
 
@@ -130,8 +132,6 @@ Loads a theme directory from disk and renders it using the same core pipeline.
 
 This is useful for local tooling that wants filesystem theme loading but still uses the same deterministic core renderer.
 
----
-
 ## Writers
 
 ### `MemoryWriter`
@@ -152,8 +152,6 @@ Best for:
 
 - local output generation
 - CLI workflows
-
----
 
 ## Input Contracts
 
@@ -180,9 +178,9 @@ Theme validation is enforced through:
 
 JavaScript theme assets are emitted as provided. Build-core may hash output filenames, but it does not rewrite or minify JavaScript content.
 
-As of `preview-data v0.4`, the payload no longer carries `routes` arrays or raw HTML fragments such as `categories_html`.
+In `preview-data v0.6`, the payload does not carry `routes` arrays or raw HTML fragments such as `categories_html`.
 
-Build-core now derives:
+Build-core derives:
 
 - index/archive/category/tag routes
 - post list HTML blocks
@@ -202,11 +200,18 @@ Comment availability is derived from preview-data policy:
 - `site.disallow_comments`
 - `content.posts[].allow_comments`
 
-The canonical `preview-data v0.4` site contract uses:
+The canonical `preview-data v0.6` site contract uses:
 
+- `site.media_base_url`
+- `site.media_delivery_mode`
 - `site.locale`
 - `site.timezone`
+- `site.datetime_display`
+- `site.date_style`
+- `site.time_style`
 - `site.disallow_comments`
+- `site.indexing`
+- `site.expose_generator`
 
 Optional route templates behave as rendering capabilities, not guaranteed outputs:
 
@@ -217,13 +222,13 @@ Optional route templates behave as rendering capabilities, not guaranteed output
 
 If preview-data includes content that could produce archive/category/tag pages but the theme omits the matching optional template, build-core skips those outputs. Special files are derived from emitted outputs rather than raw preview-data alone.
 
----
-
 ## Build Options
 
 Supported options:
 
 - `assetHashing`
+- `favicon`
+- `sitemapStylesheetHref`
 - `generateSpecialFiles`
 - `generateRobotsTxt`
 - `writeManifest`
@@ -236,23 +241,6 @@ Defaults:
 - `generateSpecialFiles: true`
 - `generateRobotsTxt: true`
 - `writeManifest: false`
-
----
-
-## Requirements
-
-- Node.js >= 18.18.0
-- ESM only
-
----
-
-## Related
-
-- [@zeropress/preview-data-validator](https://www.npmjs.com/package/@zeropress/preview-data-validator)
-- [@zeropress/theme-validator](https://www.npmjs.com/package/@zeropress/theme-validator)
-- [@zeropress/theme](https://www.npmjs.com/package/@zeropress/theme)
-
----
 
 ## License
 
