@@ -8,6 +8,7 @@
   "description": "Theme fixture for build-core golden tests",
   "features": {
     "comments": true,
-    "newsletter": false
+    "newsletter": false,
+    "search": true
   }
 }

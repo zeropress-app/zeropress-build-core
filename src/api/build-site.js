@@ -107,9 +107,12 @@ export async function buildSite(input) {
     'application/json',
   );
 
-  if (options.generateSpecialFiles) {
+  if (shouldGenerateSearchArtifacts(state, options)) {
     await writeOutput(state.writer, state.summaries, SEARCH_INDEX_OUTPUT_PATH, buildSearchIndexJson(state), 'application/json');
     await writeOutput(state.writer, state.summaries, SEARCH_ADAPTER_OUTPUT_PATH, buildSearchAdapterJs(), 'application/javascript');
+  }
+
+  if (options.generateSpecialFiles) {
     await maybeRenderNotFoundPage(state);
     if (hasCanonicalSiteUrl(state.previewData.site.url)) {
       await writeOutput(
@@ -459,6 +462,7 @@ function normalizePreviewData(previewData, options = {}) {
     locale: normalizeLocale(previewData.site.locale || DEFAULT_LOCALE),
     disallow_comments: previewData.site.disallow_comments === true,
     expose_generator: previewData.site.expose_generator !== false,
+    search: previewData.site.search !== false,
     indexing: previewData.site.indexing !== false,
     permalinks: normalizePermalinks(previewData.site.permalinks),
     front_page: normalizeFrontPage(previewData.site.front_page),
@@ -794,6 +798,8 @@ function normalizePostIndex(post_index) {
 function createRenderData(previewData, themeMetadata = {}) {
   const themeSupportsComments = themeMetadata?.features?.comments === true;
   const themeSupportsPostIndex = themeMetadata?.features?.post_index !== false;
+  const themeSupportsSearch = themeMetadata?.features?.search === true;
+  previewData.site.search = previewData.site.search !== false && themeSupportsSearch;
   const authorsById = new Map(previewData.content.authors.map((author) => [author.id, author]));
   const categoriesBySlug = new Map(previewData.content.categories.map((category) => [category.slug, category]));
   const tagsBySlug = new Map(previewData.content.tags.map((tag) => [tag.slug, tag]));
@@ -2393,8 +2399,11 @@ function assertPlannedOutputPathsSafe(state) {
     COMMENT_POLICY_OUTPUT_PATH,
   ];
 
-  if (state.options.generateSpecialFiles) {
+  if (shouldGenerateSearchArtifacts(state, state.options)) {
     plannedPaths.push(SEARCH_INDEX_OUTPUT_PATH, SEARCH_ADAPTER_OUTPUT_PATH);
+  }
+
+  if (state.options.generateSpecialFiles) {
     plannedPaths.push('404.html');
     if (shouldGenerateRobotsTxt(state.options)) {
       plannedPaths.push('robots.txt');
@@ -3043,6 +3052,10 @@ function buildRobotsTxt(site) {
 
 function shouldGenerateRobotsTxt(options) {
   return options.generateSpecialFiles && options.generateRobotsTxt !== false;
+}
+
+function shouldGenerateSearchArtifacts(state, options) {
+  return options.generateSpecialFiles && state.previewData.site.search === true;
 }
 
 function getContentType(assetPath) {

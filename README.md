@@ -57,8 +57,8 @@ import {
   - `feed.xml`
   - fallback `robots.txt`
   - `/_zeropress/comment-policy.json`
-  - `/_zeropress/search.json`
-  - `/_zeropress/search.js`
+  - `/_zeropress/search.json` when native search is enabled
+  - `/_zeropress/search.js` when native search is enabled
 - writing outputs through a pluggable writer
 
 It does not:
@@ -212,6 +212,9 @@ The canonical `preview-data v0.6` site contract uses:
 - `site.disallow_comments`
 - `site.indexing`
 - `site.expose_generator`
+- `site.search`
+
+Native search artifacts are emitted only when preview-data does not set `site.search: false` and the active theme declares `features.search: true`.
 
 Optional route templates behave as rendering capabilities, not guaranteed outputs:
 

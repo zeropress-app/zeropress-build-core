@@ -952,6 +952,7 @@ test('loadThemePackageFromDir preserves theme capability metadata for internal f
   assert.deepEqual(themePackage.metadata.features, {
     comments: true,
     newsletter: false,
+    search: true,
   });
 });
 
@@ -2578,6 +2579,55 @@ test('buildSite skips native search artifacts when special files are disabled', 
   const files = writer.getFiles();
   assert.equal(files.some((file) => file.path === '_zeropress/search.json'), false);
   assert.equal(files.some((file) => file.path === '_zeropress/search.js'), false);
+});
+
+test('buildSite skips native search artifacts when theme does not support search', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.metadata.features = {
+    comments: true,
+    newsletter: false,
+  };
+  themePackage.templates.set('index', '{{#if site.search}}search enabled{{#else}}search disabled{{/if}}');
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { writeManifest: true },
+  });
+
+  const files = writer.getFiles();
+  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
+  assert.equal(files.some((file) => file.path === '_zeropress/search.json'), false);
+  assert.equal(files.some((file) => file.path === '_zeropress/search.js'), false);
+  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.json'), false);
+  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.js'), false);
+  assert.match(getFileContent(files, 'index.html'), /search disabled/);
+});
+
+test('buildSite skips native search artifacts when site search is disabled', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  previewData.site.search = false;
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.templates.set('index', '{{#if site.search}}search enabled{{#else}}search disabled{{/if}}');
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { writeManifest: true },
+  });
+
+  const files = writer.getFiles();
+  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
+  assert.equal(files.some((file) => file.path === '_zeropress/search.json'), false);
+  assert.equal(files.some((file) => file.path === '_zeropress/search.js'), false);
+  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.json'), false);
+  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.js'), false);
+  assert.match(getFileContent(files, 'index.html'), /search disabled/);
 });
 
 test('buildSite skips archive routes when archive template is missing', async () => {
