@@ -40,6 +40,7 @@ const PERMALINK_OUTPUT_STYLES = new Set(['directory', 'html-extension']);
 const COMMENT_POLICY_OUTPUT_PATH = '_zeropress/comment-policy.json';
 const SEARCH_INDEX_OUTPUT_PATH = '_zeropress/search.json';
 const SEARCH_ADAPTER_OUTPUT_PATH = '_zeropress/search.js';
+const SEARCH_PAGEFIND_ADAPTER_OUTPUT_PATH = '_zeropress/search_pagefind.js';
 const OUTPUT_PATH_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
 const SAFE_MEDIA_PROTOCOLS = new Set(['http:', 'https:']);
 const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
@@ -110,6 +111,7 @@ export async function buildSite(input) {
   if (shouldGenerateSearchArtifacts(state, options)) {
     await writeOutput(state.writer, state.summaries, SEARCH_INDEX_OUTPUT_PATH, buildSearchIndexJson(state), 'application/json');
     await writeOutput(state.writer, state.summaries, SEARCH_ADAPTER_OUTPUT_PATH, buildSearchAdapterJs(), 'application/javascript');
+    await writeOutput(state.writer, state.summaries, SEARCH_PAGEFIND_ADAPTER_OUTPUT_PATH, buildSearchPagefindAdapterJs(), 'application/javascript');
   }
 
   if (options.generateSpecialFiles) {
@@ -2400,7 +2402,7 @@ function assertPlannedOutputPathsSafe(state) {
   ];
 
   if (shouldGenerateSearchArtifacts(state, state.options)) {
-    plannedPaths.push(SEARCH_INDEX_OUTPUT_PATH, SEARCH_ADAPTER_OUTPUT_PATH);
+    plannedPaths.push(SEARCH_INDEX_OUTPUT_PATH, SEARCH_ADAPTER_OUTPUT_PATH, SEARCH_PAGEFIND_ADAPTER_OUTPUT_PATH);
   }
 
   if (state.options.generateSpecialFiles) {
@@ -2970,6 +2972,88 @@ function normalizeText(value) {
 
 function normalizeLimit(value) {
   return Number.isInteger(value) && value > 0 ? Math.min(value, 100) : DEFAULT_LIMIT;
+}
+`;
+}
+
+function buildSearchPagefindAdapterJs() {
+  return `let pagefindPromise;
+
+export async function preload() {
+  if (!pagefindPromise) {
+    pagefindPromise = import(new URL('./pagefind/pagefind.js', import.meta.url).href).then(async (pagefind) => {
+      if (typeof pagefind.options === 'function') {
+        await pagefind.options({ baseUrl: '/' });
+      }
+      return pagefind;
+    });
+  }
+
+  return pagefindPromise;
+}
+
+export async function search(query, options = {}) {
+  const pagefind = await preload();
+  const result = await pagefind.search(query, options);
+  const limit = normalizeLimit(options.limit);
+  if (!Array.isArray(result?.results)) {
+    return result;
+  }
+
+  const results = result.results.map(normalizeResult);
+  return {
+    ...result,
+    results: limit ? results.slice(0, limit) : results,
+  };
+}
+
+function normalizeResult(result) {
+  if (!result || typeof result.data !== 'function') {
+    return result;
+  }
+
+  return {
+    ...result,
+    data: async () => normalizeResultData(await result.data()),
+  };
+}
+
+function normalizeResultData(data) {
+  if (!data || typeof data !== 'object') {
+    return data;
+  }
+
+  return {
+    ...data,
+    url: normalizeUrl(data.url),
+    sub_results: Array.isArray(data.sub_results)
+      ? data.sub_results.map((item) => ({ ...item, url: normalizeUrl(item.url) }))
+      : data.sub_results,
+  };
+}
+
+function normalizeUrl(value) {
+  const url = String(value || '');
+  if (url.startsWith('/_zeropress/') && !url.startsWith('/_zeropress/pagefind/')) {
+    return url.replace(/^\\/_zeropress/, '') || '/';
+  }
+  if (url.startsWith('_zeropress/') && !url.startsWith('_zeropress/pagefind/')) {
+    return url.replace(/^_zeropress/, '') || '/';
+  }
+  return url;
+}
+
+function normalizeLimit(value) {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  const limit = Number(value);
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return null;
+  }
+
+  return Math.floor(limit);
 }
 `;
 }

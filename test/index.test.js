@@ -2517,13 +2517,16 @@ test('buildSite emits native static search artifacts and adapter results', async
   const files = writer.getFiles();
   const searchJson = getFileContent(files, '_zeropress/search.json');
   const searchJs = getFileContent(files, '_zeropress/search.js');
+  const searchPagefindJs = getFileContent(files, '_zeropress/search_pagefind.js');
   const searchItems = JSON.parse(searchJson);
   const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
 
   assert.equal(files.some((file) => file.path === '_zeropress/search.json'), true);
   assert.equal(files.some((file) => file.path === '_zeropress/search.js'), true);
+  assert.equal(files.some((file) => file.path === '_zeropress/search_pagefind.js'), true);
   assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.json'), true);
   assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.js'), true);
+  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search_pagefind.js'), true);
   assert.deepEqual(searchItems.map((item) => item.id).sort(), [
     'page:about',
     'page:visible-page',
@@ -2537,6 +2540,7 @@ test('buildSite emits native static search artifacts and adapter results', async
   assert.doesNotMatch(searchItems.find((item) => item.id === 'page:visible-page')?.content_text || '', /hiddenSearchTerm|color:red/);
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-search-adapter-'));
+  await fs.writeFile(path.join(tempDir, 'package.json'), '{"type":"module"}\n');
   const adapterPath = path.join(tempDir, 'search.js');
   await fs.writeFile(adapterPath, searchJs);
   const originalFetch = globalThis.fetch;
@@ -2562,6 +2566,37 @@ test('buildSite emits native static search artifacts and adapter results', async
   } finally {
     globalThis.fetch = originalFetch;
   }
+
+  const pagefindAdapterPath = path.join(tempDir, 'search_pagefind.js');
+  const pagefindDir = path.join(tempDir, 'pagefind');
+  await fs.mkdir(pagefindDir);
+  await fs.writeFile(pagefindAdapterPath, searchPagefindJs);
+  await fs.writeFile(path.join(pagefindDir, 'pagefind.js'), `export const configuredOptions = [];
+export async function options(value) {
+  configuredOptions.push(value);
+}
+export async function search(query, options = {}) {
+  return {
+    results: [
+      { id: 'one', data: async () => ({ url: '/_zeropress/getting-started/', sub_results: [{ url: '/_zeropress/getting-started/#install' }] }) },
+      { id: 'two', data: async () => ({ url: '_zeropress/reference/' }) },
+      { id: 'three', data: async () => ({ url: '/three/' }) }
+    ],
+    query,
+    options
+  };
+}
+`);
+  const pagefindModule = await import(`${pathToFileURL(pagefindAdapterPath).href}?t=${Date.now()}`);
+  const preloadedPagefind = await pagefindModule.preload();
+  assert.equal(typeof preloadedPagefind.search, 'function');
+  assert.deepEqual(preloadedPagefind.configuredOptions, [{ baseUrl: '/' }]);
+  const pagefindResults = await pagefindModule.search('anything', { limit: 2 });
+  assert.deepEqual(pagefindResults.results.map((result) => result.id), ['one', 'two']);
+  assert.equal(pagefindResults.query, 'anything');
+  assert.equal((await pagefindResults.results[0].data()).url, '/getting-started/');
+  assert.equal((await pagefindResults.results[0].data()).sub_results[0].url, '/getting-started/#install');
+  assert.equal((await pagefindResults.results[1].data()).url, '/reference/');
 });
 
 test('buildSite skips native search artifacts when special files are disabled', async () => {
@@ -2579,6 +2614,7 @@ test('buildSite skips native search artifacts when special files are disabled', 
   const files = writer.getFiles();
   assert.equal(files.some((file) => file.path === '_zeropress/search.json'), false);
   assert.equal(files.some((file) => file.path === '_zeropress/search.js'), false);
+  assert.equal(files.some((file) => file.path === '_zeropress/search_pagefind.js'), false);
 });
 
 test('buildSite skips native search artifacts when theme does not support search', async () => {
@@ -2602,8 +2638,10 @@ test('buildSite skips native search artifacts when theme does not support search
   const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
   assert.equal(files.some((file) => file.path === '_zeropress/search.json'), false);
   assert.equal(files.some((file) => file.path === '_zeropress/search.js'), false);
+  assert.equal(files.some((file) => file.path === '_zeropress/search_pagefind.js'), false);
   assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.json'), false);
   assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.js'), false);
+  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search_pagefind.js'), false);
   assert.match(getFileContent(files, 'index.html'), /search disabled/);
 });
 
@@ -2625,8 +2663,10 @@ test('buildSite skips native search artifacts when site search is disabled', asy
   const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
   assert.equal(files.some((file) => file.path === '_zeropress/search.json'), false);
   assert.equal(files.some((file) => file.path === '_zeropress/search.js'), false);
+  assert.equal(files.some((file) => file.path === '_zeropress/search_pagefind.js'), false);
   assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.json'), false);
   assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.js'), false);
+  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search_pagefind.js'), false);
   assert.match(getFileContent(files, 'index.html'), /search disabled/);
 });
 

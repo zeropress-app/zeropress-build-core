@@ -59,6 +59,7 @@ import {
   - `/_zeropress/comment-policy.json`
   - `/_zeropress/search.json` when native search is enabled
   - `/_zeropress/search.js` when native search is enabled
+  - `/_zeropress/search_pagefind.js` when native search is enabled
 - writing outputs through a pluggable writer
 
 It does not:
@@ -214,7 +215,7 @@ The canonical `preview-data v0.6` site contract uses:
 - `site.expose_generator`
 - `site.search`
 
-Native search artifacts are emitted only when preview-data does not set `site.search: false` and the active theme declares `features.search: true`.
+Native search artifacts are emitted only when preview-data does not set `site.search: false` and the active theme declares `features.search: true`. `search_pagefind.js` is a Pagefind adapter that can replace `search.js` after a post-build Pagefind step.
 
 Optional route templates behave as rendering capabilities, not guaranteed outputs:
 

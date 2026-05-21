@@ -65,6 +65,10 @@
       "contentType": "application/javascript"
     },
     {
+      "path": "_zeropress/search_pagefind.js",
+      "contentType": "application/javascript"
+    },
+    {
       "path": "404.html",
       "contentType": "text/html"
     },
