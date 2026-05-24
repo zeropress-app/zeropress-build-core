@@ -1763,7 +1763,6 @@ test('buildSite supports medium fixture with raw Unicode slugs and paginated tax
     `categories/${categorySlug}/page/2/index.html`,
     `tags/${tagSlug}/index.html`,
     `tags/${tagSlug}/page/2/index.html`,
-    '_zeropress/comment-policy.json',
   ];
 
   for (const outputPath of expectedPaths) {
@@ -2846,27 +2845,6 @@ test('buildSite renders an empty comments mount when comments are enabled', asyn
   assert.equal(postHtml.includes('htmx.org'), false);
 });
 
-test('buildSite emits a comment policy allowlist manifest for published commentable posts', async () => {
-  const writer = new MemoryWriter();
-  const previewData = await loadDefaultPreviewData();
-  const themePackage = await loadGoldenThemePackage();
-
-  previewData.content.posts[1].allow_comments = false;
-  previewData.content.posts[2].status = 'draft';
-
-  await buildSite({
-    previewData,
-    themePackage,
-    writer,
-  });
-
-  const commentPolicy = JSON.parse(getFileContent(writer.getFiles(), '_zeropress/comment-policy.json'));
-  assert.deepEqual(commentPolicy, {
-    version: 1,
-    commentable_posts: [101],
-  });
-});
-
 test('buildSite disables comments when the theme capability is missing', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -2881,13 +2859,9 @@ test('buildSite disables comments when the theme capability is missing', async (
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
-  const commentPolicy = JSON.parse(getFileContent(writer.getFiles(), '_zeropress/comment-policy.json'));
 
   assert.equal(postHtml.includes('data-zp-comments'), false);
-  assert.deepEqual(commentPolicy, {
-    version: 1,
-    commentable_posts: [],
-  });
+  assert.equal(writer.getFiles().some((file) => file.path === '_zeropress/comment-policy.json'), false);
 });
 
 test('renderDocument creates markdown TOC from h2-h4 headings only', () => {

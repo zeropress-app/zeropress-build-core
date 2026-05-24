@@ -56,7 +56,6 @@ import {
   - `sitemap.xml`
   - `feed.xml`
   - fallback `robots.txt`
-  - `/_zeropress/comment-policy.json`
   - `/_zeropress/search.json` when native search is enabled
   - `/_zeropress/search.js` when native search is enabled
   - `/_zeropress/search_pagefind.js` when native search is enabled
@@ -191,10 +190,6 @@ Build-core derives:
 - datetime formatting from `site.locale`, `site.timezone`, `site.date_style`, and `site.time_style`
 - `reading_time`
 - `comments_enabled`
-
-It also emits a comments allowlist artifact:
-
-- `/_zeropress/comment-policy.json`
 
 Comment availability is derived from preview-data policy:
 

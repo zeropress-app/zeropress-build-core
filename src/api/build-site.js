@@ -37,7 +37,6 @@ const DEFAULT_POST_INDEX = Object.freeze({
   paginate: true,
 });
 const PERMALINK_OUTPUT_STYLES = new Set(['directory', 'html-extension']);
-const COMMENT_POLICY_OUTPUT_PATH = '_zeropress/comment-policy.json';
 const SEARCH_INDEX_OUTPUT_PATH = '_zeropress/search.json';
 const SEARCH_ADAPTER_OUTPUT_PATH = '_zeropress/search.js';
 const SEARCH_PAGEFIND_ADAPTER_OUTPUT_PATH = '_zeropress/search_pagefind.js';
@@ -99,14 +98,6 @@ export async function buildSite(input) {
   for (const assetOutput of state.assetOutputs) {
     await writeOutput(state.writer, state.summaries, assetOutput.path, assetOutput.content, assetOutput.contentType);
   }
-
-  await writeOutput(
-    state.writer,
-    state.summaries,
-    COMMENT_POLICY_OUTPUT_PATH,
-    state.commentPolicyContent,
-    'application/json',
-  );
 
   if (shouldGenerateSearchArtifacts(state, options)) {
     await writeOutput(state.writer, state.summaries, SEARCH_INDEX_OUTPUT_PATH, buildSearchIndexJson(state), 'application/json');
@@ -173,7 +164,6 @@ async function createBuildState(input, options) {
     customHtml: previewData.custom_html,
     favicon: previewData.site.favicon,
     exposeGenerator: previewData.site.expose_generator !== false,
-    commentPolicyContent: buildCommentPolicyManifest(renderData.posts),
     options,
     generatedAt: new Date(),
     emitted: {
@@ -1436,18 +1426,6 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
   };
 }
 
-function buildCommentPolicyManifest(posts) {
-  const commentablePosts = posts
-    .filter((post) => post.status === 'published' && post.comments_enabled === true)
-    .map((post) => post.public_id)
-    .filter((value) => Number.isInteger(value) && value > 0);
-
-  return JSON.stringify({
-    version: 1,
-    commentable_posts: commentablePosts,
-  }, null, 2);
-}
-
 function buildTaxonomyRoutes(options) {
   const routes = [];
 
@@ -2406,7 +2384,6 @@ function assertPlannedOutputPathsSafe(state) {
   const plannedPaths = [
     ...routeEntries.map((entry) => entry.outputPath),
     ...state.assetOutputs.map((assetOutput) => assetOutput.path),
-    COMMENT_POLICY_OUTPUT_PATH,
   ];
 
   if (shouldGenerateSearchArtifacts(state, state.options)) {

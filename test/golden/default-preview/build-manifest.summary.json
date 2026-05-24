@@ -53,10 +53,6 @@
       "contentType": "text/css"
     },
     {
-      "path": "_zeropress/comment-policy.json",
-      "contentType": "application/json"
-    },
-    {
       "path": "_zeropress/search.json",
       "contentType": "application/json"
     },
