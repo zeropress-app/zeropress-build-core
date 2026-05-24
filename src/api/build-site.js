@@ -239,7 +239,9 @@ async function renderRoute(state, templateName, route) {
       route: routeContext,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
-        title: state.previewData.site.title,
+        title: route.is_front_page === true
+          ? buildFrontPageTitle(state.previewData.site)
+          : state.previewData.site.title,
         description: state.previewData.site.description,
         ogType: 'website',
       }),
@@ -286,7 +288,7 @@ async function renderFrontPage(state, route) {
         route: routeContext,
         meta: buildPageMeta(state.previewData.site, {
           currentUrl,
-          title: buildDocumentTitle(page.title, state.previewData.site.title),
+          title: buildFrontPageTitle(state.previewData.site),
           description: page.excerpt,
           ogType: 'website',
           image: page.featured_image,
@@ -319,7 +321,7 @@ async function renderFrontPage(state, route) {
       route: routeContext,
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
-        title: state.previewData.site.title,
+        title: buildFrontPageTitle(state.previewData.site),
         description: state.previewData.site.description,
         ogType: 'website',
       }),
@@ -2092,6 +2094,12 @@ function buildDocumentTitle(contentTitle, siteTitle) {
   const resolvedContentTitle = normalizeNonEmptyString(contentTitle, siteTitle);
   const resolvedSiteTitle = normalizeNonEmptyString(siteTitle, resolvedContentTitle);
   return `${resolvedContentTitle} - ${resolvedSiteTitle}`;
+}
+
+function buildFrontPageTitle(site) {
+  const resolvedSiteTitle = normalizeNonEmptyString(site.title, '');
+  const resolvedDescription = normalizeOptionalString(site.description);
+  return resolvedDescription ? `${resolvedSiteTitle} - ${resolvedDescription}` : resolvedSiteTitle;
 }
 
 function buildMetaHeadTags(meta) {

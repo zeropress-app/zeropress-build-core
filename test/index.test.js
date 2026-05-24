@@ -1334,9 +1334,12 @@ test('buildSite supports front page page content with a separate post index', as
   const blogHtml = getFileContent(files, 'blog/index.html');
   const sitemapXml = getFileContent(files, 'sitemap.xml');
 
+  assert.match(rootHtml, /<title>ZeroPress Preview - Default preview data<\/title>/);
+  assert.match(rootHtml, /property="og:title" content="ZeroPress Preview - Default preview data"/);
   assert.match(rootHtml, /data-route="front_page"/);
   assert.match(rootHtml, /data-front="true"/);
   assert.match(rootHtml, /<h1>About<\/h1>/);
+  assert.match(blogHtml, /<title>ZeroPress Preview<\/title>/);
   assert.match(blogHtml, /data-route="post_index"/);
   assert.match(blogHtml, /data-front="false"/);
   assert.match(blogHtml, /Hello ZeroPress/);
@@ -1345,6 +1348,25 @@ test('buildSite supports front page page content with a separate post index', as
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/<\/loc>/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/blog\/<\/loc>/);
   assert.doesNotMatch(sitemapXml, /<loc>https:\/\/example\.com\/about\/<\/loc>/);
+});
+
+test('buildSite uses site title only for front page meta when site description is empty', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.description = '';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const rootHtml = getFileContent(writer.getFiles(), 'index.html');
+
+  assert.match(rootHtml, /<title>ZeroPress Preview<\/title>/);
+  assert.match(rootHtml, /property="og:title" content="ZeroPress Preview"/);
 });
 
 test('buildSite supports an index slug as front page without emitting a duplicate page route', async () => {
