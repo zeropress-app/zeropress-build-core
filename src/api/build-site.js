@@ -433,13 +433,17 @@ async function maybeRenderNotFoundPage(state) {
 }
 
 function normalizePreviewData(previewData, options = {}) {
+  const media_base_url = normalizeOptionalString(previewData.site.media_base_url);
   const normalizedSite = {
     ...previewData.site,
-    media_base_url: normalizeOptionalString(previewData.site.media_base_url),
+    media_base_url,
     media_delivery_mode: MEDIA_DELIVERY_MODES.has(previewData.site.media_delivery_mode)
       ? previewData.site.media_delivery_mode
       : 'none',
-    favicon: normalizeSiteFavicon(previewData.site.favicon || options.favicon),
+    favicon: previewData.site.favicon
+      ? normalizeSiteFavicon(previewData.site.favicon, media_base_url)
+      : normalizeSiteFavicon(options.favicon, ''),
+    logo: normalizeSiteLogo(previewData.site.logo, media_base_url),
     posts_per_page: Number.isInteger(previewData.site.posts_per_page) && previewData.site.posts_per_page > 0
       ? previewData.site.posts_per_page
       : DEFAULT_POSTS_PER_PAGE,
@@ -730,7 +734,7 @@ function normalizeCustomHtml(customHtml) {
   };
 }
 
-function normalizeSiteFavicon(favicon) {
+function normalizeSiteFavicon(favicon, media_base_url) {
   if (!favicon || typeof favicon !== 'object') {
     return undefined;
   }
@@ -739,11 +743,28 @@ function normalizeSiteFavicon(favicon) {
   for (const key of ['icon', 'svg', 'png', 'apple_touch_icon']) {
     const value = normalizeOptionalString(favicon[key]);
     if (value) {
-      normalized[key] = value;
+      normalized[key] = normalizeMediaField(value, media_base_url);
     }
   }
 
   return Object.keys(normalized).length ? normalized : undefined;
+}
+
+function normalizeSiteLogo(logo, media_base_url) {
+  if (!logo || typeof logo !== 'object') {
+    return undefined;
+  }
+
+  const src = normalizeMediaField(logo.src, media_base_url);
+  if (!src) {
+    return undefined;
+  }
+
+  const alt = normalizeOptionalString(logo.alt);
+  return {
+    src,
+    ...(alt ? { alt } : {}),
+  };
 }
 
 function normalizePermalinks(permalinks) {

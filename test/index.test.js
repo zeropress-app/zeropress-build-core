@@ -406,6 +406,33 @@ test('buildSite exposes optional site.footer fields to themes', async () => {
   assert.doesNotMatch(indexHtml, /Published with ZeroPress/);
 });
 
+test('buildSite exposes optional site.logo fields to themes with media normalization', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.logo = {
+    src: '/logo.svg',
+    alt: 'Example logo',
+  };
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.templates.set('index', [
+    '{{#if site.logo.src}}',
+    '<img class="brand-logo" src="{{site.logo.src}}" alt="{{site.logo.alt}}">',
+    '{{/if}}',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /<img class="brand-logo" src="https:\/\/media\.example\.com\/logo\.svg" alt="Example logo">/);
+  assert.doesNotMatch(indexHtml, /src="\/logo\.svg"/);
+});
+
 test('buildSite reports invalid preview data at the core API boundary', async () => {
   const writer = new MemoryWriter();
   const themePackage = await loadGoldenThemePackage();
@@ -749,10 +776,38 @@ test('buildSite does not deduplicate custom generator meta', async () => {
   assert.match(indexHtml, /<meta name="generator" content="Custom Generator">/);
 });
 
+test('buildSite normalizes explicit preview-data favicon links against media_base_url', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.favicon = {
+    icon: '/favicon.ico',
+    svg: '/favicon.svg',
+    png: '/favicon.png',
+    apple_touch_icon: '/apple-touch-icon.png',
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /<link rel="icon" href="https:\/\/media\.example\.com\/favicon\.ico" sizes="any">/);
+  assert.match(indexHtml, /<link rel="icon" href="https:\/\/media\.example\.com\/favicon\.svg" type="image\/svg\+xml">/);
+  assert.match(indexHtml, /<link rel="icon" href="https:\/\/media\.example\.com\/favicon\.png" type="image\/png">/);
+  assert.match(indexHtml, /<link rel="apple-touch-icon" href="https:\/\/media\.example\.com\/apple-touch-icon\.png">/);
+});
+
 test('buildSite injects discovered favicon option when preview-data has no explicit favicon', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.media_base_url = 'https://media.example.com';
 
   await buildSite({
     previewData,
@@ -774,6 +829,7 @@ test('buildSite injects discovered favicon option when preview-data has no expli
   assert.match(indexHtml, /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml">/);
   assert.match(indexHtml, /<link rel="icon" href="\/favicon\.png" type="image\/png">/);
   assert.match(indexHtml, /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png">/);
+  assert.doesNotMatch(indexHtml, /media\.example\.com\/favicon/);
 });
 
 test('buildSite runtime 0.6 renders resolved widgets with escaping and safe URL filtering', async () => {
