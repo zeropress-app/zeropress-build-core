@@ -1,6 +1,6 @@
 {
   "name": "@zeropress/build-core",
-  "version": "0.6.3",
+  "version": "0.6.4",
   "description": "Shared ZeroPress build core",
   "type": "module",
   "license": "MIT",
@@ -35,9 +35,9 @@
   "dependencies": {
     "@zeropress/slug-policy": "0.1.0",
     "@zeropress/preview-data-validator": "0.6.3",
-    "@zeropress/theme-validator": "0.6.3",
+    "@zeropress/theme-validator": "0.6.4",
     "highlight.js": "11.11.1",
-    "markdown-it": "^14.1.0",
-    "markdown-it-anchor": "^9.2.0"
+    "markdown-it": "14.2.0",
+    "markdown-it-anchor": "9.2.0"
   }
 }
