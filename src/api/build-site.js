@@ -1019,8 +1019,12 @@ function attachCollectionCursors(posts, pages, collections) {
         return;
       }
 
+      const cursor = buildCollectionCursor(collectionId, collection, items, index);
       target.collection_cursors = target.collection_cursors || {};
-      target.collection_cursors[collectionId] = buildCollectionCursor(collectionId, collection, items, index);
+      target.collection_cursors[collectionId] = cursor;
+      if (!target.collection_cursor) {
+        target.collection_cursor = cursor;
+      }
     });
   }
 }

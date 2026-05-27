@@ -3482,14 +3482,19 @@ test('buildSite exposes collection counts and route collection cursors', async (
     '{{#if post.collection_cursors.work.first}} work-first{{/if}}',
     '{{#if post.collection_cursors.work.last}} work-last{{/if}}',
     '{{#if post.collection_cursors.secondary.next}} secondary-next={{post.collection_cursors.secondary.next.title}}{{/if}}',
+    ' alias={{post.collection_cursor.collection_id}}:{{post.collection_cursor.collection_title}}',
+    '{{#if post.collection_cursor.next}} alias-next={{post.collection_cursor.next.title}}{{/if}}',
   ].join(''));
   themePackage.templates.set('page', [
     'work-count={{collections.work.count}} empty-count={{collections.empty.count}}',
     ' page-pos={{page.collection_cursors.work.position}}/{{page.collection_cursors.work.count}}',
+    ' page-alias={{page.collection_cursor.collection_id}}:{{page.collection_cursor.collection_title}}',
     ' page-facts={{#for fact in page.data.facts}}{{fact.label}}={{fact.value}}{{/for}}',
     ' page-prev-stack={{#for item in page.collection_cursors.work.prev.data.stack}}{{item}};{{/for}}',
     ' page-prev={{page.collection_cursors.work.prev.title}}:{{page.collection_cursors.work.prev.url}}',
+    ' page-alias-prev={{page.collection_cursor.prev.title}}:{{page.collection_cursor.prev.url}}',
     ' page-next={{page.collection_cursors.work.next.title}}:{{page.collection_cursors.work.next.url}}',
+    ' page-alias-next={{page.collection_cursor.next.title}}:{{page.collection_cursor.next.url}}',
     '{{#for item in collections.work.items}}<a href="{{item.url}}">{{item.title}}</a>{{/for}}',
   ].join(''));
 
@@ -3508,6 +3513,8 @@ test('buildSite exposes collection counts and route collection cursors', async (
   assert.doesNotMatch(firstPostHtml, /work-prev=/);
   assert.match(firstPostHtml, /work-next=page:About:\//);
   assert.match(firstPostHtml, /secondary-next=Archive Patterns/);
+  assert.match(firstPostHtml, /alias=work:Selected Work/);
+  assert.match(firstPostHtml, /alias-next=About/);
 
   const secondPostHtml = getFileContent(writer.getFiles(), 'posts/theme-blocks-deep-dive/index.html');
   assert.match(secondPostHtml, /work-last/);
@@ -3516,10 +3523,13 @@ test('buildSite exposes collection counts and route collection cursors', async (
 
   const frontPageHtml = getFileContent(writer.getFiles(), 'index.html');
   assert.match(frontPageHtml, /page-pos=2\/3/);
+  assert.match(frontPageHtml, /page-alias=work:Selected Work/);
   assert.match(frontPageHtml, /page-facts=Type=Front Page/);
   assert.match(frontPageHtml, /page-prev-stack=ZeroPress;SQLite;/);
   assert.match(frontPageHtml, /page-prev=Hello ZeroPress:\/posts\/hello-zeropress\//);
+  assert.match(frontPageHtml, /page-alias-prev=Hello ZeroPress:\/posts\/hello-zeropress\//);
   assert.match(frontPageHtml, /page-next=Theme Blocks Deep Dive:\/posts\/theme-blocks-deep-dive\//);
+  assert.match(frontPageHtml, /page-alias-next=Theme Blocks Deep Dive:\/posts\/theme-blocks-deep-dive\//);
   assert.match(frontPageHtml, /<a href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a>/);
   assert.match(frontPageHtml, /<a href="\/">About<\/a>/);
 });
