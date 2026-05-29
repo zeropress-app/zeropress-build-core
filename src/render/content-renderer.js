@@ -71,6 +71,7 @@ function createMarkdownRenderer(toc) {
 
   markdown.use(markdownTaskLists);
   markdown.use(markdownAlerts);
+  markdown.use(markdownTableAlignmentClasses);
   markdown.use(anchor, {
     slugify: slugify,
     callback(token, { slug, title }) {
@@ -89,6 +90,25 @@ function createMarkdownRenderer(toc) {
   });
 
   return markdown;
+}
+
+function markdownTableAlignmentClasses(markdown) {
+  for (const tokenName of ['th_open', 'td_open']) {
+    markdown.renderer.rules[tokenName] = (tokens, index, options, env, self) => {
+      const token = tokens[index];
+      const styleIndex = token.attrIndex('style');
+      if (styleIndex >= 0) {
+        const styleValue = token.attrs[styleIndex][1] || '';
+        const match = /(?:^|;)\s*text-align\s*:\s*(left|center|right)\s*;?\s*$/i.exec(styleValue);
+        if (match) {
+          token.attrs.splice(styleIndex, 1);
+          addTokenClass(token, `zp-align-${match[1].toLowerCase()}`);
+        }
+      }
+
+      return self.renderToken(tokens, index, options);
+    };
+  }
 }
 
 function markdownTaskLists(markdown) {

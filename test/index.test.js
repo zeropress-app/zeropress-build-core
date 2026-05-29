@@ -2985,7 +2985,21 @@ test('renderDocument preserves standard markdown compatibility output', () => {
 
   assert.match(table.html, /<table>/);
   assert.match(table.html, /<th>Name<\/th>/);
+  assert.match(table.html, /<th class="zp-align-right">Count<\/th>/);
   assert.match(table.html, /<td>Alpha<\/td>/);
+  assert.match(table.html, /<td class="zp-align-right">1<\/td>/);
+  assert.doesNotMatch(table.html, /style=/);
+  const alignedTable = renderDocument([
+    '| Left | Center | Right |',
+    '| :--- | :---: | ---: |',
+    '| a | b | c |',
+  ].join('\n'), 'markdown');
+  assert.match(alignedTable.html, /<th class="zp-align-left">Left<\/th>/);
+  assert.match(alignedTable.html, /<th class="zp-align-center">Center<\/th>/);
+  assert.match(alignedTable.html, /<th class="zp-align-right">Right<\/th>/);
+  assert.match(alignedTable.html, /<td class="zp-align-left">a<\/td>/);
+  assert.match(alignedTable.html, /<td class="zp-align-center">b<\/td>/);
+  assert.match(alignedTable.html, /<td class="zp-align-right">c<\/td>/);
   assert.match(strike.html, /<s>deleted<\/s>/);
   assert.match(mermaid.html, /<code class="language-mermaid">/);
 });
