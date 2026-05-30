@@ -241,13 +241,17 @@ test('ControlFlowRenderer supports comparison else-if branches', () => {
   const renderer = createInterpolatingRenderer();
   const output = renderer.render([
     '{{#if_neq route.type "post"}}not-post{{#else_if_neq route.type "page"}}not-page{{#else}}fallback{{/if_neq}}',
-    '{{#if_in route.type "tag"}}tag{{#else_if_in route.type "post" "page"}}content{{/if_in}}',
-    '{{#if_starts_with route.url "/blog/"}}blog{{#else_if_starts_with route.url "/docs/"}}docs{{/if_starts_with}}',
+    '{{#if_in route.type "tag"}}tag{{#else_if_in route.type "post" "page"}}content{{/if}}',
+    '{{#if_starts_with route.url "/blog/"}}blog{{#else_if_starts_with route.url "/docs/"}}docs{{/if}}',
+    '{{#if_eq route.url current.url}}exact{{#else_if_starts_with route.url "/docs/"}}parent{{#else}}none{{/if}}',
+    '{{#if_in route.type "page"}}page{{#else_if_eq route.type "post"}}post{{/if}}',
+    '{{#if_starts_with route.url "/none/"}}none{{#else_if_neq route.type "page"}}not-page{{/if}}',
   ].join('|'), {
     route: { type: 'post', url: '/docs/install/' },
+    current: { url: '/elsewhere/' },
   });
 
-  assert.equal(output, 'not-page|content|docs');
+  assert.equal(output, 'not-page|content|docs|parent|post|not-page');
 });
 
 test('ControlFlowRenderer rejects malformed comparison helpers', () => {
@@ -264,6 +268,18 @@ test('ControlFlowRenderer rejects malformed comparison helpers', () => {
   assert.throws(
     () => renderer.render('{{#if_eq route.type post page}}bad{{/if_eq}}', {}),
     /Invalid if_eq expression/,
+  );
+  assert.throws(
+    () => renderer.render('{{#if_eq route.type "post"}}bad{{/if_starts_with}}', {}),
+    /Unexpected closing tag/,
+  );
+  assert.throws(
+    () => renderer.render('{{#if_eq route.type "post"}}ok{{#else}}fallback{{#else_if_eq route.type "page"}}bad{{/if}}', {}),
+    /Unexpected else_if_eq tag/,
+  );
+  assert.throws(
+    () => renderer.render('{{#if route.type}}ok{{#else_if_eq route.type "post"}}bad{{/if}}', { route: { type: 'post' } }),
+    /Unexpected else_if_eq tag/,
   );
 });
 

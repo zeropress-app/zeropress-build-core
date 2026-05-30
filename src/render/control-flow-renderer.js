@@ -370,10 +370,11 @@ export class ControlFlowRenderer {
     let alternate = [];
     let nextIndex = startIndex;
     let currentBranch = initialBranch;
-    const elseIfTag = `else_${tagName}`;
+    const comparisonStopTags = new Set(['else', 'if', tagName, ...COMPARISON_ELSE_IF_TAGS]);
+    const comparisonCloseTags = new Set(['if', tagName]);
 
     while (true) {
-      const branchResult = this.parseNodes(source, nextIndex, new Set(['else', elseIfTag, tagName]), partialArgScope);
+      const branchResult = this.parseNodes(source, nextIndex, comparisonStopTags, partialArgScope);
       branches.push({
         operator: currentBranch.operator,
         left: currentBranch.left,
@@ -382,8 +383,8 @@ export class ControlFlowRenderer {
       });
 
       if (branchResult.stopTag === 'else') {
-        const elseResult = this.parseNodes(source, branchResult.nextIndex, new Set([tagName]), partialArgScope);
-        if (elseResult.stopTag !== tagName) {
+        const elseResult = this.parseNodes(source, branchResult.nextIndex, comparisonCloseTags, partialArgScope);
+        if (!comparisonCloseTags.has(elseResult.stopTag)) {
           throw new Error(`Unclosed ${tagName} block after else`);
         }
         alternate = elseResult.nodes;
@@ -391,16 +392,19 @@ export class ControlFlowRenderer {
         break;
       }
 
-      if (typeof branchResult.stopTag === 'string' && branchResult.stopTag.startsWith(`#${elseIfTag} `)) {
+      const comparisonElseIfTag = typeof branchResult.stopTag === 'string'
+        ? getComparisonElseIfTag(branchResult.stopTag)
+        : '';
+      if (comparisonElseIfTag) {
         currentBranch = this.parseComparisonBranchExpression(
-          branchResult.stopTag.slice(`#${elseIfTag} `.length).trim(),
-          elseIfTag,
+          branchResult.stopTag.slice(`#${comparisonElseIfTag} `.length).trim(),
+          comparisonElseIfTag,
         );
         nextIndex = branchResult.nextIndex;
         continue;
       }
 
-      if (branchResult.stopTag === tagName) {
+      if (comparisonCloseTags.has(branchResult.stopTag)) {
         nextIndex = branchResult.nextIndex;
         break;
       }
