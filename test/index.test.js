@@ -3060,8 +3060,8 @@ test('renderDocument renders GFM-compatible task lists', () => {
   ].join('\n'), 'markdown');
 
   assert.match(document.html, /<ul class="contains-task-list">/);
-  assert.match(document.html, /<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" checked="" disabled="" \/> Done<\/li>/);
-  assert.match(document.html, /<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" disabled="" \/> Todo<\/li>/);
+  assert.match(document.html, /<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" checked="" disabled="" aria-label="Completed task" \/> Done<\/li>/);
+  assert.match(document.html, /<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" disabled="" aria-label="Incomplete task" \/> Todo<\/li>/);
   assert.doesNotMatch(document.html, /\[x\]/);
   assert.doesNotMatch(document.html, /\[ \]/);
 });
@@ -3268,13 +3268,13 @@ test('buildSite preserves markdown task list and alert HTML for pages and posts'
   const pageHtml = getFileContent(files, 'markdown-compat-page/index.html');
 
   assert.match(postHtml, /<ul class="contains-task-list">/);
-  assert.match(postHtml, /<input class="task-list-item-checkbox" type="checkbox" checked="" disabled="" \/>/);
+  assert.match(postHtml, /<input class="task-list-item-checkbox" type="checkbox" checked="" disabled="" aria-label="Completed task" \/>/);
   assert.match(postHtml, /<aside class="zp-alert zp-alert--warning" role="note">/);
   assert.match(postHtml, /<p class="zp-alert__title">Warning<\/p>/);
   assert.doesNotMatch(postHtml, /\[!WARNING\]/);
 
   assert.match(pageHtml, /<ul class="contains-task-list">/);
-  assert.match(pageHtml, /<input class="task-list-item-checkbox" type="checkbox" disabled="" \/>/);
+  assert.match(pageHtml, /<input class="task-list-item-checkbox" type="checkbox" disabled="" aria-label="Incomplete task" \/>/);
   assert.match(pageHtml, /<aside class="zp-alert zp-alert--tip" role="note">/);
   assert.match(pageHtml, /<p class="zp-alert__title">Tip<\/p>/);
   assert.doesNotMatch(pageHtml, /\[!TIP\]/);

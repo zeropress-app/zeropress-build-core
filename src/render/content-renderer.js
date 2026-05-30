@@ -162,8 +162,10 @@ function markdownTaskLists(markdown) {
       addTokenClass(listItemToken, 'task-list-item');
 
       const checkboxToken = new state.Token('html_inline', '', 0);
-      const checked = markerMatch[1].toLowerCase() === 'x' ? ' checked' : '';
-      checkboxToken.content = `<input class="task-list-item-checkbox" type="checkbox"${checked} disabled> `;
+      const isChecked = markerMatch[1].toLowerCase() === 'x';
+      const checked = isChecked ? ' checked' : '';
+      const label = isChecked ? 'Completed task' : 'Incomplete task';
+      checkboxToken.content = `<input class="task-list-item-checkbox" type="checkbox"${checked} disabled aria-label="${label}"> `;
 
       const strippedContent = token.content.slice(markerMatch[0].length);
       token.content = strippedContent;
@@ -337,7 +339,7 @@ function sanitizeHtml(html) {
     aside: new Set(['role', 'class', 'id']),
     img: new Set(['src', 'srcset', 'sizes', 'alt', 'title', 'class', 'id', 'width', 'height', 'loading', 'decoding']),
     iframe: new Set(['src', 'width', 'height', 'frameborder', 'allowfullscreen', 'class']),
-    input: new Set(['type', 'checked', 'disabled', 'class', 'id']),
+    input: new Set(['type', 'checked', 'disabled', 'class', 'id', 'aria-label']),
     source: new Set(['src', 'srcset', 'sizes', 'type', 'media', 'width', 'height', 'class', 'id']),
     '*': new Set(['class', 'id']),
   };
