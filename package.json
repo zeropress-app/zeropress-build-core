@@ -1,6 +1,6 @@
 {
   "name": "@zeropress/build-core",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "description": "Shared ZeroPress build core",
   "type": "module",
   "license": "MIT",
