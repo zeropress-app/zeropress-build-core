@@ -49,7 +49,7 @@ function renderMarkdownDocument(content) {
 function createMarkdownRenderer(toc) {
   const markdown = new MarkdownIt({
     html: true,
-    linkify: true,
+    linkify: false,
     typographer: true,
     breaks: true,
     highlight(value, language) {

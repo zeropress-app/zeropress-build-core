@@ -3020,6 +3020,25 @@ test('renderDocument preserves standard markdown compatibility output', () => {
   assert.match(mermaid.html, /<code class="language-mermaid">/);
 });
 
+test('renderDocument does not auto-link bare domains or filename-like text', () => {
+  const document = renderDocument([
+    '## When To example.com site',
+    '',
+    '## When To build.sh Instead',
+    '',
+    'Use example.com and build.sh as plain text unless the author writes a Markdown link.',
+    '',
+    'Use [Example](https://example.com) when a link is intended.',
+  ].join('\n'), 'markdown');
+
+  assert.match(document.html, /<h2 id="when-to-examplecom-site">When To example\.com site<\/h2>/);
+  assert.match(document.html, /<h2 id="when-to-buildsh-instead">When To build\.sh Instead<\/h2>/);
+  assert.match(document.html, /<p>Use example\.com and build\.sh as plain text unless the author writes a Markdown link\.<\/p>/);
+  assert.match(document.html, /<a href="https:\/\/example\.com">Example<\/a>/);
+  assert.doesNotMatch(document.html, /href="http:\/\/example\.com"/);
+  assert.doesNotMatch(document.html, /href="http:\/\/build\.sh"/);
+});
+
 test('renderDocument preserves safe semantic media HTML in markdown', () => {
   const document = renderDocument([
     '<figure class="gallery-item" onclick="alert(1)">',
