@@ -294,6 +294,7 @@ async function renderFrontPage(state, route) {
       url: currentUrl,
       title: page.title,
       description: page.excerpt,
+      updatedAt: page.updated_at_iso,
       includeInFeed: false,
       includeInSitemap: !isDelistedDocument(page),
     };
@@ -400,6 +401,7 @@ async function renderPage(state, page) {
     url: currentUrl,
     title: page.title,
     description: page.excerpt,
+    updatedAt: page.updated_at_iso,
     status: page.status,
     includeInSitemap: page.omit_from_sitemap !== true && !isDelistedDocument(page),
   });
@@ -508,6 +510,7 @@ function normalizePreviewData(previewData, options = {}) {
         const featuredMedia = deriveManagedMedia(featuredImage, mediaRegistry, normalizedSite);
         return {
           ...page,
+          ...(page.updated_at_iso ? { updated_at_iso: normalizeIsoTimestamp(page.updated_at_iso) } : {}),
           discoverability: normalizeDiscoverability(page.discoverability),
           featured_image: featuredImage,
           ...(featuredMedia ? { featured_media: featuredMedia } : {}),
@@ -995,6 +998,8 @@ function buildCollectionPageSummary(page, frontPage) {
     url: frontPage?.type === 'page' && frontPage.page_slug === page.slug ? '/' : page.url,
     excerpt: page.excerpt || '',
     featured_image: page.featured_image || '',
+    updated_at: page.updated_at || '',
+    updated_at_iso: page.updated_at_iso || '',
     ...(page.featured_media ? { featured_media: { ...page.featured_media } } : {}),
     meta: page.meta,
     data: page.data,
@@ -1057,6 +1062,8 @@ function buildCollectionCursorItemSummary(item) {
     url: item.url,
     excerpt: item.excerpt || '',
     featured_image: item.featured_image || '',
+    updated_at: item.updated_at || '',
+    updated_at_iso: item.updated_at_iso || '',
     meta: item.meta,
     data: item.data,
   };
@@ -1389,6 +1396,7 @@ function preparePage(page, site) {
     document_type: documentType,
     html: renderedDocument.html,
     toc: renderedDocument.toc,
+    updated_at: page.updated_at_iso ? formatTimestamp(page.updated_at_iso, site) : '',
   };
 }
 
@@ -2633,7 +2641,7 @@ function buildSearchPageItem(page, url) {
     categories: [],
     tags: [],
     published_at_iso: '',
-    updated_at_iso: '',
+    updated_at_iso: normalizeIsoTimestamp(page.updated_at_iso),
     content_text: htmlToSearchText(page.html),
   };
 }
@@ -3073,6 +3081,7 @@ function buildSitemapXml(site, emitted, generatedAt, stylesheetHref = '') {
     ...(emitted.frontPage && emitted.frontPage.includeInSitemap !== false
       ? [{
         url: emitted.frontPage.url,
+        ...(emitted.frontPage.updatedAt ? { lastmod: toDate(emitted.frontPage.updatedAt) } : {}),
         changefreq: 'daily',
         priority: 1.0,
       }]
@@ -3094,6 +3103,7 @@ function buildSitemapXml(site, emitted, generatedAt, stylesheetHref = '') {
       .filter((page) => page.includeInSitemap !== false)
       .map((page) => ({
         url: page.url,
+        ...(page.updatedAt ? { lastmod: toDate(page.updatedAt) } : {}),
         changefreq: 'monthly',
         priority: 0.7,
       })),

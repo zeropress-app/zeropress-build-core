@@ -2359,6 +2359,77 @@ test('buildSite can add a stylesheet processing instruction to sitemap.xml', asy
   );
 });
 
+test('buildSite exposes page updated timestamp and writes page sitemap lastmod', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.content.pages[0].updated_at_iso = '2026-05-27T11:20:30+09:00';
+  previewData.content.pages.push({
+    ...previewData.content.pages[0],
+    title: 'Guide',
+    slug: 'guide',
+    content: '# Guide\n\nA second page.',
+    excerpt: 'A second page.',
+    updated_at_iso: '2026-05-28T12:30:00+09:00',
+  });
+  previewData.collections = {
+    docs: {
+      title: 'Docs',
+      items: [
+        { type: 'page', slug: 'about' },
+        { type: 'page', slug: 'guide' },
+      ],
+    },
+  };
+  themePackage.templates.set('index', [
+    '{{#for item in collections.docs.items}}',
+    '<span data-item="{{item.slug}}" data-updated="{{item.updated_at}}" data-iso="{{item.updated_at_iso}}">{{item.title}}</span>',
+    '{{/for}}',
+  ].join(''));
+  themePackage.templates.set('page', [
+    '<time datetime="{{page.updated_at_iso}}">{{page.updated_at}}</time>',
+    '{{#if page.collection_cursor.next}}',
+    '<a data-next-updated="{{page.collection_cursor.next.updated_at_iso}}" href="{{page.collection_cursor.next.url}}">{{page.collection_cursor.next.title}}</a>',
+    '{{/if}}',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const files = writer.getFiles();
+  const aboutHtml = getFileContent(files, 'about/index.html');
+  const indexHtml = getFileContent(files, 'index.html');
+  const sitemapXml = getFileContent(files, 'sitemap.xml');
+  const searchJson = JSON.parse(getFileContent(files, '_zeropress/search.json'));
+
+  assert.match(aboutHtml, /<time datetime="2026-05-27T02:20:30Z">May 27, 2026<\/time>/);
+  assert.match(aboutHtml, /data-next-updated="2026-05-28T03:30:00Z"/);
+  assert.match(indexHtml, /data-item="about" data-updated="May 27, 2026" data-iso="2026-05-27T02:20:30Z"/);
+  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/about\/<\/loc>\n    <lastmod>2026-05-27T02:20:30Z<\/lastmod>/);
+  assert.equal(searchJson.find((item) => item.id === 'page:about')?.updated_at_iso, '2026-05-27T02:20:30Z');
+});
+
+test('buildSite rejects invalid page updated_at_iso', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.content.pages[0].updated_at_iso = 'not-a-date';
+
+  await assert.rejects(
+    () => buildSite({
+      previewData,
+      themePackage,
+      writer,
+    }),
+    /INVALID_PAGE_UPDATED_AT_ISO|content\.pages\[0\]\.updated_at_iso/,
+  );
+});
+
 test('buildSite renders fallback robots.txt from site.indexing policy', async () => {
   const themePackage = await loadGoldenThemePackage();
 
