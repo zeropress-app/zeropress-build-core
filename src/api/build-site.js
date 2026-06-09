@@ -9,6 +9,7 @@ import { ZeroPressEngine } from '../render/zeropress-engine.js';
 const DEFAULT_OPTIONS = {
   assetHashing: true,
   generateSpecialFiles: true,
+  generateFeed: true,
   generateRobotsTxt: true,
   writeManifest: false,
 };
@@ -115,7 +116,9 @@ export async function buildSite(input) {
         buildSitemapXml(state.previewData.site, state.emitted, state.generatedAt, options.sitemapStylesheetHref),
         'application/xml',
       );
-      await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.generatedAt), 'application/rss+xml');
+      if (shouldGenerateFeed(options)) {
+        await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.generatedAt), 'application/rss+xml');
+      }
     }
     if (shouldGenerateRobotsTxt(options)) {
       await writeOutput(state.writer, state.summaries, 'robots.txt', buildRobotsTxt(state.previewData.site), 'text/plain');
@@ -2429,7 +2432,10 @@ function assertPlannedOutputPathsSafe(state) {
       plannedPaths.push('robots.txt');
     }
     if (hasCanonicalSiteUrl(state.previewData.site.url)) {
-      plannedPaths.push('sitemap.xml', 'feed.xml');
+      plannedPaths.push('sitemap.xml');
+      if (shouldGenerateFeed(state.options)) {
+        plannedPaths.push('feed.xml');
+      }
     }
   }
 
@@ -3156,6 +3162,10 @@ function buildRobotsTxt(site) {
 
 function shouldGenerateRobotsTxt(options) {
   return options.generateSpecialFiles && options.generateRobotsTxt !== false;
+}
+
+function shouldGenerateFeed(options) {
+  return options.generateSpecialFiles && options.generateFeed !== false;
 }
 
 function shouldGenerateSearchArtifacts(state, options) {

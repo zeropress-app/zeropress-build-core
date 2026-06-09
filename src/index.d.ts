@@ -30,6 +30,7 @@ export interface BuildOptions {
   };
   sitemapStylesheetHref?: string;
   generateSpecialFiles?: boolean;
+  generateFeed?: boolean;
   generateRobotsTxt?: boolean;
   writeManifest?: boolean;
 }

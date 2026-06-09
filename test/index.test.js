@@ -2338,6 +2338,29 @@ test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async ()
   assert.equal(manifest.files.some((file) => file.path === 'feed.xml'), false);
 });
 
+test('buildSite can disable feed.xml while keeping other special files', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateFeed: false, writeManifest: true },
+  });
+
+  const files = writer.getFiles();
+  assert.equal(files.some((file) => file.path === 'sitemap.xml'), true);
+  assert.equal(files.some((file) => file.path === 'feed.xml'), false);
+  assert.equal(files.some((file) => file.path === 'robots.txt'), true);
+
+  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
+  assert.equal(manifest.files.some((file) => file.path === 'sitemap.xml'), true);
+  assert.equal(manifest.files.some((file) => file.path === 'feed.xml'), false);
+  assert.equal(manifest.files.some((file) => file.path === 'robots.txt'), true);
+});
+
 test('buildSite can add a stylesheet processing instruction to sitemap.xml', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();

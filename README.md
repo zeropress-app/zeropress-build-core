@@ -120,7 +120,8 @@ Notes:
 - `writer` is required
 - `previewData` must already satisfy the canonical preview-data contract
 - `themePackage` must already be a validated in-memory theme package
-- `sitemap.xml` and `feed.xml` are emitted only when `site.url` is a non-empty canonical URL
+- `sitemap.xml` is emitted only when `site.url` is a non-empty canonical URL
+- `feed.xml` is emitted only when `site.url` is a non-empty canonical URL and `generateFeed` is not `false`
 - callers may pass `sitemapStylesheetHref` to add an XML stylesheet processing instruction to generated `sitemap.xml`
 - fallback `robots.txt` is emitted when `generateSpecialFiles` is enabled and `generateRobotsTxt` is not `false`
 - fallback `robots.txt` uses `site.indexing`; `false` emits `Disallow: /`, while missing or `true` emits `Allow: /`
@@ -229,6 +230,7 @@ Supported options:
 - `favicon`
 - `sitemapStylesheetHref`
 - `generateSpecialFiles`
+- `generateFeed`
 - `generateRobotsTxt`
 - `writeManifest`
 
@@ -238,6 +240,7 @@ Defaults:
 
 - `assetHashing: true`
 - `generateSpecialFiles: true`
+- `generateFeed: true`
 - `generateRobotsTxt: true`
 - `writeManifest: false`
 
