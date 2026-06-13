@@ -339,7 +339,7 @@ function sanitizeHtml(html) {
     a: new Set(['href', 'title', 'class', 'id']),
     aside: new Set(['role', 'class', 'id']),
     img: new Set(['src', 'srcset', 'sizes', 'alt', 'title', 'class', 'id', 'width', 'height', 'loading', 'decoding']),
-    iframe: new Set(['src', 'width', 'height', 'frameborder', 'allowfullscreen', 'class']),
+    iframe: new Set(['src', 'width', 'height', 'frameborder', 'allowfullscreen', 'class', 'title']),
     input: new Set(['type', 'checked', 'disabled', 'class', 'id', 'aria-label']),
     source: new Set(['src', 'srcset', 'sizes', 'type', 'media', 'width', 'height', 'class', 'id']),
     video: new Set(['src', 'controls', 'autoplay', 'loop', 'muted', 'playsinline', 'poster', 'preload', 'width', 'height', 'class', 'id', 'title']),

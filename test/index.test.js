@@ -3153,6 +3153,15 @@ test('renderDocument preserves safe semantic media HTML in markdown', () => {
   assert.doesNotMatch(document.html, /style=/);
 });
 
+test('renderDocument preserves safe iframe title in markdown', () => {
+  const document = renderDocument(
+    '<iframe src="https://www.youtube.com/embed/demo" title="YouTube video player" width="560" height="315" frameborder="0" allowfullscreen></iframe>',
+    'markdown',
+  );
+
+  assert.match(document.html, /<iframe src="https:\/\/www\.youtube\.com\/embed\/demo" title="YouTube video player" width="560" height="315" frameborder="0" allowfullscreen=""><\/iframe>/);
+});
+
 test('renderDocument preserves safe native media HTML in markdown', () => {
   const document = renderDocument([
     '<video controls autoplay="" loop="" muted playsinline poster="/media/demo.jpg" preload="metadata" width="640" height="360" title="Demo" style="width:100%" onclick="alert(1)">',
