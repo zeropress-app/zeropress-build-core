@@ -3153,6 +3153,45 @@ test('renderDocument preserves safe semantic media HTML in markdown', () => {
   assert.doesNotMatch(document.html, /style=/);
 });
 
+test('renderDocument preserves safe native media HTML in markdown', () => {
+  const document = renderDocument([
+    '<video controls autoplay="" loop="" muted playsinline poster="/media/demo.jpg" preload="metadata" width="640" height="360" title="Demo" style="width:100%" onclick="alert(1)">',
+    '<source src="/media/demo.mp4" type="video/mp4">',
+    '<track src="/media/demo-en.vtt" kind="captions" srclang="en" label="English" default>',
+    '</video>',
+    '<audio controls preload="none" title="Audio demo">',
+    '<source src="/media/demo.mp3" type="audio/mpeg">',
+    '</audio>',
+  ].join('\n'), 'markdown');
+
+  assert.match(document.html, /<video controls="" autoplay="" loop="" muted="" playsinline="" poster="\/media\/demo\.jpg" preload="metadata" width="640" height="360" title="Demo">/);
+  assert.match(document.html, /<source src="\/media\/demo\.mp4" type="video\/mp4" \/>/);
+  assert.match(document.html, /<track src="\/media\/demo-en\.vtt" kind="captions" srclang="en" label="English" default="" \/>/);
+  assert.match(document.html, /<\/video>/);
+  assert.match(document.html, /<audio controls="" preload="none" title="Audio demo">/);
+  assert.match(document.html, /<source src="\/media\/demo\.mp3" type="audio\/mpeg" \/>/);
+  assert.match(document.html, /<\/audio>/);
+  assert.doesNotMatch(document.html, /onclick/);
+  assert.doesNotMatch(document.html, /style=/);
+});
+
+test('renderDocument removes unsafe native media URLs in markdown', () => {
+  const document = renderDocument([
+    '<video src="javascript:alert(1)" poster="javascript:alert(1)" controls>',
+    '<source src="javascript:alert(1)" type="video/mp4">',
+    '<track src="javascript:alert(1)" kind="captions">',
+    '</video>',
+    '<audio src="javascript:alert(1)" controls></audio>',
+  ].join('\n'), 'markdown');
+
+  assert.match(document.html, /<video controls="">/);
+  assert.match(document.html, /<source type="video\/mp4" \/>/);
+  assert.match(document.html, /<track kind="captions" \/>/);
+  assert.match(document.html, /<audio controls=""><\/audio>/);
+  assert.doesNotMatch(document.html, /javascript:alert/);
+  assert.doesNotMatch(document.html, /poster=/);
+});
+
 test('renderDocument removes unsafe srcset candidates from semantic media HTML', () => {
   const document = renderDocument([
     '<picture>',

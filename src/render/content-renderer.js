@@ -329,6 +329,7 @@ function sanitizeHtml(html) {
     'ul', 'ol', 'li',
     'blockquote', 'aside',
     'figure', 'figcaption', 'picture', 'source',
+    'video', 'audio', 'track',
     'table', 'thead', 'tbody', 'tr', 'th', 'td',
     'div', 'span', 'nav',
     'iframe', 'input',
@@ -341,6 +342,9 @@ function sanitizeHtml(html) {
     iframe: new Set(['src', 'width', 'height', 'frameborder', 'allowfullscreen', 'class']),
     input: new Set(['type', 'checked', 'disabled', 'class', 'id', 'aria-label']),
     source: new Set(['src', 'srcset', 'sizes', 'type', 'media', 'width', 'height', 'class', 'id']),
+    video: new Set(['src', 'controls', 'autoplay', 'loop', 'muted', 'playsinline', 'poster', 'preload', 'width', 'height', 'class', 'id', 'title']),
+    audio: new Set(['src', 'controls', 'autoplay', 'loop', 'muted', 'preload', 'class', 'id', 'title']),
+    track: new Set(['src', 'kind', 'srclang', 'label', 'default', 'class', 'id']),
     '*': new Set(['class', 'id']),
   };
 
@@ -377,7 +381,7 @@ function sanitizeHtml(html) {
           continue;
         }
 
-        if ((attributeName === 'href' || attributeName === 'src') && !safeUriPattern.test(attributeValue)) {
+        if ((attributeName === 'href' || attributeName === 'src' || attributeName === 'poster') && !safeUriPattern.test(attributeValue)) {
           continue;
         }
 
@@ -393,7 +397,7 @@ function sanitizeHtml(html) {
       }
     }
 
-    const isSelfClosing = match.endsWith('/>') || normalizedTag === 'br' || normalizedTag === 'hr' || normalizedTag === 'img' || normalizedTag === 'input' || normalizedTag === 'source';
+    const isSelfClosing = match.endsWith('/>') || normalizedTag === 'br' || normalizedTag === 'hr' || normalizedTag === 'img' || normalizedTag === 'input' || normalizedTag === 'source' || normalizedTag === 'track';
     const attributeSuffix = filteredAttributes.length > 0 ? ` ${filteredAttributes.join(' ')}` : '';
     return isSelfClosing ? `<${normalizedTag}${attributeSuffix} />` : `<${normalizedTag}${attributeSuffix}>`;
   });
