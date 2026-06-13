@@ -342,8 +342,8 @@ function sanitizeHtml(html) {
     iframe: new Set(['src', 'width', 'height', 'frameborder', 'allowfullscreen', 'class', 'title']),
     input: new Set(['type', 'checked', 'disabled', 'class', 'id', 'aria-label']),
     source: new Set(['src', 'srcset', 'sizes', 'type', 'media', 'width', 'height', 'class', 'id']),
-    video: new Set(['src', 'controls', 'autoplay', 'loop', 'muted', 'playsinline', 'poster', 'preload', 'width', 'height', 'class', 'id', 'title']),
-    audio: new Set(['src', 'controls', 'autoplay', 'loop', 'muted', 'preload', 'class', 'id', 'title']),
+    video: new Set(['src', 'controls', 'controlslist', 'autoplay', 'loop', 'muted', 'playsinline', 'poster', 'preload', 'width', 'height', 'class', 'id', 'title']),
+    audio: new Set(['src', 'controls', 'controlslist', 'autoplay', 'loop', 'muted', 'preload', 'class', 'id', 'title']),
     track: new Set(['src', 'kind', 'srclang', 'label', 'default', 'class', 'id']),
     '*': new Set(['class', 'id']),
   };
@@ -389,6 +389,15 @@ function sanitizeHtml(html) {
           continue;
         }
 
+        if (attributeName === 'controlslist') {
+          const controlsList = sanitizeControlsList(attributeValue);
+          if (!controlsList) {
+            continue;
+          }
+          filteredAttributes.push(`${attributeName}="${controlsList}"`);
+          continue;
+        }
+
         if (normalizedTag === 'input' && attributeName === 'type' && attributeValue !== 'checkbox') {
           continue;
         }
@@ -412,6 +421,19 @@ function sanitizeHtml(html) {
       return part.replace(/&(?!(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;');
     })
     .join('');
+}
+
+function sanitizeControlsList(value) {
+  const allowedTokens = new Set(['nodownload', 'nofullscreen', 'noremoteplayback']);
+  const tokens = String(value)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((token, index, allTokens) => (
+      allowedTokens.has(token)
+      && allTokens.indexOf(token) === index
+    ));
+
+  return tokens.join(' ');
 }
 
 function isSafeSrcset(value, safeUriPattern) {
