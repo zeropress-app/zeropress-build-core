@@ -3133,6 +3133,23 @@ test('renderDocument does not auto-link bare domains or filename-like text', () 
   assert.doesNotMatch(document.html, /href="http:\/\/build\.sh"/);
 });
 
+test('renderDocument preserves safe blank target links in markdown HTML', () => {
+  const document = renderDocument([
+    '<a href="https://example.com" target="_blank">External</a>',
+    '<a href="/docs/" target="_blank" rel="nofollow noopener bad-token">Docs</a>',
+    '<a href="/same" target="_self" rel="external">Same</a>',
+    '<a href="/bad" target="_top" rel="bad-token">Bad</a>',
+  ].join('\n'), 'markdown');
+
+  assert.match(document.html, /<a href="https:\/\/example\.com" target="_blank" rel="noopener noreferrer">External<\/a>/);
+  assert.match(document.html, /<a href="\/docs\/" target="_blank" rel="nofollow noopener noreferrer">Docs<\/a>/);
+  assert.match(document.html, /<a href="\/same" rel="external">Same<\/a>/);
+  assert.match(document.html, /<a href="\/bad">Bad<\/a>/);
+  assert.doesNotMatch(document.html, /target="_self"/);
+  assert.doesNotMatch(document.html, /target="_top"/);
+  assert.doesNotMatch(document.html, /bad-token/);
+});
+
 test('renderDocument preserves safe semantic media HTML in markdown', () => {
   const document = renderDocument([
     '<figure class="gallery-item" onclick="alert(1)">',

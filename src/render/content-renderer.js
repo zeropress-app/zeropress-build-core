@@ -336,7 +336,7 @@ function sanitizeHtml(html) {
   ]);
 
   const allowedAttributes = {
-    a: new Set(['href', 'title', 'class', 'id']),
+    a: new Set(['href', 'title', 'class', 'id', 'target', 'rel']),
     aside: new Set(['role', 'class', 'id']),
     img: new Set(['src', 'srcset', 'sizes', 'alt', 'title', 'class', 'id', 'width', 'height', 'loading', 'decoding']),
     iframe: new Set(['src', 'width', 'height', 'frameborder', 'allowfullscreen', 'class', 'title']),
@@ -368,6 +368,8 @@ function sanitizeHtml(html) {
     const tagAllowedAttributes = allowedAttributes[normalizedTag] || new Set();
     const globalAllowedAttributes = allowedAttributes['*'];
     const filteredAttributes = [];
+    let anchorTarget = '';
+    let anchorRel = '';
 
     if (attributeString) {
       const attributePattern = /([a-zA-Z][a-zA-Z0-9-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+)))?/g;
@@ -382,6 +384,24 @@ function sanitizeHtml(html) {
         }
 
         if ((attributeName === 'href' || attributeName === 'src' || attributeName === 'poster') && !safeUriPattern.test(attributeValue)) {
+          continue;
+        }
+
+        if (normalizedTag === 'a' && attributeName === 'target') {
+          const target = sanitizeAnchorTarget(attributeValue);
+          if (!target) {
+            continue;
+          }
+          anchorTarget = target;
+          continue;
+        }
+
+        if (normalizedTag === 'a' && attributeName === 'rel') {
+          const rel = sanitizeRelList(attributeValue);
+          if (!rel) {
+            continue;
+          }
+          anchorRel = rel;
           continue;
         }
 
@@ -406,6 +426,18 @@ function sanitizeHtml(html) {
       }
     }
 
+    if (normalizedTag === 'a') {
+      if (anchorTarget) {
+        filteredAttributes.push(`target="${anchorTarget}"`);
+      }
+      if (anchorTarget === '_blank') {
+        anchorRel = ensureBlankTargetRel(anchorRel);
+      }
+      if (anchorRel) {
+        filteredAttributes.push(`rel="${anchorRel}"`);
+      }
+    }
+
     const isSelfClosing = match.endsWith('/>') || normalizedTag === 'br' || normalizedTag === 'hr' || normalizedTag === 'img' || normalizedTag === 'input' || normalizedTag === 'source' || normalizedTag === 'track';
     const attributeSuffix = filteredAttributes.length > 0 ? ` ${filteredAttributes.join(' ')}` : '';
     return isSelfClosing ? `<${normalizedTag}${attributeSuffix} />` : `<${normalizedTag}${attributeSuffix}>`;
@@ -421,6 +453,39 @@ function sanitizeHtml(html) {
       return part.replace(/&(?!(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;');
     })
     .join('');
+}
+
+function sanitizeAnchorTarget(value) {
+  const normalized = String(value).trim().toLowerCase();
+  return normalized === '_blank' ? '_blank' : '';
+}
+
+function sanitizeRelList(value) {
+  const allowedTokens = new Set(['noopener', 'noreferrer', 'nofollow', 'ugc', 'sponsored', 'external']);
+  const tokens = String(value)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((token, index, allTokens) => (
+      allowedTokens.has(token)
+      && allTokens.indexOf(token) === index
+    ));
+
+  return tokens.join(' ');
+}
+
+function ensureBlankTargetRel(value) {
+  const tokens = String(value)
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+
+  for (const requiredToken of ['noopener', 'noreferrer']) {
+    if (!tokens.includes(requiredToken)) {
+      tokens.push(requiredToken);
+    }
+  }
+
+  return tokens.join(' ');
 }
 
 function sanitizeControlsList(value) {
