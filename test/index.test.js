@@ -1439,6 +1439,32 @@ test('buildSite uses site title only for front page meta when site description i
 
   assert.match(rootHtml, /<title>ZeroPress Preview<\/title>/);
   assert.match(rootHtml, /property="og:title" content="ZeroPress Preview"/);
+  assert.doesNotMatch(rootHtml, /<meta name="description"/);
+  assert.doesNotMatch(rootHtml, /property="og:description"/);
+});
+
+test('buildSite uses page excerpt for front page page meta description', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.front_page = { type: 'page', page_slug: 'about' };
+  previewData.site.description = '';
+  previewData.site.post_index = { enabled: false };
+  previewData.content.pages[0].excerpt = 'About excerpt should become front page meta description.';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const rootHtml = getFileContent(writer.getFiles(), 'index.html');
+
+  assert.match(rootHtml, /<title>ZeroPress Preview<\/title>/);
+  assert.match(rootHtml, /property="og:title" content="ZeroPress Preview"/);
+  assert.match(rootHtml, /<meta name="description" content="About excerpt should become front page meta description\.">/);
+  assert.match(rootHtml, /property="og:description" content="About excerpt should become front page meta description\."/);
 });
 
 test('buildSite supports an index slug as front page without emitting a duplicate page route', async () => {
