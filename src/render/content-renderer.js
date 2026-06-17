@@ -51,7 +51,7 @@ function createMarkdownRenderer(toc) {
     html: true,
     linkify: false,
     typographer: true,
-    breaks: true,
+    breaks: false,
     highlight(value, language) {
       if (language && hljs.getLanguage(language)) {
         try {

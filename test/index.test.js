@@ -3133,6 +3133,19 @@ test('renderDocument does not auto-link bare domains or filename-like text', () 
   assert.doesNotMatch(document.html, /href="http:\/\/build\.sh"/);
 });
 
+test('renderDocument keeps single newlines as soft breaks in markdown paragraphs', () => {
+  const textDocument = renderDocument('hello\nworld', 'markdown');
+  const badgeDocument = renderDocument([
+    '![npm](https://img.shields.io/npm/v/%40zeropress%2Fbuild-pages)',
+    '![license](https://img.shields.io/npm/l/%40zeropress%2Fbuild-pages)',
+  ].join('\n'), 'markdown');
+
+  assert.equal(textDocument.html, '<p>hello\nworld</p>\n');
+  assert.match(badgeDocument.html, /<p><img src="https:\/\/img\.shields\.io\/npm\/v\/%40zeropress%2Fbuild-pages" alt="npm" \/>\n<img src="https:\/\/img\.shields\.io\/npm\/l\/%40zeropress%2Fbuild-pages" alt="license" \/><\/p>/);
+  assert.doesNotMatch(textDocument.html, /<br/);
+  assert.doesNotMatch(badgeDocument.html, /<br/);
+});
+
 test('renderDocument preserves safe blank target links in markdown HTML', () => {
   const document = renderDocument([
     '<a href="https://example.com" target="_blank">External</a>',
