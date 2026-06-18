@@ -3316,6 +3316,181 @@ test('renderDocument renders GitHub alerts as ZeroPress alert blocks', () => {
   assert.doesNotMatch(unsupported.html, /zp-alert/);
 });
 
+test('renderDocument renders Docusaurus-style admonition containers as ZeroPress alert blocks', () => {
+  const markers = [
+    ['note', 'note', 'Note'],
+    ['info', 'note', 'Info'],
+    ['tip', 'tip', 'Tip'],
+    ['important', 'important', 'Important'],
+    ['warning', 'warning', 'Warning'],
+    ['caution', 'caution', 'Caution'],
+    ['danger', 'caution', 'Danger'],
+  ];
+
+  for (const [marker, className, title] of markers) {
+    const document = renderDocument([
+      `:::${marker}`,
+      'Alert body with **formatting**.',
+      ':::',
+    ].join('\n'), 'markdown');
+
+    assert.match(document.html, new RegExp(`<aside class="zp-alert zp-alert--${className}" role="note">`));
+    assert.match(document.html, new RegExp(`<p class="zp-alert__title">${title}</p>`));
+    assert.match(document.html, /<p>Alert body with <strong>formatting<\/strong>\.<\/p>/);
+    assert.doesNotMatch(document.html, new RegExp(`:::${marker}`));
+  }
+});
+
+test('renderDocument ignores custom Docusaurus admonition titles and attributes', () => {
+  const inputs = [
+    ':::note[Custom **title**]',
+    ':::note{.padding--lg #admonition-id-2}',
+    ':::note[Title]{.padding--lg .text--italic}',
+  ];
+
+  for (const opener of inputs) {
+    const document = renderDocument([
+      opener,
+      'Alert body.',
+      ':::',
+    ].join('\n'), 'markdown');
+
+    assert.match(document.html, /<aside class="zp-alert zp-alert--note" role="note">/);
+    assert.match(document.html, /<p class="zp-alert__title">Note<\/p>/);
+    assert.match(document.html, /<p>Alert body\.<\/p>/);
+    assert.doesNotMatch(document.html, /Custom/);
+    assert.doesNotMatch(document.html, /padding--lg/);
+    assert.doesNotMatch(document.html, /admonition-id-2/);
+  }
+});
+
+test('renderDocument preserves rich Markdown inside Docusaurus admonition containers', () => {
+  const document = renderDocument([
+    ':::tip',
+    '',
+    'First paragraph.',
+    '',
+    '- one',
+    '- two',
+    '',
+    '```js',
+    'console.log("hi");',
+    '```',
+    '',
+    '<figure><img src="/ok.png" alt="ok"><figcaption>Raw HTML</figcaption></figure>',
+    '',
+    ':::',
+  ].join('\n'), 'markdown');
+
+  assert.match(document.html, /<aside class="zp-alert zp-alert--tip" role="note">/);
+  assert.match(document.html, /<p class="zp-alert__title">Tip<\/p>/);
+  assert.match(document.html, /<p>First paragraph\.<\/p>/);
+  assert.match(document.html, /<ul>\s*<li>one<\/li>\s*<li>two<\/li>\s*<\/ul>/);
+  assert.match(document.html, /<pre><code class="language-js">/);
+  assert.match(document.html, /console/);
+  assert.match(document.html, /<figure><img src="\/ok\.png" alt="ok" \/><figcaption>Raw HTML<\/figcaption><\/figure>/);
+});
+
+test('renderDocument sanitizes unsafe raw HTML inside Docusaurus admonition containers', () => {
+  const document = renderDocument([
+    ':::tip',
+    '<figure onclick="alert(1)">',
+    '<img src="javascript:alert(1)" onerror="alert(1)" alt="Unsafe">',
+    '<figcaption>Unsafe HTML</figcaption>',
+    '</figure>',
+    '<script>alert(1)</script>',
+    ':::',
+  ].join('\n'), 'markdown');
+
+  assert.match(document.html, /<aside class="zp-alert zp-alert--tip" role="note">/);
+  assert.match(document.html, /<figure>/);
+  assert.match(document.html, /<img alt="Unsafe" \/>/);
+  assert.match(document.html, /<figcaption>Unsafe HTML<\/figcaption>/);
+  assert.doesNotMatch(document.html, /javascript:alert/);
+  assert.doesNotMatch(document.html, /onclick/);
+  assert.doesNotMatch(document.html, /onerror/);
+  assert.doesNotMatch(document.html, /<script/);
+});
+
+test('renderDocument supports nested Docusaurus admonition containers with shorter child delimiters', () => {
+  const document = renderDocument([
+    ':::::info',
+    '',
+    'Parent content',
+    '',
+    '::::danger',
+    '',
+    'Child content',
+    '',
+    ':::tip',
+    '',
+    'Deep child content',
+    '',
+    ':::',
+    '',
+    '::::',
+    '',
+    ':::::',
+  ].join('\n'), 'markdown');
+
+  assert.match(
+    document.html,
+    /<aside class="zp-alert zp-alert--note" role="note">[\s\S]*<p class="zp-alert__title">Info<\/p>[\s\S]*Parent content[\s\S]*<aside class="zp-alert zp-alert--caution" role="note">[\s\S]*<p class="zp-alert__title">Danger<\/p>[\s\S]*Child content[\s\S]*<aside class="zp-alert zp-alert--tip" role="note">[\s\S]*<p class="zp-alert__title">Tip<\/p>[\s\S]*Deep child content[\s\S]*<\/aside>[\s\S]*<\/aside>[\s\S]*<\/aside>/
+  );
+});
+
+test('renderDocument does not convert unsupported or unclosed Docusaurus admonition containers', () => {
+  const unsupported = renderDocument([
+    ':::todo',
+    'Keep this text.',
+    ':::',
+  ].join('\n'), 'markdown');
+
+  assert.match(unsupported.html, /:::todo/);
+  assert.match(unsupported.html, /Keep this text\./);
+  assert.doesNotMatch(unsupported.html, /zp-alert/);
+
+  const unclosed = renderDocument([
+    ':::tip',
+    'Keep this unclosed text.',
+  ].join('\n'), 'markdown');
+
+  assert.match(unclosed.html, /:::tip/);
+  assert.match(unclosed.html, /Keep this unclosed text\./);
+  assert.doesNotMatch(unclosed.html, /zp-alert/);
+});
+
+test('renderDocument keeps unsupported GitHub alert markers as normal blockquotes', () => {
+  for (const marker of ['INFO', 'DANGER']) {
+    const document = renderDocument([
+      `> [!${marker}]`,
+      '> Keep this blockquote.',
+    ].join('\n'), 'markdown');
+
+    assert.match(document.html, /<blockquote>/);
+    assert.match(document.html, new RegExp(`\\[!${marker}\\]`));
+    assert.doesNotMatch(document.html, /zp-alert/);
+  }
+});
+
+test('renderDocument supports nested GitHub alert blockquotes', () => {
+  const document = renderDocument([
+    '> [!NOTE]',
+    '> Parent content',
+    '>',
+    '> > [!CAUTION]',
+    '> > Child content',
+    '> >',
+    '> > > [!TIP]',
+    '> > > Deep child content',
+  ].join('\n'), 'markdown');
+
+  assert.match(
+    document.html,
+    /<aside class="zp-alert zp-alert--note" role="note">[\s\S]*<p class="zp-alert__title">Note<\/p>[\s\S]*Parent content[\s\S]*<aside class="zp-alert zp-alert--caution" role="note">[\s\S]*<p class="zp-alert__title">Caution<\/p>[\s\S]*Child content[\s\S]*<aside class="zp-alert zp-alert--tip" role="note">[\s\S]*<p class="zp-alert__title">Tip<\/p>[\s\S]*Deep child content[\s\S]*<\/aside>[\s\S]*<\/aside>[\s\S]*<\/aside>/
+  );
+});
+
 test('renderDocument keeps alert headings in markdown TOC', () => {
   const document = renderDocument([
     '> [!NOTE]',

@@ -10,6 +10,15 @@ const ALERT_TYPES = new Map([
   ['WARNING', { className: 'warning', title: 'Warning' }],
   ['CAUTION', { className: 'caution', title: 'Caution' }],
 ]);
+const ADMONITION_CONTAINER_TYPES = new Map([
+  ['NOTE', { className: 'note', title: 'Note' }],
+  ['INFO', { className: 'note', title: 'Info' }],
+  ['TIP', { className: 'tip', title: 'Tip' }],
+  ['IMPORTANT', { className: 'important', title: 'Important' }],
+  ['WARNING', { className: 'warning', title: 'Warning' }],
+  ['CAUTION', { className: 'caution', title: 'Caution' }],
+  ['DANGER', { className: 'caution', title: 'Danger' }],
+]);
 
 export function renderDocumentContent(content, documentType = 'markdown') {
   return renderDocument(content, documentType).html;
@@ -69,6 +78,7 @@ function createMarkdownRenderer(toc) {
     },
   });
 
+  markdown.use(markdownAdmonitionContainers);
   markdown.use(markdownTaskLists);
   markdown.use(markdownAlerts);
   markdown.use(markdownTableAlignmentClasses);
@@ -90,6 +100,107 @@ function createMarkdownRenderer(toc) {
   });
 
   return markdown;
+}
+
+function markdownAdmonitionContainers(markdown) {
+  markdown.block.ruler.before('fence', 'zeropress_admonition_containers', (state, startLine, endLine, silent) => {
+    if (state.sCount[startLine] - state.blkIndent >= 4) {
+      return false;
+    }
+
+    const opener = parseAdmonitionContainerOpener(getLineText(state, startLine));
+    if (!opener) {
+      return false;
+    }
+
+    const alert = ADMONITION_CONTAINER_TYPES.get(opener.type.toUpperCase());
+    if (!alert) {
+      return false;
+    }
+
+    const closeLine = findAdmonitionContainerClose(state, startLine + 1, endLine, opener.markerLength);
+    if (closeLine === -1) {
+      return false;
+    }
+
+    if (silent) {
+      return true;
+    }
+
+    const openToken = state.push('admonition_container_open', 'aside', 1);
+    openToken.block = true;
+    openToken.markup = opener.markup;
+    openToken.map = [startLine, closeLine + 1];
+    openToken.attrSet('class', `zp-alert zp-alert--${alert.className}`);
+    openToken.attrSet('role', 'note');
+
+    state.tokens.push(...createAlertTitleTokens(state, alert.title));
+    state.md.block.tokenize(state, startLine + 1, closeLine);
+
+    const closeToken = state.push('admonition_container_close', 'aside', -1);
+    closeToken.block = true;
+    closeToken.markup = opener.markup;
+
+    state.line = closeLine + 1;
+    return true;
+  }, {
+    alt: ['paragraph', 'reference', 'blockquote', 'list'],
+  });
+}
+
+function getLineText(state, line) {
+  const start = state.bMarks[line] + state.tShift[line];
+  const end = state.eMarks[line];
+  return state.src.slice(start, end);
+}
+
+function parseAdmonitionContainerOpener(lineText) {
+  const match = /^(:{3,})[ \t]*([A-Za-z][A-Za-z0-9_-]*)(?=$|[ \t[\{])/.exec(lineText);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    markup: match[1],
+    markerLength: match[1].length,
+    type: match[2],
+  };
+}
+
+function findAdmonitionContainerClose(state, startLine, endLine, markerLength) {
+  let fenceMarker = '';
+  let fenceLength = 0;
+
+  for (let line = startLine; line < endLine; line += 1) {
+    const lineText = getLineText(state, line);
+
+    if (fenceMarker) {
+      const fenceClose = new RegExp(`^${escapeRegExp(fenceMarker)}{${fenceLength},}[ \\t]*$`).exec(lineText);
+      if (fenceClose) {
+        fenceMarker = '';
+        fenceLength = 0;
+      }
+      continue;
+    }
+
+    const fenceOpen = /^(`{3,}|~{3,})/.exec(lineText);
+    if (fenceOpen) {
+      fenceMarker = fenceOpen[1][0];
+      fenceLength = fenceOpen[1].length;
+      continue;
+    }
+
+    const closeMatch = /^(:{3,})[ \t]*$/.exec(lineText);
+    if (closeMatch && closeMatch[1].length >= markerLength) {
+      return line;
+    }
+  }
+
+  return -1;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function markdownTableAlignmentClasses(markdown) {
@@ -209,8 +320,9 @@ function markdownAlerts(markdown) {
         state.tokens.splice(firstParagraph.openIndex, 3);
       }
 
-      state.tokens.splice(index + 1, 0, ...createAlertTitleTokens(state, alert.title));
-      index += 3;
+      const titleTokens = createAlertTitleTokens(state, alert.title);
+      state.tokens.splice(index + 1, 0, ...titleTokens);
+      index += titleTokens.length;
     }
   });
 }
@@ -272,18 +384,10 @@ function stripAlertMarker(inlineToken, state) {
 }
 
 function createAlertTitleTokens(state, title) {
-  const openToken = new state.Token('paragraph_open', 'p', 1);
-  openToken.attrSet('class', 'zp-alert__title');
-
-  const inlineToken = new state.Token('inline', '', 0);
-  inlineToken.content = title;
-  const textToken = new state.Token('text', '', 0);
-  textToken.content = title;
-  inlineToken.children = [textToken];
-
-  const closeToken = new state.Token('paragraph_close', 'p', -1);
-
-  return [openToken, inlineToken, closeToken];
+  const token = new state.Token('html_block', '', 0);
+  token.block = true;
+  token.content = `<p class="zp-alert__title">${escapeHtml(title)}</p>`;
+  return [token];
 }
 
 function addTokenClass(token, className) {
@@ -301,12 +405,7 @@ function normalizeDocumentType(value) {
 }
 
 function transformPlaintext(content) {
-  const escaped = content
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+  const escaped = escapeHtml(content);
 
   const paragraphs = escaped
     .split(/\n\s*\n/)
@@ -318,6 +417,15 @@ function transformPlaintext(content) {
   }
 
   return paragraphs.map((entry) => `<p>${entry}</p>`).join('\n');
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 function sanitizeHtml(html) {
