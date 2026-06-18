@@ -432,7 +432,7 @@ function sanitizeHtml(html) {
   const allowedTags = new Set([
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'p', 'br', 'hr',
-    'strong', 'em', 'u', 's', 'code', 'pre',
+    'strong', 'b', 'em', 'u', 's', 'sup', 'sub', 'code', 'pre',
     'a', 'img',
     'ul', 'ol', 'li',
     'blockquote', 'aside',
@@ -450,6 +450,8 @@ function sanitizeHtml(html) {
     iframe: new Set(['src', 'width', 'height', 'frameborder', 'allowfullscreen', 'class', 'title']),
     input: new Set(['type', 'checked', 'disabled', 'class', 'id', 'aria-label']),
     source: new Set(['src', 'srcset', 'sizes', 'type', 'media', 'width', 'height', 'class', 'id']),
+    th: new Set(['rowspan', 'colspan', 'align', 'class', 'id']),
+    td: new Set(['rowspan', 'colspan', 'align', 'class', 'id']),
     video: new Set(['src', 'controls', 'controlslist', 'autoplay', 'loop', 'muted', 'playsinline', 'poster', 'preload', 'width', 'height', 'class', 'id', 'title']),
     audio: new Set(['src', 'controls', 'controlslist', 'autoplay', 'loop', 'muted', 'preload', 'class', 'id', 'title']),
     track: new Set(['src', 'kind', 'srclang', 'label', 'default', 'class', 'id']),
@@ -478,6 +480,7 @@ function sanitizeHtml(html) {
     const filteredAttributes = [];
     let anchorTarget = '';
     let anchorRel = '';
+    let tableCellAlignClass = '';
 
     if (attributeString) {
       const attributePattern = /([a-zA-Z][a-zA-Z0-9-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+)))?/g;
@@ -526,12 +529,34 @@ function sanitizeHtml(html) {
           continue;
         }
 
+        if ((normalizedTag === 'th' || normalizedTag === 'td') && (attributeName === 'rowspan' || attributeName === 'colspan')) {
+          const span = sanitizePositiveIntegerAttribute(attributeValue);
+          if (!span) {
+            continue;
+          }
+          filteredAttributes.push(`${attributeName}="${span}"`);
+          continue;
+        }
+
+        if ((normalizedTag === 'th' || normalizedTag === 'td') && attributeName === 'align') {
+          const alignment = sanitizeTableAlignment(attributeValue);
+          if (!alignment) {
+            continue;
+          }
+          tableCellAlignClass = `zp-align-${alignment}`;
+          continue;
+        }
+
         if (normalizedTag === 'input' && attributeName === 'type' && attributeValue !== 'checkbox') {
           continue;
         }
 
         filteredAttributes.push(`${attributeName}="${attributeValue}"`);
       }
+    }
+
+    if (tableCellAlignClass) {
+      appendClassAttribute(filteredAttributes, tableCellAlignClass);
     }
 
     if (normalizedTag === 'a') {
@@ -561,6 +586,40 @@ function sanitizeHtml(html) {
       return part.replace(/&(?!(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;');
     })
     .join('');
+}
+
+function appendClassAttribute(attributes, className) {
+  const classIndex = attributes.findIndex((attribute) => attribute.startsWith('class="'));
+  if (classIndex === -1) {
+    attributes.push(`class="${className}"`);
+    return;
+  }
+
+  const existingValue = attributes[classIndex].slice('class="'.length, -1);
+  const classes = existingValue.split(/\s+/).filter(Boolean);
+  if (!classes.includes(className)) {
+    classes.push(className);
+  }
+  attributes[classIndex] = `class="${classes.join(' ')}"`;
+}
+
+function sanitizePositiveIntegerAttribute(value) {
+  const normalized = String(value).trim();
+  if (!/^\d+$/.test(normalized)) {
+    return '';
+  }
+
+  const numericValue = Number(normalized);
+  if (!Number.isSafeInteger(numericValue) || numericValue < 1) {
+    return '';
+  }
+
+  return String(numericValue);
+}
+
+function sanitizeTableAlignment(value) {
+  const normalized = String(value).trim().toLowerCase();
+  return ['left', 'center', 'right'].includes(normalized) ? normalized : '';
 }
 
 function sanitizeAnchorTarget(value) {

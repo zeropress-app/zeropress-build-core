@@ -3140,6 +3140,47 @@ test('renderDocument preserves standard markdown compatibility output', () => {
   assert.match(mermaid.html, /<code class="language-mermaid">/);
 });
 
+test('renderDocument preserves safe raw HTML table span and alignment attributes', () => {
+  const document = renderDocument([
+    '<table>',
+    '  <tr>',
+    '    <th rowspan="2">JS Client version</th>',
+    '    <th colspan="4" align="center">Socket.IO server version</th>',
+    '  </tr>',
+    '  <tr>',
+    '    <td align="center">1.x</td>',
+    '    <td align="center" class="compat-cell"><b>YES</b><sup>1</sup></td>',
+    '    <td align="right"><sub>NO</sub></td>',
+    '  </tr>',
+    '</table>',
+  ].join('\n'), 'markdown');
+
+  assert.match(document.html, /<th rowspan="2">JS Client version<\/th>/);
+  assert.match(document.html, /<th colspan="4" class="zp-align-center">Socket\.IO server version<\/th>/);
+  assert.match(document.html, /<td class="zp-align-center">1\.x<\/td>/);
+  assert.match(document.html, /<td class="compat-cell zp-align-center"><b>YES<\/b><sup>1<\/sup><\/td>/);
+  assert.match(document.html, /<td class="zp-align-right"><sub>NO<\/sub><\/td>/);
+  assert.doesNotMatch(document.html, /align=/);
+});
+
+test('renderDocument removes unsafe raw HTML table span and alignment values', () => {
+  const document = renderDocument([
+    '<table>',
+    '  <tr>',
+    '    <th rowspan="0" colspan="-1" align="middle">Invalid</th>',
+    '    <td rowspan="two" colspan="999999999999999999999999" align="start">Invalid</td>',
+    '  </tr>',
+    '</table>',
+  ].join('\n'), 'markdown');
+
+  assert.match(document.html, /<th>Invalid<\/th>/);
+  assert.match(document.html, /<td>Invalid<\/td>/);
+  assert.doesNotMatch(document.html, /rowspan=/);
+  assert.doesNotMatch(document.html, /colspan=/);
+  assert.doesNotMatch(document.html, /align=/);
+  assert.doesNotMatch(document.html, /zp-align-/);
+});
+
 test('renderDocument does not auto-link bare domains or filename-like text', () => {
   const document = renderDocument([
     '## When To example.com site',
