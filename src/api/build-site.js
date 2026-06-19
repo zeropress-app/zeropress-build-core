@@ -449,6 +449,7 @@ function normalizePreviewData(previewData, options = {}) {
       ? normalizeSiteFavicon(previewData.site.favicon, media_base_url)
       : normalizeSiteFavicon(options.favicon, ''),
     logo: normalizeSiteLogo(previewData.site.logo, media_base_url),
+    newsletter: normalizeSiteNewsletter(previewData.site.newsletter),
     posts_per_page: Number.isInteger(previewData.site.posts_per_page) && previewData.site.posts_per_page > 0
       ? previewData.site.posts_per_page
       : DEFAULT_POSTS_PER_PAGE,
@@ -770,6 +771,27 @@ function normalizeSiteLogo(logo, media_base_url) {
   return {
     src,
     ...(alt ? { alt } : {}),
+  };
+}
+
+function normalizeSiteNewsletter(newsletter) {
+  if (!newsletter || typeof newsletter !== 'object' || Array.isArray(newsletter)) {
+    return undefined;
+  }
+
+  const title = normalizeOptionalString(newsletter.title);
+  const description = normalizeOptionalString(newsletter.description);
+  const buttonLabel = normalizeOptionalString(newsletter.button_label);
+  const signupUrl = normalizeOptionalString(newsletter.signup_url);
+  const embedUrl = normalizeOptionalString(newsletter.embed_url);
+
+  return {
+    enabled: newsletter.enabled === true,
+    ...(title ? { title } : {}),
+    ...(description ? { description } : {}),
+    ...(buttonLabel ? { button_label: buttonLabel } : {}),
+    ...(signupUrl ? { signup_url: signupUrl } : {}),
+    ...(embedUrl ? { embed_url: embedUrl } : {}),
   };
 }
 

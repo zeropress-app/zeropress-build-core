@@ -449,6 +449,61 @@ test('buildSite exposes optional site.logo fields to themes with media normaliza
   assert.doesNotMatch(indexHtml, /src="\/logo\.svg"/);
 });
 
+test('buildSite exposes optional site.newsletter fields to themes without media normalization', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.newsletter = {
+    enabled: true,
+    title: 'Subscribe',
+    description: 'Get updates by email.',
+    button_label: 'Join',
+    signup_url: 'https://example.com/newsletter',
+    embed_url: '/newsletter.html',
+  };
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.templates.set('index', [
+    '{{#if site.newsletter.enabled}}',
+    '<section class="newsletter" data-signup="{{site.newsletter.signup_url}}" data-embed="{{site.newsletter.embed_url}}">',
+    '<h2>{{site.newsletter.title}}</h2>',
+    '<p>{{site.newsletter.description}}</p>',
+    '<button>{{site.newsletter.button_label}}</button>',
+    '</section>',
+    '{{/if}}',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /<section class="newsletter" data-signup="https:\/\/example\.com\/newsletter" data-embed="\/newsletter\.html">/);
+  assert.match(indexHtml, /<h2>Subscribe<\/h2>/);
+  assert.match(indexHtml, /<button>Join<\/button>/);
+  assert.doesNotMatch(indexHtml, /https:\/\/media\.example\.com\/newsletter\.html/);
+});
+
+test('buildSite omits site.newsletter render branches when newsletter is missing', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.templates.set('index', '{{#if site.newsletter.enabled}}newsletter-enabled{{#else}}newsletter-missing{{/if}}');
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { generateSpecialFiles: false },
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /newsletter-missing/);
+  assert.doesNotMatch(indexHtml, /newsletter-enabled/);
+});
+
 test('buildSite reports invalid preview data at the core API boundary', async () => {
   const writer = new MemoryWriter();
   const themePackage = await loadGoldenThemePackage();
