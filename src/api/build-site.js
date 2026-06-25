@@ -1248,11 +1248,11 @@ function resolveWidgetItem(item, previewData, renderData, widgetAreaId, index) {
 function resolveRecentPostsWidget(baseWidget, settings, renderData) {
   const limit = clampInteger(settings?.limit, 5, 1, 20);
   const items = renderData.posts
-    .filter((post) => !isDelistedDocument(post))
+    .filter((post) => post.status === 'published' && !isDelistedDocument(post))
     .slice(0, limit)
     .map((post) => ({
       title: post.title,
-      url: `/posts/${encodeSlugSegment(post.slug)}/`,
+      url: post.url,
       published_at: post.published_at,
       published_at_iso: post.published_at_iso,
     }));

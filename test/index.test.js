@@ -1364,6 +1364,48 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   assert.match(feedXml, /<link>https:\/\/example\.com\/posts\/101<\/link>/);
 });
 
+test('buildSite resolves recent-posts widget urls from post permalinks and omits non-published posts', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.permalinks = {
+    output_style: 'html-extension',
+    posts: '/post/:public_id',
+    pages: '/:slug/',
+    categories: '/categories/:slug/',
+    tags: '/tags/:slug/',
+  };
+  previewData.content.posts[0].status = 'draft';
+  previewData.content.posts[1].discoverability = 'delist';
+  previewData.widgets = {
+    sidebar: {
+      name: 'Sidebar',
+      items: [{ type: 'recent-posts', title: 'Recent Posts', settings: { limit: 3 } }],
+    },
+  };
+  themePackage.templates.set('index', [
+    '<aside class="recent-widget">',
+    '{{#for widget in widgets.sidebar.items}}',
+    '{{#for item in widget.items}}<a href="{{item.url}}">{{item.title}}</a>{{/for}}',
+    '{{/for}}',
+    '</aside>',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const files = writer.getFiles();
+  const indexHtml = getFileContent(files, 'index.html');
+
+  assert.doesNotMatch(indexHtml, /Hello ZeroPress/);
+  assert.doesNotMatch(indexHtml, /Theme Blocks Deep Dive/);
+  assert.match(indexHtml, /<a href="\/post\/103">Archive Patterns<\/a>/);
+});
+
 test('buildSite treats theme post_index=false as effective post index disabled', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
