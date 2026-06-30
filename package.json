@@ -34,7 +34,7 @@
   },
   "dependencies": {
     "@zeropress/slug-policy": "0.1.0",
-    "@zeropress/preview-data-validator": "0.6.12",
+    "@zeropress/preview-data-validator": "0.6.13",
     "@zeropress/theme-validator": "0.6.5",
     "highlight.js": "11.11.1",
     "markdown-it": "14.2.0",
