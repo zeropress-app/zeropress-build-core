@@ -9,7 +9,6 @@
     "media_base_url": "",
     "locale": "en-US",
     "posts_per_page": 2,
-    "datetime_display": "static",
     "date_style": "medium",
     "time_style": "none",
     "timezone": "UTC",

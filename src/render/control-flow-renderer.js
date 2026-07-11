@@ -229,6 +229,9 @@ export class ControlFlowRenderer {
 
       if (token.startsWith('/')) {
         const tagName = token.slice(1).trim();
+        if (COMPARISON_BLOCK_TAGS.has(tagName)) {
+          throw new Error(`Named conditional closing tag {{/${tagName}}} is not supported; use {{/if}}`);
+        }
         if (!stopTags.has(tagName)) {
           throw new Error(`Unexpected closing tag /${tagName}`);
         }
@@ -370,8 +373,8 @@ export class ControlFlowRenderer {
     let alternate = [];
     let nextIndex = startIndex;
     let currentBranch = initialBranch;
-    const comparisonStopTags = new Set(['else', 'if', tagName, ...COMPARISON_ELSE_IF_TAGS]);
-    const comparisonCloseTags = new Set(['if', tagName]);
+    const comparisonStopTags = new Set(['else', 'if', ...COMPARISON_ELSE_IF_TAGS]);
+    const comparisonCloseTags = new Set(['if']);
 
     while (true) {
       const branchResult = this.parseNodes(source, nextIndex, comparisonStopTags, partialArgScope);

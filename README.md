@@ -187,10 +187,12 @@ Build-core derives:
 - post list HTML blocks
 - pagination HTML
 - taxonomy link HTML
-- formatted `published_at` / `updated_at`
+- localized fallback `published_at` / `updated_at` values plus unconditional `published_at_iso` / `updated_at_iso` values
 - datetime formatting from `site.locale`, `site.timezone`, `site.date_style`, and `site.time_style`
 - `reading_time`
 - `comments_enabled`
+
+Build Core always emits localized fallback datetime strings together with canonical ISO timestamps. Themes may progressively enhance explicitly marked `<time datetime="...">` elements for the visitor's browser locale and timezone, but must preserve the fallback when JavaScript, `Intl`, or ISO parsing is unavailable. Themes that want canonical site-local display should use the fallback without client enhancement.
 
 Comment availability is derived from preview-data policy:
 
@@ -203,7 +205,6 @@ The canonical `preview-data v0.6` site contract uses:
 - `site.media_delivery_mode`
 - `site.locale`
 - `site.timezone`
-- `site.datetime_display`
 - `site.date_style`
 - `site.time_style`
 - `site.disallow_comments`

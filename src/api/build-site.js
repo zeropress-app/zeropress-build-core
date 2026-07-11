@@ -14,12 +14,10 @@ const DEFAULT_OPTIONS = {
 };
 
 const DEFAULT_POSTS_PER_PAGE = 10;
-const DEFAULT_DATETIME_DISPLAY = 'static';
 const DEFAULT_DATE_STYLE = 'medium';
 const DEFAULT_TIME_STYLE = 'none';
 const DEFAULT_TIMEZONE = 'UTC';
 const DEFAULT_LOCALE = 'en-US';
-const DATETIME_DISPLAY_MODES = new Set(['static', 'client']);
 const DATETIME_STYLES = new Set(['none', 'short', 'medium', 'long', 'full']);
 const DEFAULT_PERMALINKS = Object.freeze({
   output_style: 'directory',
@@ -450,9 +448,6 @@ function normalizePreviewData(previewData, options = {}) {
     posts_per_page: Number.isInteger(previewData.site.posts_per_page) && previewData.site.posts_per_page > 0
       ? previewData.site.posts_per_page
       : DEFAULT_POSTS_PER_PAGE,
-    datetime_display: DATETIME_DISPLAY_MODES.has(previewData.site.datetime_display)
-      ? previewData.site.datetime_display
-      : DEFAULT_DATETIME_DISPLAY,
     date_style: DATETIME_STYLES.has(previewData.site.date_style)
       ? previewData.site.date_style
       : DEFAULT_DATE_STYLE,

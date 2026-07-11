@@ -151,7 +151,7 @@ test('ControlFlowRenderer renders nested if/if_eq/for blocks and strips comments
     </ul>
   {{#else}}
     <p>fallback</p>
-  {{/if_eq}}
+  {{/if}}
 </section>
 {{/if}}
 {{!-- block note --}}
@@ -195,7 +195,7 @@ test('ControlFlowRenderer exposes loop metadata and else_if branches', () => {
 test('ControlFlowRenderer renders internal hyphens in data path segments', () => {
   const renderer = createInterpolatingRenderer();
   const output = renderer.render(
-    '{{#if menus.docs-sidebar.items}}{{#for section in menus.docs-sidebar.items}}{{#if section.custom-title}}{{section.custom-title}}{{#else_if section.fallback-title}}{{section.fallback-title}}{{/if}}{{#if_eq section.custom-kind "guide"}}:{{section.custom-kind}}{{/if_eq}};{{/for}}{{/if}}',
+    '{{#if menus.docs-sidebar.items}}{{#for section in menus.docs-sidebar.items}}{{#if section.custom-title}}{{section.custom-title}}{{#else_if section.fallback-title}}{{section.fallback-title}}{{/if}}{{#if_eq section.custom-kind "guide"}}:{{section.custom-kind}}{{/if}};{{/for}}{{/if}}',
     {
       menus: {
         'docs-sidebar': {
@@ -214,16 +214,16 @@ test('ControlFlowRenderer renders internal hyphens in data path segments', () =>
 test('ControlFlowRenderer supports strict typed comparison helpers', () => {
   const renderer = createInterpolatingRenderer();
   const output = renderer.render([
-    '{{#if_eq loop_index 4}}number{{#else}}no-number{{/if_eq}}',
-    '{{#if_eq loop_index "4"}}bad-string{{#else}}strict-string{{/if_eq}}',
-    '{{#if_eq site.footer.attribution true}}footer{{/if_eq}}',
-    '{{#if_eq route.type 4}}bad-route-number{{#else}}route-type-strict{{/if_eq}}',
-    '{{#if_eq route.url current.url}}active{{/if_eq}}',
-    '{{#if_neq loop.last true}},{{/if_neq}}',
-    '{{#if_in route.type "post" "page" "front_page" 4 "tag"}}in-route{{/if_in}}',
-    '{{#if_in numeric_route "4"}}bad-in-string{{#else}}strict-in{{/if_in}}',
-    '{{#if_starts_with route.url section.url}}prefix{{/if_starts_with}}',
-    '{{#if_starts_with route.type 4}}bad-prefix{{#else}}strict-prefix{{/if_starts_with}}',
+    '{{#if_eq loop_index 4}}number{{#else}}no-number{{/if}}',
+    '{{#if_eq loop_index "4"}}bad-string{{#else}}strict-string{{/if}}',
+    '{{#if_eq site.footer.attribution true}}footer{{/if}}',
+    '{{#if_eq route.type 4}}bad-route-number{{#else}}route-type-strict{{/if}}',
+    '{{#if_eq route.url current.url}}active{{/if}}',
+    '{{#if_neq loop.last true}},{{/if}}',
+    '{{#if_in route.type "post" "page" "front_page" 4 "tag"}}in-route{{/if}}',
+    '{{#if_in numeric_route "4"}}bad-in-string{{#else}}strict-in{{/if}}',
+    '{{#if_starts_with route.url section.url}}prefix{{/if}}',
+    '{{#if_starts_with route.type 4}}bad-prefix{{#else}}strict-prefix{{/if}}',
   ].join('|'), {
     loop_index: 4,
     loop: { last: false },
@@ -240,7 +240,7 @@ test('ControlFlowRenderer supports strict typed comparison helpers', () => {
 test('ControlFlowRenderer supports comparison else-if branches', () => {
   const renderer = createInterpolatingRenderer();
   const output = renderer.render([
-    '{{#if_neq route.type "post"}}not-post{{#else_if_neq route.type "page"}}not-page{{#else}}fallback{{/if_neq}}',
+    '{{#if_neq route.type "post"}}not-post{{#else_if_neq route.type "page"}}not-page{{#else}}fallback{{/if}}',
     '{{#if_in route.type "tag"}}tag{{#else_if_in route.type "post" "page"}}content{{/if}}',
     '{{#if_starts_with route.url "/blog/"}}blog{{#else_if_starts_with route.url "/docs/"}}docs{{/if}}',
     '{{#if_eq route.url current.url}}exact{{#else_if_starts_with route.url "/docs/"}}parent{{#else}}none{{/if}}',
@@ -254,24 +254,79 @@ test('ControlFlowRenderer supports comparison else-if branches', () => {
   assert.equal(output, 'not-page|content|docs|parent|post|not-page');
 });
 
+test('ControlFlowRenderer nests ordinary and comparison conditionals in both directions', () => {
+  const renderer = createInterpolatingRenderer();
+  const output = renderer.render([
+    '{{#if site.title}}outer-if:{{#if_eq route.type "post"}}inner-comparison{{/if}}{{/if}}',
+    '{{#if_eq route.type "post"}}outer-comparison:{{#if site.title}}inner-if{{/if}}{{/if}}',
+  ].join('|'), {
+    site: { title: 'ZeroPress' },
+    route: { type: 'post' },
+  });
+
+  assert.equal(output, 'outer-if:inner-comparison|outer-comparison:inner-if');
+});
+
+test('ControlFlowRenderer rejects named conditional closing tags with an actionable error', () => {
+  const renderer = new ControlFlowRenderer();
+
+  for (const tagName of ['if_eq', 'if_neq', 'if_in', 'if_starts_with']) {
+    assert.throws(
+      () => renderer.parse(`{{#${tagName} route.type "post"}}content{{/${tagName}}}`),
+      (error) => {
+        assert.equal(
+          error.message,
+          `Named conditional closing tag {{/${tagName}}} is not supported; use {{/if}}`,
+        );
+        return true;
+      },
+    );
+  }
+});
+
+test('ControlFlowRenderer rejects mismatched block closes and preserves branch ordering and unclosed errors', () => {
+  const renderer = new ControlFlowRenderer();
+
+  assert.throws(
+    () => renderer.parse('{{#if site.title}}content{{/for}}'),
+    /Unexpected closing tag \/for/,
+  );
+  assert.throws(
+    () => renderer.parse('{{#for item in items}}content{{/if}}'),
+    /Unexpected closing tag \/if/,
+  );
+  assert.throws(
+    () => renderer.parse('{{#if_eq route.type "post"}}a{{#else}}b{{#else_if_eq route.type "page"}}c{{/if}}'),
+    /Unexpected else_if_eq tag/,
+  );
+  assert.throws(
+    () => renderer.parse('{{#if site.title}}content'),
+    /Unclosed if block/,
+  );
+  assert.throws(
+    () => renderer.parse('{{#if_eq route.type "post"}}content'),
+    /Unclosed if_eq block/,
+  );
+  assert.throws(
+    () => renderer.parse('{{#if_eq route.type "post"}}a{{#else}}content'),
+    /Unclosed if_eq block after else/,
+  );
+});
+
 test('ControlFlowRenderer rejects malformed comparison helpers', () => {
   const renderer = createInterpolatingRenderer();
 
   assert.throws(
-    () => renderer.render('{{#if_eq site.footer.attribution}}bad{{/if_eq}}', {}),
+    () => renderer.render('{{#if_eq site.footer.attribution}}bad{{/if}}', {}),
     /Invalid if_eq expression/,
   );
   assert.throws(
-    () => renderer.render('{{#if_in route.type}}bad{{/if_in}}', {}),
+    () => renderer.render('{{#if_in route.type}}bad{{/if}}', {}),
     /Invalid if_in expression/,
   );
   assert.throws(
-    () => renderer.render('{{#if_eq route.type post page}}bad{{/if_eq}}', {}),
+    () => renderer.render('{{#if_eq route.type post page}}bad{{/if}}', {}),
     /Invalid if_eq expression/,
-  );
-  assert.throws(
-    () => renderer.render('{{#if_eq route.type "post"}}bad{{/if_starts_with}}', {}),
-    /Unexpected closing tag/,
   );
   assert.throws(
     () => renderer.render('{{#if_eq route.type "post"}}ok{{#else}}fallback{{#else_if_eq route.type "page"}}bad{{/if}}', {}),
@@ -617,18 +672,18 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
             {{#if widget.bio_text}}<p class="sidebar-copy">{{widget.bio_text}}</p>{{/if}}
           </div>
         </section>
-      {{/if_eq}}
+      {{/if}}
       {{#if_eq widget.type "recent-posts"}}
         <ul class="widget-list">
           {{#for item in widget.items}}<li><a href="{{item.url}}">{{item.title}}</a></li>{{/for}}
         </ul>
-      {{/if_eq}}
+      {{/if}}
       {{#if_eq widget.type "search"}}
         <form class="widget-search"><input class="search-input" type="search" placeholder="{{widget.placeholder}}"><button class="widget-search-button" type="submit">{{widget.button_label}}</button></form>
-      {{/if_eq}}
+      {{/if}}
       {{#if_eq widget.type "text"}}
         <div class="widget-copy">{{widget.html}}</div>
-      {{/if_eq}}
+      {{/if}}
     {{/for}}
   </aside>
 </section>`);
@@ -1054,16 +1109,16 @@ test('buildSite runtime 0.6 renders resolved widgets with escaping and safe URL 
             <a href="{{item.url}}" target="{{item.target}}">{{item.label}}</a>
           {{/for}}
         </div>
-      {{/if_eq}}
+      {{/if}}
       {{#if_eq widget.type "text"}}
         <div class="widget-copy">{{widget.html}}</div>
-      {{/if_eq}}
+      {{/if}}
       {{#if_eq widget.type "profile"}}
         <section class="widget-card widget-card--profile">
           {{#if widget.avatar_url}}<img class="widget-profile__avatar" src="{{widget.avatar_url}}" alt="{{widget.display_name}}">{{/if}}
           {{#if widget.bio_text}}<p class="sidebar-copy">{{widget.bio_text}}</p>{{/if}}
         </section>
-      {{/if_eq}}
+      {{/if}}
     {{/for}}
   </aside>
 </section>`);
@@ -1322,7 +1377,7 @@ test('buildSite renders nested partials in templates and layout slot partials', 
   themePackage.partials.set('sidebar/widget-card', [
     '{{#if_eq widget.type "text"}}',
     '<section class="widget-card">{{#if widget.title}}<h2>{{widget.title}}</h2>{{/if}}<div class="widget-copy">{{widget.html}}</div></section>',
-    '{{/if_eq}}',
+    '{{/if}}',
   ].join(''));
 
   await buildSite({
@@ -1357,7 +1412,7 @@ test('buildSite runtime 0.6 exposes structured posts, archive groups, and pagina
     '  {{#if pagination.has_multiple_pages}}',
     '    <nav class="structured-pagination">',
     '      {{#if pagination.has_prev}}<a class="prev" href="{{pagination.prev_url}}">Previous</a>{{/if}}',
-    '      {{#for page in pagination.window}}{{#if_eq page.kind "page"}}<a class="page {{#if page.current}}current{{/if}}" href="{{page.url}}">{{page.number}}</a>{{#else_if_eq page.kind "gap"}}<span class="page-gap">…</span>{{/if_eq}}{{/for}}',
+    '      {{#for page in pagination.window}}{{#if_eq page.kind "page"}}<a class="page {{#if page.current}}current{{/if}}" href="{{page.url}}">{{page.number}}</a>{{#else_if_eq page.kind "gap"}}<span class="page-gap">…</span>{{/if}}{{/for}}',
     '      {{#if pagination.has_next}}<a class="next" href="{{pagination.next_url}}">Next</a>{{/if}}',
     '    </nav>',
     '  {{/if}}',
@@ -2084,7 +2139,7 @@ test('buildSite exposes pagination.window for compact page navigation', async ()
   themePackage.templates.set('index', [
     '<nav class="window-pagination">',
     '  {{#for page in pagination.window}}',
-    '    {{#if_eq page.kind "page"}}<a class="page{{#if page.current}} current{{/if}}" href="{{page.url}}">{{page.number}}</a>{{#else_if_eq page.kind "gap"}}<span class="gap">…</span>{{/if_eq}}',
+    '    {{#if_eq page.kind "page"}}<a class="page{{#if page.current}} current{{/if}}" href="{{page.url}}">{{page.number}}</a>{{#else_if_eq page.kind "gap"}}<span class="gap">…</span>{{/if}}',
     '  {{/for}}',
     '</nav>',
   ].join('\n'));
@@ -2613,7 +2668,7 @@ test('buildSite preserves relative media fields when site.media_base_url is miss
   assert.doesNotMatch(pageHtml, /property="og:image"/);
 });
 
-test('buildSite formats timestamps with Intl datetime styles and exposes datetime_display', async () => {
+test('buildSite formats localized fallback timestamps and always exposes ISO timestamps', async () => {
   const publishedAt = '2026-05-15T13:12:34Z';
   const cases = [
     ['short', 'short'],
@@ -2629,7 +2684,6 @@ test('buildSite formats timestamps with Intl datetime styles and exposes datetim
     const themePackage = cloneThemePackage(await loadGoldenThemePackage());
     previewData.site.locale = 'ko-KR';
     previewData.site.timezone = 'Asia/Seoul';
-    previewData.site.datetime_display = 'client';
     previewData.site.date_style = date_style;
     previewData.site.time_style = time_style;
     previewData.content.posts = [{
@@ -2637,7 +2691,10 @@ test('buildSite formats timestamps with Intl datetime styles and exposes datetim
       published_at_iso: publishedAt,
       updated_at_iso: publishedAt,
     }];
-    themePackage.templates.set('post', '<time datetime="{{post.published_at_iso}}" data-display="{{site.datetime_display}}">{{post.published_at}}</time>');
+    themePackage.templates.set('post', [
+      '<time class="published" datetime="{{post.published_at_iso}}">{{post.published_at}}</time>',
+      '<time class="updated" datetime="{{post.updated_at_iso}}">{{post.updated_at}}</time>',
+    ].join(''));
 
     await buildSite({
       previewData,
@@ -2653,9 +2710,8 @@ test('buildSite formats timestamps with Intl datetime styles and exposes datetim
       time_style,
     });
 
-    assert.match(postHtml, /data-display="client"/);
-    assert.match(postHtml, new RegExp(`<time datetime="2026-05-15T13:12:34Z" data-display="client">${escapeRegExp(expected)}<\\/time>`));
-    assert.match(postHtml, /datetime="2026-05-15T13:12:34Z"/);
+    assert.match(postHtml, new RegExp(`<time class="published" datetime="2026-05-15T13:12:34Z">${escapeRegExp(expected)}<\\/time>`));
+    assert.match(postHtml, new RegExp(`<time class="updated" datetime="2026-05-15T13:12:34Z">${escapeRegExp(expected)}<\\/time>`));
   }
 });
 
@@ -4055,7 +4111,6 @@ test('buildSite renders v0.6 raw content and resolves structured post author dat
         media_base_url: 'https://media.example.com',
         locale: 'en-US',
         posts_per_page: 10,
-        datetime_display: 'static',
         date_style: 'medium',
         time_style: 'none',
         timezone: 'UTC',
