@@ -922,7 +922,7 @@ function createRenderData(previewData, themeMetadata = {}) {
       page: entry.page,
       totalPages: entry.totalPages,
       archive: {
-        groups: buildArchiveGroups(entry.items, postBySlug),
+        groups: buildArchiveGroups(entry.items, postBySlug, previewData.site),
       },
       pagination: buildStructuredPagination(entry.paginationData),
     })),
@@ -1729,7 +1729,7 @@ function buildAdjacentPostSummary(post) {
   };
 }
 
-function buildArchiveGroups(posts, postBySlug) {
+function buildArchiveGroups(posts, postBySlug, site) {
   const groups = new Map();
 
   for (const post of posts) {
@@ -1738,14 +1738,12 @@ function buildArchiveGroups(posts, postBySlug) {
       continue;
     }
 
-    const date = toDate(prepared.published_at_iso);
-    const year = date.getUTCFullYear();
-    const month = date.getUTCMonth() + 1;
-    const label = `${year}-${String(month).padStart(2, '0')}`;
+    const parts = getZonedDateParts(prepared.published_at_iso, site);
+    const label = `${parts.year}-${padDatePart(parts.month)}`;
     const current = groups.get(label) || {
       label,
-      year,
-      month,
+      year: parts.year,
+      month: parts.month,
       items: [],
     };
 
@@ -1753,7 +1751,8 @@ function buildArchiveGroups(posts, postBySlug) {
     groups.set(label, current);
   }
 
-  return Array.from(groups.values());
+  return Array.from(groups.values())
+    .sort((left, right) => right.year - left.year || right.month - left.month);
 }
 
 function buildTaxonomyRouteData(kind, item, countBySlug) {
@@ -1788,19 +1787,25 @@ function buildArchiveEntries(posts, site) {
     }
 
     const date = toDate(publishedAt);
-    const key = `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-    const current = entries.get(key) || { date, count: 0 };
+    const parts = getZonedDateParts(date, site);
+    const key = `${parts.year}-${padDatePart(parts.month)}`;
+    const current = entries.get(key) || {
+      date,
+      year: parts.year,
+      month: parts.month,
+      count: 0,
+    };
     current.count += 1;
     entries.set(key, current);
   }
 
   return Array.from(entries.values())
-    .sort((left, right) => right.date.getTime() - left.date.getTime())
+    .sort((left, right) => right.year - left.year || right.month - left.month)
     .map((entry) => ({
       label: formatArchiveLabel(entry.date, site),
       count: entry.count,
-      year: entry.date.getUTCFullYear(),
-      month: entry.date.getUTCMonth() + 1,
+      year: entry.year,
+      month: entry.month,
     }));
 }
 
@@ -2357,17 +2362,17 @@ function buildPermalinkTokenValues(kind, item, site) {
   };
 
   if (kind === 'posts') {
-    const parts = getPermalinkDateParts(item.published_at_iso, site);
+    const parts = getZonedDateParts(item.published_at_iso, site);
     values.public_id = String(item.public_id);
-    values.year = parts.year;
-    values.month = parts.month;
-    values.day = parts.day;
+    values.year = String(parts.year);
+    values.month = padDatePart(parts.month);
+    values.day = padDatePart(parts.day);
   }
 
   return values;
 }
 
-function getPermalinkDateParts(value, site) {
+function getZonedDateParts(value, site) {
   const date = toDate(value);
   const timeZone = normalizeNonEmptyString(site.timezone, DEFAULT_TIMEZONE);
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -2378,10 +2383,14 @@ function getPermalinkDateParts(value, site) {
   }).formatToParts(date);
 
   return {
-    year: parts.find((part) => part.type === 'year')?.value || String(date.getUTCFullYear()),
-    month: parts.find((part) => part.type === 'month')?.value || String(date.getUTCMonth() + 1).padStart(2, '0'),
-    day: parts.find((part) => part.type === 'day')?.value || String(date.getUTCDate()).padStart(2, '0'),
+    year: Number(parts.find((part) => part.type === 'year')?.value) || date.getUTCFullYear(),
+    month: Number(parts.find((part) => part.type === 'month')?.value) || date.getUTCMonth() + 1,
+    day: Number(parts.find((part) => part.type === 'day')?.value) || date.getUTCDate(),
   };
+}
+
+function padDatePart(value) {
+  return String(value).padStart(2, '0');
 }
 
 function normalizeOutputPath(filePath) {

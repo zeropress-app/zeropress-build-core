@@ -1886,6 +1886,129 @@ test('buildSite applies date-based post permalinks in directory output style', a
   assert.match(postHtml, /<link rel="canonical" href="https:\/\/example\.com\/posts\/2026\/02\/14\/hello-zeropress\/">/);
 });
 
+for (const scenario of [
+  {
+    name: 'Asia/Seoul advances UTC month-end and year-end dates',
+    timezone: 'Asia/Seoul',
+    posts: [
+      {
+        slug: 'seoul-february',
+        title: 'Seoul February',
+        published_at_iso: '2026-01-31T15:30:00Z',
+        expectedPath: 'posts/2026/02/01/seoul-february/index.html',
+        expectedUrl: '/posts/2026/02/01/seoul-february/',
+        archiveLabel: '2026-02',
+        widgetLabel: 'February 2026',
+        year: 2026,
+        month: 2,
+      },
+      {
+        slug: 'seoul-new-year',
+        title: 'Seoul New Year',
+        published_at_iso: '2025-12-31T15:30:00Z',
+        expectedPath: 'posts/2026/01/01/seoul-new-year/index.html',
+        expectedUrl: '/posts/2026/01/01/seoul-new-year/',
+        archiveLabel: '2026-01',
+        widgetLabel: 'January 2026',
+        year: 2026,
+        month: 1,
+      },
+    ],
+  },
+  {
+    name: 'America/Los_Angeles rolls UTC month-start and year-start dates back',
+    timezone: 'America/Los_Angeles',
+    posts: [
+      {
+        slug: 'los-angeles-january',
+        title: 'Los Angeles January',
+        published_at_iso: '2026-02-01T07:30:00Z',
+        expectedPath: 'posts/2026/01/31/los-angeles-january/index.html',
+        expectedUrl: '/posts/2026/01/31/los-angeles-january/',
+        archiveLabel: '2026-01',
+        widgetLabel: 'January 2026',
+        year: 2026,
+        month: 1,
+      },
+      {
+        slug: 'los-angeles-old-year',
+        title: 'Los Angeles Old Year',
+        published_at_iso: '2026-01-01T07:30:00Z',
+        expectedPath: 'posts/2025/12/31/los-angeles-old-year/index.html',
+        expectedUrl: '/posts/2025/12/31/los-angeles-old-year/',
+        archiveLabel: '2025-12',
+        widgetLabel: 'December 2025',
+        year: 2025,
+        month: 12,
+      },
+    ],
+  },
+]) {
+  test(`buildSite uses site timezone consistently for archive routes, archive widgets, and date permalinks: ${scenario.name}`, async () => {
+    const writer = new MemoryWriter();
+    const previewData = await loadDefaultPreviewData();
+    const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+    const sourcePost = previewData.content.posts[0];
+
+    previewData.site.locale = 'en-US';
+    previewData.site.timezone = scenario.timezone;
+    previewData.site.posts_per_page = 10;
+    previewData.site.permalinks = {
+      output_style: 'directory',
+      posts: '/posts/:year/:month/:day/:slug/',
+      pages: '/:slug/',
+      categories: '/categories/:slug/',
+      tags: '/tags/:slug/',
+    };
+    previewData.content.posts = scenario.posts.map((post, index) => ({
+      ...sourcePost,
+      id: `timezone-post-${index + 1}`,
+      public_id: 900 + index,
+      title: post.title,
+      slug: post.slug,
+      published_at_iso: post.published_at_iso,
+      updated_at_iso: post.published_at_iso,
+    }));
+    previewData.widgets = {
+      sidebar: {
+        name: 'Sidebar Widgets',
+        items: [{
+          type: 'archives',
+          title: 'Archives',
+          settings: { limit: 12 },
+        }],
+      },
+    };
+    themePackage.templates.set('index', [
+      '{{#for widget in widgets.sidebar.items}}',
+      '{{#for item in widget.items}}<span class="archive-widget" data-year="{{item.year}}" data-month="{{item.month}}">{{item.label}}|{{item.count}}</span>{{/for}}',
+      '{{/for}}',
+    ].join(''));
+    themePackage.templates.set('archive', [
+      '{{#for group in archive.groups}}',
+      '<section class="archive-group" data-label="{{group.label}}" data-year="{{group.year}}" data-month="{{group.month}}">',
+      '{{#for post in group.items}}<a href="{{post.url}}">{{post.title}}</a>{{/for}}',
+      '</section>',
+      '{{/for}}',
+    ].join(''));
+
+    await buildSite({ previewData, themePackage, writer });
+
+    const files = writer.getFiles();
+    const indexHtml = getFileContent(files, 'index.html');
+    const archiveHtml = getFileContent(files, 'archive/index.html');
+
+    for (const expected of scenario.posts) {
+      assert.equal(files.some((file) => file.path === expected.expectedPath), true);
+      assert.match(indexHtml, new RegExp(`<span class="archive-widget" data-year="${expected.year}" data-month="${expected.month}">${expected.widgetLabel}\\|1<\\/span>`));
+      assert.match(archiveHtml, new RegExp(`<section class="archive-group" data-label="${expected.archiveLabel}" data-year="${expected.year}" data-month="${expected.month}">.*?<a href="${expected.expectedUrl.replaceAll('/', '\\/')}">${expected.title}<\\/a>.*?<\\/section>`));
+    }
+
+    assert.ok(indexHtml.indexOf(scenario.posts[0].widgetLabel) < indexHtml.indexOf(scenario.posts[1].widgetLabel));
+    assert.ok(archiveHtml.indexOf(scenario.posts[0].archiveLabel) < archiveHtml.indexOf(scenario.posts[1].archiveLabel));
+  });
+}
+
 test('buildSite rejects duplicate permalink routes before writing files', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
