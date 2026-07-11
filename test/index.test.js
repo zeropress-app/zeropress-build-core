@@ -386,7 +386,7 @@ test('buildSite preserves JavaScript string literal whitespace in theme assets',
     previewData,
     themePackage,
     writer,
-    options: { assetHashing: false, generateSpecialFiles: false },
+    options: { assetHashing: false },
   });
 
   const script = getFileContent(writer.getFiles(), 'assets/theme.js');
@@ -414,7 +414,6 @@ test('buildSite exposes optional site.footer fields to themes', async () => {
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -441,7 +440,6 @@ test('buildSite exposes optional site.logo fields to themes with media normaliza
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -476,7 +474,6 @@ test('buildSite exposes optional site.newsletter fields to themes without media 
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -496,7 +493,6 @@ test('buildSite omits site.newsletter render branches when newsletter is missing
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -513,7 +509,6 @@ test('buildSite reports invalid preview data at the core API boundary', async ()
       previewData: { version: '0.3' },
       themePackage,
       writer,
-      options: { generateSpecialFiles: false },
     }),
     /Invalid preview-data:/,
   );
@@ -544,7 +539,6 @@ test('buildSite renders menu helpers from preview-data menus', async () => {
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -597,7 +591,6 @@ test('buildSite renders custom menu loops with hyphenated slot ids', async () =>
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -690,7 +683,6 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const files = writer.getFiles();
@@ -706,6 +698,148 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
   assert.match(indexHtml, /placeholder="Search articles"/);
   assert.match(indexHtml, /<button class="widget-search-button" type="submit">Go<\/button>/);
   assert.match(indexHtml, /Sidebar <strong>markdown<\/strong>/);
+});
+
+for (const scenario of [
+  {
+    name: 'keeps search widgets and artifacts when site and theme search are enabled',
+    siteSearch: true,
+    themeSearch: true,
+    searchEnabled: true,
+  },
+  {
+    name: 'removes search widgets and artifacts when site search is disabled',
+    siteSearch: false,
+    themeSearch: true,
+    searchEnabled: false,
+  },
+  {
+    name: 'removes search widgets and artifacts when theme search is unsupported',
+    siteSearch: true,
+    themeSearch: false,
+    searchEnabled: false,
+  },
+]) {
+  test(`buildSite ${scenario.name}`, async () => {
+    const writer = new MemoryWriter();
+    const previewData = await loadDefaultPreviewData();
+    const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+    previewData.site.search = scenario.siteSearch;
+    previewData.widgets = {
+      sidebar: {
+        name: 'Sidebar Widgets',
+        items: [
+          {
+            type: 'search',
+            title: 'Search',
+            settings: {
+              placeholder: 'Search articles',
+              button_label: 'Go',
+            },
+          },
+          {
+            type: 'text',
+            title: 'Note',
+            settings: {
+              document_type: 'html',
+              content: '<p>Always visible</p>',
+            },
+          },
+        ],
+      },
+    };
+    themePackage.metadata.features = {
+      ...(themePackage.metadata.features || {}),
+      search: scenario.themeSearch,
+    };
+    themePackage.templates.set('index', [
+      '{{#if site.search}}SEARCH_ENABLED{{#else}}SEARCH_DISABLED{{/if}}',
+      '{{#for widget in widgets.sidebar.items}}<span data-widget="{{widget.type}}">{{widget.title}}</span>{{/for}}',
+    ].join(''));
+
+    await buildSite({ previewData, themePackage, writer });
+
+    const files = writer.getFiles();
+    const indexHtml = getFileContent(files, 'index.html');
+    assert.equal(indexHtml.includes('SEARCH_ENABLED'), scenario.searchEnabled);
+    assert.equal(indexHtml.includes('SEARCH_DISABLED'), !scenario.searchEnabled);
+    assert.equal(indexHtml.includes('data-widget="search"'), scenario.searchEnabled);
+    assert.match(indexHtml, /data-widget="text">Note<\/span>/);
+    for (const outputPath of [
+      '_zeropress/search.json',
+      '_zeropress/search.js',
+      '_zeropress/search_pagefind.js',
+    ]) {
+      assert.equal(files.some((file) => file.path === outputPath), scenario.searchEnabled);
+    }
+  });
+}
+
+test('buildSite preserves a widget area when its only search widget is inactive', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.search = false;
+  previewData.widgets = {
+    sidebar: {
+      name: 'Sidebar Widgets',
+      items: [{
+        type: 'search',
+        title: 'Search',
+        settings: {
+          placeholder: 'Search...',
+          button_label: 'Search',
+        },
+      }],
+    },
+  };
+  themePackage.templates.set('index', [
+    '{{#if widgets.sidebar}}AREA_PRESENT{{#else}}AREA_MISSING{{/if}}',
+    '{{#if widgets.sidebar.items}}HAS_ITEMS{{#else}}EMPTY_AREA{{/if}}',
+  ].join(':'));
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /AREA_PRESENT:EMPTY_AREA/);
+  assert.doesNotMatch(indexHtml, /AREA_MISSING|HAS_ITEMS/);
+});
+
+test('buildSite normalizes empty and whitespace-only widget titles to an empty runtime value', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.widgets = {
+    sidebar: {
+      name: 'Sidebar Widgets',
+      items: [
+        {
+          type: 'text',
+          title: '',
+          settings: { document_type: 'html', content: '<p>First</p>' },
+        },
+        {
+          type: 'text',
+          title: '   ',
+          settings: { document_type: 'html', content: '<p>Second</p>' },
+        },
+      ],
+    },
+  };
+  themePackage.templates.set('index', [
+    '{{#for widget in widgets.sidebar.items}}',
+    '<section data-title="{{widget.title}}">{{#if widget.title}}TITLE{{#else}}NO_TITLE{{/if}}</section>',
+    '{{/for}}',
+  ].join(''));
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.equal([...indexHtml.matchAll(/<section data-title="">NO_TITLE<\/section>/g)].length, 2);
+  assert.doesNotMatch(indexHtml, />TITLE<\/section>/);
 });
 
 test('buildSite injects trusted custom HTML into rendered HTML routes', async () => {
@@ -864,7 +998,6 @@ test('buildSite normalizes explicit preview-data favicon links against media_bas
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -885,7 +1018,6 @@ test('buildSite injects discovered favicon option when preview-data has no expli
     themePackage,
     writer,
     options: {
-      generateSpecialFiles: false,
       favicon: {
         icon: '/favicon.ico',
         svg: '/favicon.svg',
@@ -977,7 +1109,6 @@ test('buildSite runtime 0.6 renders resolved widgets with escaping and safe URL 
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -1095,7 +1226,6 @@ test('buildSite rejects theme packages that do not target runtime 0.6', async ()
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false },
     }),
     /Theme validation failed[\s\S]*ERROR INVALID_RUNTIME_VERSION[\s\S]*Reason: theme\.json field 'runtime' must be one of: 0\.6/,
   );
@@ -1110,7 +1240,6 @@ test('buildSiteFromThemeDir loads the golden fixture theme directory and Filesys
       previewData: await loadDefaultPreviewData(),
       themeDir: goldenThemeDir,
       writer,
-      options: { generateSpecialFiles: false },
     });
 
     const indexHtml = await fs.readFile(path.join(outDir, 'index.html'), 'utf8');
@@ -1148,7 +1277,6 @@ test('buildSiteFromThemeDir rejects themes that do not target runtime 0.6', asyn
         previewData: await loadDefaultPreviewData(),
         themeDir,
         writer,
-        options: { generateSpecialFiles: false },
       }),
       /Theme validation failed[\s\S]*ERROR INVALID_RUNTIME_VERSION[\s\S]*Reason: theme\.json field 'runtime' must be one of: 0\.6/,
     );
@@ -1201,7 +1329,6 @@ test('buildSite renders nested partials in templates and layout slot partials', 
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -1265,7 +1392,6 @@ test('buildSite runtime 0.6 exposes structured posts, archive groups, and pagina
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const files = writer.getFiles();
@@ -1308,7 +1434,7 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
     categories: '/topics/:slug/',
     tags: '/labels/:slug/',
   };
-  previewData.content.pages[0].path = 'spec/preview-data-v0.6';
+  previewData.content.pages[0].path = 'spec/preview-data-v0-6';
   previewData.content.pages.push({
     ...previewData.content.pages[0],
     title: 'CLI Tools',
@@ -1321,14 +1447,13 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: true },
   });
 
   const files = writer.getFiles();
   const paths = new Set(files.map((file) => file.path));
   assert.equal(paths.has('posts/101.html'), true);
   assert.equal(paths.has('posts/101/index.html'), false);
-  assert.equal(paths.has('spec/preview-data-v0.6.html'), true);
+  assert.equal(paths.has('spec/preview-data-v0-6.html'), true);
   assert.equal(paths.has('cli/index.html'), true);
   assert.equal(paths.has('cli.html'), false);
   assert.equal(paths.has('topics/general.html'), true);
@@ -1340,7 +1465,7 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
 
   const indexHtml = getFileContent(files, 'index.html');
   const postHtml = getFileContent(files, 'posts/101.html');
-  const pageHtml = getFileContent(files, 'spec/preview-data-v0.6.html');
+  const pageHtml = getFileContent(files, 'spec/preview-data-v0-6.html');
   const indexPageHtml = getFileContent(files, 'cli/index.html');
   const categoryHtml = getFileContent(files, 'topics/general.html');
   const tagHtml = getFileContent(files, 'labels/intro.html');
@@ -1352,13 +1477,13 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   assert.match(postHtml, /<link rel="canonical" href="https:\/\/example\.com\/posts\/101">/);
   assert.match(postHtml, /<a href="\/topics\/general" class="category-link">General<\/a>/);
   assert.match(postHtml, /<a href="\/labels\/intro" class="tag-link">Intro<\/a>/);
-  assert.match(pageHtml, /<link rel="canonical" href="https:\/\/example\.com\/spec\/preview-data-v0\.6">/);
+  assert.match(pageHtml, /<link rel="canonical" href="https:\/\/example\.com\/spec\/preview-data-v0-6">/);
   assert.match(indexPageHtml, /<link rel="canonical" href="https:\/\/example\.com\/cli\/">/);
   assert.doesNotMatch(indexPageHtml, /https:\/\/example\.com\/cli\/index/);
   assert.match(categoryHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
   assert.match(tagHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/posts\/101<\/loc>/);
-  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/spec\/preview-data-v0\.6<\/loc>/);
+  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/spec\/preview-data-v0-6<\/loc>/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/cli\/<\/loc>/);
   assert.doesNotMatch(sitemapXml, /https:\/\/example\.com\/cli\/index/);
   assert.match(feedXml, /<link>https:\/\/example\.com\/posts\/101<\/link>/);
@@ -1529,7 +1654,6 @@ test('buildSite uses site title only for front page meta when site description i
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const rootHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -1553,7 +1677,6 @@ test('buildSite uses page excerpt for front page page meta description', async (
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const rootHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -1715,7 +1838,6 @@ test('buildSite exposes global taxonomies to every render context', async () => 
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: true },
   });
 
   const files = writer.getFiles();
@@ -1754,7 +1876,6 @@ test('buildSite applies date-based post permalinks in directory output style', a
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const files = writer.getFiles();
@@ -1784,7 +1905,6 @@ test('buildSite rejects duplicate permalink routes before writing files', async 
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false },
     }),
     /Duplicate public URL detected: \/posts\/101/,
   );
@@ -1816,7 +1936,6 @@ test('buildSite rejects html-extension page path index public URL collisions', a
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false },
     }),
     /Duplicate public URL detected: \/cli\//,
   );
@@ -1851,7 +1970,6 @@ test('buildSite exposes pagination.window for compact page navigation', async ()
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const fifthPageHtml = getFileContent(writer.getFiles(), 'page/5/index.html');
@@ -1880,7 +1998,6 @@ test('buildSite runtime 0.6 exposes structured post surroundings without legacy 
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const files = writer.getFiles();
@@ -1918,7 +2035,7 @@ test('buildSite fails closed before FilesystemWriter can escape the output direc
         previewData,
         themePackage,
         writer,
-        options: { assetHashing: false, generateSpecialFiles: false },
+        options: { assetHashing: false },
       }),
       /Unsafe output path detected:/,
     );
@@ -1998,7 +2115,6 @@ test('buildSite rejects a page slug with traversal segments', async () => {
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false },
     }),
     /INVALID_PAGE_SLUG/,
   );
@@ -2017,7 +2133,6 @@ test('buildSite rejects a post slug containing a slash', async () => {
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false },
     }),
     /INVALID_POST_SLUG/,
   );
@@ -2036,7 +2151,6 @@ test('buildSite rejects a post slug containing whitespace', async () => {
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false },
     }),
     /INVALID_POST_SLUG/,
   );
@@ -2056,7 +2170,6 @@ test('buildSite rejects a category slug that would create traversal-looking taxo
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false },
     }),
     /INVALID_POST_CATEGORY_SLUGS/,
   );
@@ -2075,7 +2188,6 @@ test('buildSite rejects a percent-encoded dangerous post slug', async () => {
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false },
     }),
     /INVALID_POST_SLUG/,
   );
@@ -2094,7 +2206,7 @@ test('buildSite rejects unsafe asset output paths before MemoryWriter records fi
         previewData,
         themePackage,
         writer,
-        options: { assetHashing: false, generateSpecialFiles: false },
+        options: { assetHashing: false },
       }),
       /Unsafe output path detected:/,
     );
@@ -2114,7 +2226,6 @@ test('buildSite uses escaped post excerpt for meta description on post pages', a
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -2138,7 +2249,6 @@ test('buildSite renders SEO meta for post and page routes', async () => {
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -2173,7 +2283,6 @@ test('buildSite omits canonical and og:url when site.url is empty and still emit
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -2210,7 +2319,6 @@ test('buildSite normalizes media fields against site.media_base_url before rende
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -2261,7 +2369,6 @@ test('buildSite derives managed media and responsive srcset from content media r
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -2307,7 +2414,6 @@ test('buildSite omits managed media srcset when delivery mode or media host is u
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const localPostHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -2343,7 +2449,6 @@ test('buildSite leaves managed media undefined when registry does not match medi
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -2373,7 +2478,6 @@ test('buildSite preserves relative media fields when site.media_base_url is miss
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -2416,7 +2520,6 @@ test('buildSite formats timestamps with Intl datetime styles and exposes datetim
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false },
     });
 
     const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -2909,24 +3012,6 @@ export async function search(query, options = {}) {
   assert.equal((await pagefindResults.results[1].data()).url, '/reference/');
 });
 
-test('buildSite skips native search artifacts when special files are disabled', async () => {
-  const writer = new MemoryWriter();
-  const previewData = await loadDefaultPreviewData();
-  const themePackage = await loadGoldenThemePackage();
-
-  await buildSite({
-    previewData,
-    themePackage,
-    writer,
-    options: { generateSpecialFiles: false },
-  });
-
-  const files = writer.getFiles();
-  assert.equal(files.some((file) => file.path === '_zeropress/search.json'), false);
-  assert.equal(files.some((file) => file.path === '_zeropress/search.js'), false);
-  assert.equal(files.some((file) => file.path === '_zeropress/search_pagefind.js'), false);
-});
-
 test('buildSite skips native search artifacts when theme does not support search', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -3078,6 +3163,25 @@ test('buildSite skips 404.html when the theme does not provide a 404 template', 
   });
 
   assert.equal(writer.getFiles().some((file) => file.path === '404.html'), false);
+});
+
+test('buildSite does not reserve 404.html when the theme does not provide a 404 template', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = withoutTemplates(await loadGoldenThemePackage(), ['404']);
+
+  previewData.site.permalinks = {
+    ...previewData.site.permalinks,
+    output_style: 'html-extension',
+  };
+  previewData.content.pages[0].slug = '404';
+  delete previewData.content.pages[0].path;
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const notFoundPathFiles = writer.getFiles().filter((file) => file.path === '404.html');
+  assert.equal(notFoundPathFiles.length, 1);
+  assert.match(getFileContent(notFoundPathFiles, '404.html'), /<h1>About<\/h1>/);
 });
 
 test('buildSite omits comment container markup when site.disallow_comments is true', async () => {
@@ -3723,7 +3827,6 @@ test('buildSite exposes markdown TOC to page and post templates', async () => {
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const files = writer.getFiles();
@@ -3792,7 +3895,6 @@ test('buildSite preserves markdown task list and alert HTML for pages and posts'
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const files = writer.getFiles();
@@ -3887,7 +3989,6 @@ test('buildSite renders v0.6 raw content and resolves structured post author dat
     },
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const files = writer.getFiles();
@@ -3926,7 +4027,6 @@ test('buildSite accepts missing menus and widgets and preserves site meta', asyn
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
@@ -4064,7 +4164,6 @@ test('buildSite exposes collection counts and route collection cursors', async (
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const firstPostHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
@@ -4114,7 +4213,6 @@ test('buildSite rejects collections that reference missing content slugs', async
       previewData,
       themePackage,
       writer,
-      options: { generateSpecialFiles: false },
     }),
     /Invalid collection "features": item 1 references missing post slug "missing-post"/,
   );
@@ -4149,7 +4247,6 @@ test('buildSite keeps ZeroPress template syntax inside markdown page content lit
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const pageHtml = getFileContent(writer.getFiles(), 'theme-runtime-v0-5/index.html');
@@ -4188,7 +4285,6 @@ test('buildSite preserves dollar replacement tokens inside content slot HTML', a
     previewData,
     themePackage,
     writer,
-    options: { generateSpecialFiles: false },
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/replacement-tokens/index.html');

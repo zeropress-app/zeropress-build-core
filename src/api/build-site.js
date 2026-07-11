@@ -8,7 +8,6 @@ import { ZeroPressEngine } from '../render/zeropress-engine.js';
 
 const DEFAULT_OPTIONS = {
   assetHashing: true,
-  generateSpecialFiles: true,
   generateFeed: true,
   generateRobotsTxt: true,
   writeManifest: false,
@@ -100,29 +99,27 @@ export async function buildSite(input) {
     await writeOutput(state.writer, state.summaries, assetOutput.path, assetOutput.content, assetOutput.contentType);
   }
 
-  if (shouldGenerateSearchArtifacts(state, options)) {
+  if (shouldGenerateSearchArtifacts(state)) {
     await writeOutput(state.writer, state.summaries, SEARCH_INDEX_OUTPUT_PATH, buildSearchIndexJson(state), 'application/json');
     await writeOutput(state.writer, state.summaries, SEARCH_ADAPTER_OUTPUT_PATH, buildSearchAdapterJs(), 'application/javascript');
     await writeOutput(state.writer, state.summaries, SEARCH_PAGEFIND_ADAPTER_OUTPUT_PATH, buildSearchPagefindAdapterJs(), 'application/javascript');
   }
 
-  if (options.generateSpecialFiles) {
-    await maybeRenderNotFoundPage(state);
-    if (hasCanonicalSiteUrl(state.previewData.site.url)) {
-      await writeOutput(
-        state.writer,
-        state.summaries,
-        'sitemap.xml',
-        buildSitemapXml(state.previewData.site, state.emitted, state.generatedAt, options.sitemapStylesheetHref),
-        'application/xml',
-      );
-      if (shouldGenerateFeed(options)) {
-        await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.generatedAt), 'application/rss+xml');
-      }
+  await maybeRenderNotFoundPage(state);
+  if (hasCanonicalSiteUrl(state.previewData.site.url)) {
+    await writeOutput(
+      state.writer,
+      state.summaries,
+      'sitemap.xml',
+      buildSitemapXml(state.previewData.site, state.emitted, state.generatedAt, options.sitemapStylesheetHref),
+      'application/xml',
+    );
+    if (shouldGenerateFeed(options)) {
+      await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.generatedAt), 'application/rss+xml');
     }
-    if (shouldGenerateRobotsTxt(options)) {
-      await writeOutput(state.writer, state.summaries, 'robots.txt', buildRobotsTxt(state.previewData.site), 'text/plain');
-    }
+  }
+  if (shouldGenerateRobotsTxt(options)) {
+    await writeOutput(state.writer, state.summaries, 'robots.txt', buildRobotsTxt(state.previewData.site), 'text/plain');
   }
 
   return finalizeBuildResult(state.writer, state.summaries, options);
@@ -1237,7 +1234,9 @@ function resolveWidgetItem(item, previewData, renderData, widgetAreaId, index) {
     case 'link-list':
       return resolveLinkListWidget(baseWidget, item.settings);
     case 'search':
-      return resolveSearchWidget(baseWidget, item.settings, widgetAreaId, index);
+      return previewData.site.search === true
+        ? resolveSearchWidget(baseWidget, item.settings, widgetAreaId, index)
+        : null;
     case 'profile':
       return resolveProfileWidget(baseWidget, item.settings);
     default:
@@ -2444,20 +2443,20 @@ function assertPlannedOutputPathsSafe(state) {
     ...state.assetOutputs.map((assetOutput) => assetOutput.path),
   ];
 
-  if (shouldGenerateSearchArtifacts(state, state.options)) {
+  if (shouldGenerateSearchArtifacts(state)) {
     plannedPaths.push(SEARCH_INDEX_OUTPUT_PATH, SEARCH_ADAPTER_OUTPUT_PATH, SEARCH_PAGEFIND_ADAPTER_OUTPUT_PATH);
   }
 
-  if (state.options.generateSpecialFiles) {
+  if (hasTemplate(state, '404')) {
     plannedPaths.push('404.html');
-    if (shouldGenerateRobotsTxt(state.options)) {
-      plannedPaths.push('robots.txt');
-    }
-    if (hasCanonicalSiteUrl(state.previewData.site.url)) {
-      plannedPaths.push('sitemap.xml');
-      if (shouldGenerateFeed(state.options)) {
-        plannedPaths.push('feed.xml');
-      }
+  }
+  if (shouldGenerateRobotsTxt(state.options)) {
+    plannedPaths.push('robots.txt');
+  }
+  if (hasCanonicalSiteUrl(state.previewData.site.url)) {
+    plannedPaths.push('sitemap.xml');
+    if (shouldGenerateFeed(state.options)) {
+      plannedPaths.push('feed.xml');
     }
   }
 
@@ -3183,15 +3182,15 @@ function buildRobotsTxt(site) {
 }
 
 function shouldGenerateRobotsTxt(options) {
-  return options.generateSpecialFiles && options.generateRobotsTxt !== false;
+  return options.generateRobotsTxt !== false;
 }
 
 function shouldGenerateFeed(options) {
-  return options.generateSpecialFiles && options.generateFeed !== false;
+  return options.generateFeed !== false;
 }
 
-function shouldGenerateSearchArtifacts(state, options) {
-  return options.generateSpecialFiles && state.previewData.site.search === true;
+function shouldGenerateSearchArtifacts(state) {
+  return state.previewData.site.search === true;
 }
 
 function getContentType(assetPath) {

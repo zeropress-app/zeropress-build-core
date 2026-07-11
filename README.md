@@ -123,7 +123,7 @@ Notes:
 - `sitemap.xml` is emitted only when `site.url` is a non-empty canonical URL
 - `feed.xml` is emitted only when `site.url` is a non-empty canonical URL and `generateFeed` is not `false`
 - callers may pass `sitemapStylesheetHref` to add an XML stylesheet processing instruction to generated `sitemap.xml`
-- fallback `robots.txt` is emitted when `generateSpecialFiles` is enabled and `generateRobotsTxt` is not `false`
+- fallback `robots.txt` is emitted when `generateRobotsTxt` is not `false`
 - fallback `robots.txt` uses `site.indexing`; `false` emits `Disallow: /`, while missing or `true` emits `Allow: /`
 - callers that disable fallback robots because a public `robots.txt` exists should copy that file as-is; sitemap directives in custom robots files are caller/user responsibility
 
@@ -211,7 +211,7 @@ The canonical `preview-data v0.6` site contract uses:
 - `site.expose_generator`
 - `site.search`
 
-Native search artifacts are emitted only when preview-data does not set `site.search: false` and the active theme declares `features.search: true`. `search_pagefind.js` is a Pagefind adapter that can replace `search.js` after a post-build Pagefind step.
+Native search artifacts are emitted only when preview-data does not set `site.search: false` and the active theme declares `features.search: true`. When that effective search state is disabled, search widgets are omitted from resolved widget items while their widget areas and non-search siblings remain available. `search_pagefind.js` is a Pagefind adapter that can replace `search.js` after a post-build Pagefind step.
 
 Optional route templates behave as rendering capabilities, not guaranteed outputs:
 
@@ -220,7 +220,7 @@ Optional route templates behave as rendering capabilities, not guaranteed output
 - `tag.html`
 - `404.html`
 
-If preview-data includes content that could produce archive/category/tag pages but the theme omits the matching optional template, build-core skips those outputs. Special files are derived from emitted outputs rather than raw preview-data alone.
+If preview-data includes content that could produce archive/category/tag pages but the theme omits the matching optional template, build-core skips those outputs. `404.html` is emitted only when the theme provides its matching template. Special files are derived from emitted outputs rather than raw preview-data alone.
 
 ## Build Options
 
@@ -229,17 +229,13 @@ Supported options:
 - `assetHashing`
 - `favicon`
 - `sitemapStylesheetHref`
-- `generateSpecialFiles`
 - `generateFeed`
 - `generateRobotsTxt`
 - `writeManifest`
 
-These options apply to both full builds and partial renders where relevant.
-
 Defaults:
 
 - `assetHashing: true`
-- `generateSpecialFiles: true`
 - `generateFeed: true`
 - `generateRobotsTxt: true`
 - `writeManifest: false`
