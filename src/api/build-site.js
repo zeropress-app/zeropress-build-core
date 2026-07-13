@@ -18,7 +18,15 @@ const DEFAULT_DATE_STYLE = 'medium';
 const DEFAULT_TIME_STYLE = 'none';
 const DEFAULT_TIMEZONE = 'UTC';
 const DEFAULT_LOCALE = 'en-US';
+const DEFAULT_COMMENTS_PROVIDER = 'zeropress';
+const DEFAULT_COMMENTS_PER_PAGE = 50;
+const DEFAULT_COMMENTS_ORDER = 'desc';
+const DEFAULT_COMMENTS_THREADING_ENABLED = true;
+const DEFAULT_COMMENTS_THREADING_MAX_DEPTH = 2;
 const DATETIME_STYLES = new Set(['none', 'short', 'medium', 'long', 'full']);
+const COMMENTS_PROVIDERS = new Set(['zeropress', 'wordpress']);
+const COMMENTS_ORDERS = new Set(['asc', 'desc']);
+const DISABLED_COMMENTS_CONTEXT = Object.freeze({ enabled: false });
 const DEFAULT_PERMALINKS = Object.freeze({
   output_style: 'directory',
   posts: '/posts/:slug/',
@@ -283,7 +291,11 @@ async function renderFrontPage(state, route) {
           robotsNoindex: shouldNoindexDocument(page),
         }),
       },
-      createRenderContext(state.previewData.site, currentUrl),
+      createRenderContext(
+        state.previewData.site,
+        currentUrl,
+        getTargetCommentsContext(state, 'page', page.slug),
+      ),
     );
     html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
     html = injectSiteCustomizations(html, state);
@@ -350,7 +362,11 @@ async function renderPost(state, post) {
         robotsNoindex: shouldNoindexDocument(post),
       }),
     },
-    createRenderContext(state.previewData.site, currentUrl),
+    createRenderContext(
+      state.previewData.site,
+      currentUrl,
+      getTargetCommentsContext(state, 'post', post.slug),
+    ),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   html = injectSiteCustomizations(html, state);
@@ -390,7 +406,11 @@ async function renderPage(state, page) {
         robotsNoindex: shouldNoindexDocument(page),
       }),
     },
-    createRenderContext(state.previewData.site, currentUrl),
+    createRenderContext(
+      state.previewData.site,
+      currentUrl,
+      getTargetCommentsContext(state, 'page', page.slug),
+    ),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
   html = injectSiteCustomizations(html, state);
@@ -434,8 +454,10 @@ async function maybeRenderNotFoundPage(state) {
 
 function normalizePreviewData(previewData, options = {}) {
   const media_base_url = normalizeOptionalString(previewData.site.media_base_url);
+  const { comments: siteComments, ...siteFields } = previewData.site;
+  const normalizedComments = normalizeSiteComments(siteComments);
   const normalizedSite = {
-    ...previewData.site,
+    ...siteFields,
     media_base_url,
     media_delivery_mode: MEDIA_DELIVERY_MODES.has(previewData.site.media_delivery_mode)
       ? previewData.site.media_delivery_mode
@@ -464,6 +486,7 @@ function normalizePreviewData(previewData, options = {}) {
     front_page: normalizeFrontPage(previewData.site.front_page),
     post_index: normalizePostIndex(previewData.site.post_index),
     footer: normalizeSiteFooter(previewData.site.footer),
+    ...(normalizedComments ? { comments: normalizedComments } : {}),
   };
   const media = normalizeContentMedia(previewData.content.media, normalizedSite);
   const mediaRegistry = buildMediaRegistry(media);
@@ -489,27 +512,35 @@ function normalizePreviewData(previewData, options = {}) {
       }),
       posts: previewData.content.posts
         .map((post) => {
+          const { comments, ...postFields } = post;
+          const normalizedPostComments = normalizeTargetComments(comments);
           const featuredImage = normalizeMediaField(post.featured_image, normalizedSite.media_base_url);
           const featuredMedia = deriveManagedMedia(featuredImage, mediaRegistry, normalizedSite);
           return {
-            ...post,
+            ...postFields,
             published_at_iso: normalizeIsoTimestamp(post.published_at_iso),
             updated_at_iso: normalizeIsoTimestamp(post.updated_at_iso),
+            allow_comments: post.allow_comments === true,
             discoverability: normalizeDiscoverability(post.discoverability),
             featured_image: featuredImage,
             ...(featuredMedia ? { featured_media: featuredMedia } : {}),
+            ...(normalizedPostComments ? { comments: normalizedPostComments } : {}),
           };
         })
         .sort((left, right) => toDate(right.published_at_iso).getTime() - toDate(left.published_at_iso).getTime()),
       pages: previewData.content.pages.map((page) => {
+        const { comments, ...pageFields } = page;
+        const normalizedPageComments = normalizeTargetComments(comments);
         const featuredImage = normalizeMediaField(page.featured_image, normalizedSite.media_base_url);
         const featuredMedia = deriveManagedMedia(featuredImage, mediaRegistry, normalizedSite);
         return {
-          ...page,
+          ...pageFields,
           ...(page.updated_at_iso ? { updated_at_iso: normalizeIsoTimestamp(page.updated_at_iso) } : {}),
+          allow_comments: page.allow_comments === true,
           discoverability: normalizeDiscoverability(page.discoverability),
           featured_image: featuredImage,
           ...(featuredMedia ? { featured_media: featuredMedia } : {}),
+          ...(normalizedPageComments ? { comments: normalizedPageComments } : {}),
         };
       }),
       categories: [...previewData.content.categories],
@@ -787,6 +818,59 @@ function normalizeSiteNewsletter(newsletter) {
   };
 }
 
+function normalizeSiteComments(comments) {
+  if (!comments || typeof comments !== 'object' || Array.isArray(comments)) {
+    return undefined;
+  }
+
+  const apiBaseUrl = normalizeCommentsApiBaseUrl(comments.api_base_url);
+  if (!apiBaseUrl) {
+    return undefined;
+  }
+
+  const threading = comments.threading && typeof comments.threading === 'object' && !Array.isArray(comments.threading)
+    ? comments.threading
+    : {};
+
+  return {
+    provider: COMMENTS_PROVIDERS.has(comments.provider)
+      ? comments.provider
+      : DEFAULT_COMMENTS_PROVIDER,
+    api_base_url: apiBaseUrl,
+    per_page: Number.isInteger(comments.per_page) && comments.per_page >= 1 && comments.per_page <= 100
+      ? comments.per_page
+      : DEFAULT_COMMENTS_PER_PAGE,
+    order: COMMENTS_ORDERS.has(comments.order)
+      ? comments.order
+      : DEFAULT_COMMENTS_ORDER,
+    threading: {
+      enabled: typeof threading.enabled === 'boolean'
+        ? threading.enabled
+        : DEFAULT_COMMENTS_THREADING_ENABLED,
+      max_depth: Number.isInteger(threading.max_depth) && threading.max_depth >= 2 && threading.max_depth <= 10
+        ? threading.max_depth
+        : DEFAULT_COMMENTS_THREADING_MAX_DEPTH,
+    },
+  };
+}
+
+function normalizeCommentsApiBaseUrl(value) {
+  const normalized = normalizeOptionalString(value);
+  if (!normalized || normalized === '/') {
+    return normalized;
+  }
+  return normalized.replace(/\/+$/u, '');
+}
+
+function normalizeTargetComments(comments) {
+  if (!comments || typeof comments !== 'object' || Array.isArray(comments)) {
+    return undefined;
+  }
+
+  const requestToken = preserveOpaqueNonBlankString(comments.request_token);
+  return requestToken ? { request_token: requestToken } : undefined;
+}
+
 function normalizePermalinks(permalinks) {
   const source = permalinks && typeof permalinks === 'object' ? permalinks : {};
   const outputStyle = typeof source.output_style === 'string' && PERMALINK_OUTPUT_STYLES.has(source.output_style)
@@ -856,7 +940,33 @@ function createRenderData(previewData, themeMetadata = {}) {
     }
   }
 
-  const preparedPosts = previewData.content.posts.map((post) => preparePost(post, previewData.site, authorsById, categoriesBySlug, tagsBySlug, themeSupportsComments));
+  const commentsByTarget = {
+    posts: new Map(previewData.content.posts.map((post) => [
+      post.slug,
+      buildTargetCommentsContext({
+        site: previewData.site,
+        target: post,
+        targetType: 'post',
+        themeSupportsComments,
+      }),
+    ])),
+    pages: new Map(previewData.content.pages.map((page) => [
+      page.slug,
+      buildTargetCommentsContext({
+        site: previewData.site,
+        target: page,
+        targetType: 'page',
+        themeSupportsComments,
+      }),
+    ])),
+  };
+  for (const target of previewData.content.posts) {
+    delete target.comments;
+  }
+  for (const target of previewData.content.pages) {
+    delete target.comments;
+  }
+  const preparedPosts = previewData.content.posts.map((post) => preparePost(post, previewData.site, authorsById, categoriesBySlug, tagsBySlug));
   const discoverablePreparedPosts = preparedPosts.filter((post) => !isDelistedDocument(post));
   const adjacentPostsBySlug = new Map(
     discoverablePreparedPosts.map((post, index) => [post.slug, {
@@ -894,6 +1004,7 @@ function createRenderData(previewData, themeMetadata = {}) {
     posts,
     pages: preparedPages,
     postBySlug,
+    commentsByTarget,
     collections,
     taxonomies: buildGlobalTaxonomies(previewData, categoryCountBySlug, tagCountBySlug),
     frontPageRoute,
@@ -944,6 +1055,56 @@ function createRenderData(previewData, themeMetadata = {}) {
       }),
     }),
   };
+}
+
+export function buildTargetCommentsContext({ site, target, targetType, themeSupportsComments }) {
+  const targetPublicId = target?.public_id;
+  const comments = site?.comments;
+
+  if (
+    themeSupportsComments !== true ||
+    site?.disallow_comments === true ||
+    !comments ||
+    target?.allow_comments !== true ||
+    !Number.isInteger(targetPublicId) ||
+    targetPublicId <= 0
+  ) {
+    return DISABLED_COMMENTS_CONTEXT;
+  }
+
+  const common = {
+    enabled: true,
+    target_type: targetType,
+    target_public_id: targetPublicId,
+    provider: comments.provider,
+    api_base_url: comments.api_base_url,
+    per_page: comments.per_page,
+    order: comments.order,
+    threading: {
+      enabled: comments.threading.enabled,
+      max_depth: comments.threading.max_depth,
+    },
+  };
+
+  if (comments.provider === 'wordpress') {
+    return common;
+  }
+
+  if (comments.provider !== 'zeropress') {
+    return DISABLED_COMMENTS_CONTEXT;
+  }
+
+  const requestToken = preserveOpaqueNonBlankString(target?.comments?.request_token);
+  return requestToken
+    ? { ...common, request_token: requestToken }
+    : DISABLED_COMMENTS_CONTEXT;
+}
+
+function getTargetCommentsContext(state, targetType, slug) {
+  const targetMap = targetType === 'post'
+    ? state.renderData.commentsByTarget.posts
+    : state.renderData.commentsByTarget.pages;
+  return targetMap.get(slug) || DISABLED_COMMENTS_CONTEXT;
 }
 
 function buildGlobalTaxonomies(previewData, categoryCountBySlug, tagCountBySlug) {
@@ -1408,9 +1569,11 @@ function preparePage(page, site) {
   const documentType = normalizeDocumentType(page.document_type);
   const renderedDocument = renderDocument(page.content, documentType);
   const permalink = resolvePagePermalink(site, page);
+  const pageFields = { ...page };
+  delete pageFields.comments;
 
   return {
-    ...page,
+    ...pageFields,
     url: permalink.url,
     document_type: documentType,
     html: renderedDocument.html,
@@ -1419,7 +1582,7 @@ function preparePage(page, site) {
   };
 }
 
-function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, themeSupportsComments) {
+function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug) {
   const documentType = normalizeDocumentType(post.document_type);
   const renderedDocument = renderDocument(post.content, documentType);
   const author = authorsById.get(post.author_id);
@@ -1474,7 +1637,6 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, them
     published_at: formatTimestamp(post.published_at_iso, site),
     updated_at: formatTimestamp(post.updated_at_iso, site),
     reading_time: calculateReadingTime(renderedDocument.html),
-    comments_enabled: themeSupportsComments && site.disallow_comments !== true && post.allow_comments === true,
   };
 }
 
@@ -1857,6 +2019,10 @@ function normalizeOptionalString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : '';
 }
 
+function preserveOpaqueNonBlankString(value) {
+  return typeof value === 'string' && value.trim() ? value : '';
+}
+
 function normalizeOptionalRawString(value) {
   return typeof value === 'string' && value.trim() ? value : '';
 }
@@ -2076,11 +2242,12 @@ async function buildCustomCssAsset(customCss, assetProcessor, options) {
   };
 }
 
-function createRenderContext(site, currentUrl) {
+function createRenderContext(site, currentUrl, comments = DISABLED_COMMENTS_CONTEXT) {
   return {
     site,
     currentUrl,
     language: site.locale,
+    comments,
   };
 }
 

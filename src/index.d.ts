@@ -34,6 +34,44 @@ export interface BuildOptions {
   writeManifest?: boolean;
 }
 
+export interface DisabledThemeCommentsContext {
+  enabled: false;
+}
+
+export interface ThemeCommentsThreadingContext {
+  enabled: boolean;
+  max_depth: number;
+}
+
+export interface ZeroPressThemeCommentsContext {
+  enabled: true;
+  target_type: 'post' | 'page';
+  target_public_id: number;
+  provider: 'zeropress';
+  api_base_url: string;
+  per_page: number;
+  order: 'asc' | 'desc';
+  threading: ThemeCommentsThreadingContext;
+  request_token: string;
+}
+
+export interface WordPressThemeCommentsContext {
+  enabled: true;
+  target_type: 'post' | 'page';
+  target_public_id: number;
+  provider: 'wordpress';
+  api_base_url: string;
+  per_page: number;
+  order: 'asc' | 'desc';
+  threading: ThemeCommentsThreadingContext;
+  request_token?: never;
+}
+
+export type ThemeCommentsContext =
+  | DisabledThemeCommentsContext
+  | ZeroPressThemeCommentsContext
+  | WordPressThemeCommentsContext;
+
 export interface BuildSummaryFile {
   path: string;
   contentType: string;

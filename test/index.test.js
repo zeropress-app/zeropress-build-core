@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildSite, buildSiteFromThemeDir, FilesystemWriter, MemoryWriter } from '../src/index.js';
+import { buildTargetCommentsContext } from '../src/api/build-site.js';
 import { ControlFlowRenderer } from '../src/render/control-flow-renderer.js';
 import { renderDocument } from '../src/render/content-renderer.js';
 import { loadThemePackageFromDir } from '../src/theme/load-theme-dir.js';
@@ -57,6 +58,25 @@ function cloneThemePackage(themePackage) {
     partials: new Map(themePackage.partials),
     assets: new Map(themePackage.assets),
   };
+}
+
+function removeContentCommentsMetadata(previewData) {
+  for (const post of previewData.content.posts) {
+    delete post.comments;
+  }
+  for (const page of previewData.content.pages) {
+    delete page.comments;
+  }
+}
+
+function configurePageComments(previewData, options = {}) {
+  const page = previewData.content.pages[0];
+  page.public_id = options.publicId ?? 901;
+  page.allow_comments = true;
+  page.comments = {
+    request_token: options.requestToken || 'page-901-request-token',
+  };
+  return page;
 }
 
 function withoutTemplates(themePackage, templateNames) {
@@ -3369,6 +3389,7 @@ test('buildSite omits comment container markup when site.disallow_comments is tr
   const themePackage = await loadGoldenThemePackage();
 
   previewData.site.disallow_comments = true;
+  removeContentCommentsMetadata(previewData);
 
   await buildSite({
     previewData,
@@ -3387,6 +3408,7 @@ test('buildSite omits comment container markup when post.allow_comments is false
   const themePackage = await loadGoldenThemePackage();
 
   previewData.content.posts[0].allow_comments = false;
+  delete previewData.content.posts[0].comments;
 
   await buildSite({
     previewData,
@@ -3412,8 +3434,11 @@ test('buildSite renders an empty comments mount when comments are enabled', asyn
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
   assert.equal(postHtml.includes('data-zp-comments'), true);
-  assert.equal(postHtml.includes('data-zp-comments-post="101"'), true);
-  assert.equal(postHtml.includes('hidden></div>'), true);
+  assert.equal(postHtml.includes('data-zp-comments-target-type="post"'), true);
+  assert.equal(postHtml.includes('data-zp-comments-target-public-id="101"'), true);
+  assert.equal(postHtml.includes('data-zp-comments-provider="zeropress"'), true);
+  assert.equal(postHtml.includes('data-zp-comments-api-base-url="https://comments.example.com"'), true);
+  assert.equal(postHtml.includes('hidden'), true);
   assert.equal(postHtml.includes('htmx.org'), false);
 });
 
@@ -3434,6 +3459,273 @@ test('buildSite disables comments when the theme capability is missing', async (
 
   assert.equal(postHtml.includes('data-zp-comments'), false);
   assert.equal(writer.getFiles().some((file) => file.path === '_zeropress/comment-policy.json'), false);
+});
+
+test('buildSite disables comments when site.comments is not configured', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  delete previewData.site.comments;
+  removeContentCommentsMetadata(previewData);
+  themePackage.templates.set('post', '{{#if comments.enabled}}enabled{{#else}}disabled{{/if}}');
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  assert.match(postHtml, /disabled/);
+  assert.doesNotMatch(postHtml, /enabled/);
+});
+
+test('buildSite normalizes site.comments defaults and exposes the exact ZeroPress route-root context', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  themePackage.templates.set('post', [
+    '<p class="site-comments">',
+    '{{site.comments.provider}}|{{site.comments.api_base_url}}|{{site.comments.per_page}}|{{site.comments.order}}|',
+    '{{site.comments.threading.enabled}}|{{site.comments.threading.max_depth}}',
+    '</p>',
+    '<p class="route-comments">',
+    '{{comments.enabled}}|{{comments.target_type}}|{{comments.target_public_id}}|{{comments.provider}}|',
+    '{{comments.api_base_url}}|{{comments.per_page}}|{{comments.order}}|',
+    '{{comments.threading.enabled}}|{{comments.threading.max_depth}}|{{comments.request_token}}',
+    '</p>',
+    '{{#if post.comments}}raw-comments-leaked{{/if}}',
+  ].join(''));
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  assert.match(
+    postHtml,
+    /<p class="site-comments">zeropress\|https:\/\/comments\.example\.com\|50\|desc\|true\|2<\/p>/,
+  );
+  assert.match(
+    postHtml,
+    /<p class="route-comments">true\|post\|101\|zeropress\|https:\/\/comments\.example\.com\|50\|desc\|true\|2\|post-101-request-token<\/p>/,
+  );
+  assert.doesNotMatch(postHtml, /raw-comments-leaked/);
+});
+
+test('buildSite preserves an opaque nonblank request token byte-for-byte', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  const requestToken = '  opaque request token  ';
+
+  previewData.content.posts[0].comments.request_token = requestToken;
+  themePackage.templates.set('post', '<p>|{{comments.request_token}}|</p>');
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  assert.match(postHtml, /<p>\|  opaque request token  \|<\/p>/);
+});
+
+test('buildTargetCommentsContext defensively disables a blank-only request token', () => {
+  const context = buildTargetCommentsContext({
+    site: {
+      disallow_comments: false,
+      comments: {
+        provider: 'zeropress',
+        api_base_url: '/api/comments',
+        per_page: 50,
+        order: 'desc',
+        threading: { enabled: true, max_depth: 2 },
+      },
+    },
+    target: {
+      public_id: 101,
+      allow_comments: true,
+      comments: { request_token: ' \t\n ' },
+    },
+    targetType: 'post',
+    themeSupportsComments: true,
+  });
+
+  assert.deepEqual(context, { enabled: false });
+});
+
+test('buildSite enables WordPress comments without exposing a request_token key', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.comments = {
+    provider: 'wordpress',
+    api_base_url: '/wp-json/wp/v2/',
+    per_page: 100,
+    order: 'asc',
+    threading: {
+      enabled: false,
+      max_depth: 10,
+    },
+  };
+  removeContentCommentsMetadata(previewData);
+  themePackage.templates.set('post', [
+    '{{#if comments.enabled}}',
+    '{{comments.target_type}}|{{comments.target_public_id}}|{{comments.provider}}|{{comments.api_base_url}}|',
+    '{{comments.per_page}}|{{comments.order}}|{{comments.threading.enabled}}|{{comments.threading.max_depth}}|',
+    '{{#if comments.request_token}}token-present{{#else}}token-absent{{/if}}',
+    '{{#else}}disabled{{/if}}',
+  ].join(''));
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  assert.match(postHtml, /post\|101\|wordpress\|\/wp-json\/wp\/v2\|100\|asc\|false\|10\|token-absent/);
+  assert.doesNotMatch(postHtml, /token-present/);
+});
+
+test('buildSite installs an explicit disabled comments root on every non-detail route', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  themePackage.templates.set('layout', [
+    '<!doctype html><html><body>',
+    '{{#if comments}}<span class="comments-state">{{#if comments.enabled}}enabled{{#else}}disabled{{/if}}</span>{{#else}}<span class="comments-state">missing</span>{{/if}}',
+    '{{slot:content}}',
+    '</body></html>',
+  ].join(''));
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const files = writer.getFiles();
+  for (const outputPath of [
+    'index.html',
+    'archive/index.html',
+    'categories/general/index.html',
+    'tags/intro/index.html',
+    '404.html',
+    'about/index.html',
+  ]) {
+    const html = getFileContent(files, outputPath);
+    assert.match(html, /<span class="comments-state">disabled<\/span>/, outputPath);
+    assert.doesNotMatch(html, />missing</, outputPath);
+  }
+
+  const postHtml = getFileContent(files, 'posts/hello-zeropress/index.html');
+  assert.match(postHtml, /<span class="comments-state">enabled<\/span>/);
+
+  const themeFrontPagePreviewData = structuredClone(previewData);
+  themeFrontPagePreviewData.site.front_page = { type: 'theme_index' };
+  themeFrontPagePreviewData.site.post_index = { enabled: false };
+  const themeFrontPageWriter = new MemoryWriter();
+  await buildSite({
+    previewData: themeFrontPagePreviewData,
+    themePackage,
+    writer: themeFrontPageWriter,
+  });
+  const themeFrontPageHtml = getFileContent(themeFrontPageWriter.getFiles(), 'index.html');
+  assert.match(themeFrontPageHtml, /<span class="comments-state">disabled<\/span>/);
+});
+
+test('buildSite exposes active page comments on page and page-front-page routes', async () => {
+  const previewData = await loadDefaultPreviewData();
+  configurePageComments(previewData, {
+    publicId: 901,
+    requestToken: 'page-route-sensitive-token',
+  });
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.templates.set('page', [
+    '{{comments.enabled}}|{{comments.target_type}}|{{comments.target_public_id}}|{{comments.provider}}|',
+    '{{comments.api_base_url}}|{{comments.per_page}}|{{comments.order}}|',
+    '{{comments.threading.enabled}}|{{comments.threading.max_depth}}|{{comments.request_token}}|',
+    '{{#if page.comments}}raw-comments-leaked{{/if}}',
+  ].join(''));
+
+  const pageWriter = new MemoryWriter();
+  await buildSite({ previewData, themePackage, writer: pageWriter });
+  const pageHtml = getFileContent(pageWriter.getFiles(), 'about/index.html');
+  assert.match(pageHtml, /true\|page\|901\|zeropress\|https:\/\/comments\.example\.com\|50\|desc\|true\|2\|page-route-sensitive-token\|/);
+  assert.doesNotMatch(pageHtml, /raw-comments-leaked/);
+
+  const frontPagePreviewData = structuredClone(previewData);
+  frontPagePreviewData.site.front_page = {
+    type: 'page',
+    page_slug: 'about',
+  };
+  frontPagePreviewData.site.post_index = {
+    enabled: true,
+    path: '/posts/',
+    paginate: true,
+  };
+  const frontPageWriter = new MemoryWriter();
+  await buildSite({ previewData: frontPagePreviewData, themePackage, writer: frontPageWriter });
+
+  const frontPageHtml = getFileContent(frontPageWriter.getFiles(), 'index.html');
+  assert.match(frontPageHtml, /true\|page\|901\|zeropress\|https:\/\/comments\.example\.com\|50\|desc\|true\|2\|page-route-sensitive-token\|/);
+  assert.equal(frontPageWriter.getFiles().some((file) => file.path === 'about/index.html'), false);
+});
+
+test('buildSite keeps request tokens confined to their active detail-route comments root', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const postToken = 'post-detail-only-sensitive-token';
+  const pageToken = 'page-detail-only-sensitive-token';
+  previewData.content.posts[0].comments.request_token = postToken;
+  configurePageComments(previewData, {
+    publicId: 901,
+    requestToken: pageToken,
+  });
+  previewData.collections = {
+    featured: {
+      items: [
+        { type: 'post', slug: 'hello-zeropress' },
+        { type: 'post', slug: 'theme-blocks-deep-dive' },
+        { type: 'page', slug: 'about' },
+      ],
+    },
+  };
+
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.templates.set('post', [
+    'root={{comments.request_token}};',
+    'raw={{post.comments.request_token}};',
+    'prev={{post.prev.comments.request_token}};',
+    'next={{post.next.comments.request_token}};',
+    'cursor-prev={{post.collection_cursor.prev.comments.request_token}};',
+    'cursor-next={{post.collection_cursor.next.comments.request_token}};',
+    'collection={{#for item in collections.featured.items}}{{item.comments.request_token}}{{/for}};',
+  ].join(''));
+  themePackage.templates.set('page', [
+    'root={{comments.request_token}};',
+    'raw={{page.comments.request_token}};',
+    'cursor-prev={{page.collection_cursor.prev.comments.request_token}};',
+    'collection={{#for item in collections.featured.items}}{{item.comments.request_token}}{{/for}};',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { writeManifest: true },
+  });
+
+  const files = writer.getFiles();
+  const postPath = 'posts/hello-zeropress/index.html';
+  const pagePath = 'about/index.html';
+  const postHtml = getFileContent(files, postPath);
+  const pageHtml = getFileContent(files, pagePath);
+  assert.equal(postHtml.split(postToken).length - 1, 1);
+  assert.equal(pageHtml.split(pageToken).length - 1, 1);
+  assert.equal(postHtml.includes(pageToken), false);
+  assert.equal(pageHtml.includes(postToken), false);
+
+  for (const file of files) {
+    const content = typeof file.content === 'string'
+      ? file.content
+      : Buffer.from(file.content).toString('utf8');
+    if (file.path !== postPath) {
+      assert.equal(content.includes(postToken), false, `${postToken} leaked to ${file.path}`);
+    }
+    if (file.path !== pagePath) {
+      assert.equal(content.includes(pageToken), false, `${pageToken} leaked to ${file.path}`);
+    }
+  }
 });
 
 test('renderDocument creates markdown TOC from h2-h4 headings only', () => {
@@ -4096,7 +4388,7 @@ test('buildSite preserves markdown task list and alert HTML for pages and posts'
 test('buildSite renders v0.6 raw content and resolves structured post author data from authors', async () => {
   const writer = new MemoryWriter();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
-  themePackage.templates.set('post', '<article class="post-entry">{{post.author.display_name}}|{{post.author.avatar}}|{{post.comments_enabled}}|{{post.slug}}|{{post.public_id}}|{{post.meta.badge}}|{{post.meta.rank}}|{{post.meta.featured}}|{{post.html}}</article>');
+  themePackage.templates.set('post', '<article class="post-entry">{{post.author.display_name}}|{{post.author.avatar}}|{{comments.enabled}}|{{post.slug}}|{{post.public_id}}|{{post.meta.badge}}|{{post.meta.rank}}|{{post.meta.featured}}|{{post.html}}</article>');
   themePackage.templates.set('page', '<article class="page-entry">{{page.meta.section}}|{{page.meta.order}}|{{page.html}}</article>');
 
   await buildSite({

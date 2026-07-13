@@ -46,6 +46,7 @@ export class ZeroPressEngine {
       site: context.site,
       currentUrl: context.currentUrl,
       language: context.language,
+      comments: context.comments,
     };
   }
 

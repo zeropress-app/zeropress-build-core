@@ -8,9 +8,17 @@
   {{#if post.tags}}
     <footer class="taxonomy taxonomy--tags">{{#for tag in post.tags}}<a href="{{tag.url}}" class="tag-link">{{tag.name}}</a>{{/for}}</footer>
   {{/if}}
-  {{#if post.comments_enabled}}
+  {{#if comments.enabled}}
     <section class="comments-block">
-      <div class="comments-shell" data-zp-comments data-zp-comments-post="{{post.public_id}}" hidden></div>
+      <div
+        class="comments-shell"
+        data-zp-comments
+        data-zp-comments-target-type="{{comments.target_type}}"
+        data-zp-comments-target-public-id="{{comments.target_public_id}}"
+        data-zp-comments-provider="{{comments.provider}}"
+        data-zp-comments-api-base-url="{{comments.api_base_url}}"
+        hidden
+      ></div>
     </section>
   {{/if}}
 </article>

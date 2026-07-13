@@ -190,14 +190,60 @@ Build-core derives:
 - localized fallback `published_at` / `updated_at` values plus unconditional `published_at_iso` / `updated_at_iso` values
 - datetime formatting from `site.locale`, `site.timezone`, `site.date_style`, and `site.time_style`
 - `reading_time`
-- `comments_enabled`
+- a route-root `comments` discriminated context
 
 Build Core always emits localized fallback datetime strings together with canonical ISO timestamps. Themes may progressively enhance explicitly marked `<time datetime="...">` elements for the visitor's browser locale and timezone, but must preserve the fallback when JavaScript, `Intl`, or ISO parsing is unavailable. Themes that want canonical site-local display should use the fallback without client enhancement.
 
-Comment availability is derived from preview-data policy:
+When `site.comments` is present, Build Core materializes the following defaults before rendering:
 
-- `site.disallow_comments`
-- `content.posts[].allow_comments`
+- `provider: "zeropress"`
+- `per_page: 50`
+- `order: "desc"`
+- `threading.enabled: true`
+- `threading.max_depth: 2`
+
+Trailing slashes are removed from `site.comments.api_base_url`, except when the value is the same-origin root `/`. The normalized configuration remains available as `site.comments`.
+
+Every rendered route receives a top-level `comments` object. Inactive and non-detail routes receive exactly:
+
+```js
+{
+  comments: {
+    enabled: false
+  }
+}
+```
+
+An active post or page detail route receives:
+
+```js
+{
+  comments: {
+    enabled: true,
+    target_type: 'post', // or 'page'
+    target_public_id: 101,
+    provider: 'zeropress', // or 'wordpress'
+    api_base_url: 'https://comments.example.com',
+    per_page: 50,
+    order: 'desc',
+    threading: {
+      enabled: true,
+      max_depth: 2
+    },
+    request_token: '...'
+  }
+}
+```
+
+The active state requires all of the following:
+
+- the theme declares `features.comments: true`
+- `site.comments` is configured
+- `site.disallow_comments` is `false`
+- the post or page has `allow_comments: true` and a positive `public_id`
+- the ZeroPress provider has a non-empty item `comments.request_token`
+
+`request_token` exists only for the `zeropress` provider. An active `wordpress` context omits that key entirely. Post/page objects, structured list items, collection items and cursors, adjacent-item summaries, search data, feeds, and non-detail route roots do not receive a copy of the item token. Themes must use the route-root `comments.enabled` discriminator.
 
 The canonical `preview-data v0.6` site contract uses:
 
@@ -208,6 +254,7 @@ The canonical `preview-data v0.6` site contract uses:
 - `site.date_style`
 - `site.time_style`
 - `site.disallow_comments`
+- `site.comments`
 - `site.indexing`
 - `site.expose_generator`
 - `site.search`
