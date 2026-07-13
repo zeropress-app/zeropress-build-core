@@ -1150,7 +1150,7 @@ test('buildSite runtime 0.6 renders resolved widgets with escaping and safe URL 
       items: [
         {
           type: 'link-list',
-          title: 'Lael\'s Zeropress "DEMO"site.<p>',
+          title: 'Example User\'s Zeropress "DEMO"site.<p>',
           settings: {
             links: [
               { label: 'Home', url: '/', target: '_self' },
@@ -1187,8 +1187,8 @@ test('buildSite runtime 0.6 renders resolved widgets with escaping and safe URL 
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
-  assert.match(indexHtml, /title="Lael&#39;s Zeropress &quot;DEMO&quot;site\.&lt;p&gt;"/);
-  assert.match(indexHtml, />Lael&#39;s Zeropress &quot;DEMO&quot;site\.&lt;p&gt;<\/a>/);
+  assert.match(indexHtml, /title="Example User&#39;s Zeropress &quot;DEMO&quot;site\.&lt;p&gt;"/);
+  assert.match(indexHtml, />Example User&#39;s Zeropress &quot;DEMO&quot;site\.&lt;p&gt;<\/a>/);
   assert.match(indexHtml, /Sidebar <strong>markdown<\/strong>/);
   assert.match(indexHtml, /src="https:\/\/media\.example\.com\/avatars\/admin\.webp"/);
   assert.match(indexHtml, /Preview profile/);
@@ -2290,10 +2290,10 @@ test('buildSite supports medium fixture with raw Unicode slugs and paginated tax
   assert.match(categoryPageTwoHtml, /Taxonomy Coverage Check/);
 
   const sitemapXml = getFileContent(files, 'sitemap.xml');
-  assert.ok(sitemapXml.includes(`https://example.kr/posts/${postSlug}/`));
-  assert.ok(sitemapXml.includes(`https://example.kr/${pageSlug}/`));
-  assert.equal(sitemapXml.includes(`https://example.kr/categories/${categorySlug}/`), false);
-  assert.equal(sitemapXml.includes(`https://example.kr/tags/${tagSlug}/`), false);
+  assert.ok(sitemapXml.includes(`https://ko.example/posts/${postSlug}/`));
+  assert.ok(sitemapXml.includes(`https://ko.example/${pageSlug}/`));
+  assert.equal(sitemapXml.includes(`https://ko.example/categories/${categorySlug}/`), false);
+  assert.equal(sitemapXml.includes(`https://ko.example/tags/${tagSlug}/`), false);
 
   const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
   for (const outputPath of expectedPaths) {

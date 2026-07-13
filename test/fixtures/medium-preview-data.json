@@ -5,7 +5,7 @@
   "site": {
     "title": "ZeroPress Medium Preview",
     "description": "Medium preview data",
-    "url": "https://example.kr",
+    "url": "https://ko.example",
     "media_base_url": "",
     "locale": "ko-KR",
     "posts_per_page": 2,
