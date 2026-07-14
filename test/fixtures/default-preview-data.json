@@ -1,5 +1,5 @@
 {
-  "version": "0.6",
+  "version": "0.7",
   "generator": "zeropress-theme",
   "generated_at": "2026-03-26T00:00:00Z",
   "site": {
@@ -125,14 +125,12 @@
         {
           "title": "Home",
           "url": "/",
-          "type": "custom",
           "target": "_self",
           "children": []
         },
         {
           "title": "Archive",
           "url": "/archive/",
-          "type": "custom",
           "target": "_self",
           "children": []
         }

@@ -13,8 +13,8 @@ This package is the canonical rendering core for preview-data and theme packages
 
 Public contract references:
 
-- [Preview Data v0.6 Spec](https://zeropress.dev/spec/preview-data-v0.6.html)
-- [Preview Data v0.6 Schema](https://schemas.zeropress.dev/preview-data/v0.6/schema.json)
+- [Preview Data v0.7 Spec](https://zeropress.dev/reference/preview-data/specs/v0.7/)
+- [Preview Data v0.7 Schema](https://schemas.zeropress.dev/preview-data/v0.7/schema.json)
 - [Theme Runtime v0.6 Spec](https://zeropress.dev/spec/theme-runtime-v0.6.html)
 - [Theme Runtime v0.6 Schema](https://schemas.zeropress.dev/theme-runtime/v0.6/schema.json)
 
@@ -179,8 +179,6 @@ Theme validation is enforced through:
 
 JavaScript theme assets are emitted as provided. Build-core may hash output filenames, but it does not rewrite or minify JavaScript content.
 
-In `preview-data v0.6`, the payload does not carry `routes` arrays or raw HTML fragments such as `categories_html`.
-
 Build-core derives:
 
 - index/archive/category/tag routes
@@ -243,9 +241,9 @@ The active state requires all of the following:
 - the post or page has `allow_comments: true` and a positive `public_id`
 - the ZeroPress provider has a non-empty item `comments.request_token`
 
-`request_token` exists only for the `zeropress` provider. An active `wordpress` context omits that key entirely. Post/page objects, structured list items, collection items and cursors, adjacent-item summaries, search data, feeds, and non-detail route roots do not receive a copy of the item token. Themes must use the route-root `comments.enabled` discriminator.
+The theme-facing `request_token` key exists only for the `zeropress` provider. Preview-data items may retain ignored token metadata for `wordpress` or inactive comment states, but Build Core drops it. An active `wordpress` context omits that key entirely. Post/page objects, structured list items, collection items and cursors, adjacent-item summaries, search data, feeds, and non-detail route roots do not receive a copy of the item token. Themes must use the route-root `comments.enabled` discriminator.
 
-The canonical `preview-data v0.6` site contract uses:
+The canonical `preview-data v0.7` site contract uses:
 
 - `site.media_base_url`
 - `site.media_delivery_mode`

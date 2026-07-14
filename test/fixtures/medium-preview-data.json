@@ -1,5 +1,5 @@
 {
-  "version": "0.6",
+  "version": "0.7",
   "generator": "zeropress-theme",
   "generated_at": "2026-04-02T00:00:00Z",
   "site": {
@@ -152,14 +152,12 @@
         {
           "title": "홈",
           "url": "/",
-          "type": "custom",
           "target": "_self",
           "children": []
         },
         {
           "title": "아카이브",
           "url": "/archive/",
-          "type": "custom",
           "target": "_self",
           "children": []
         }

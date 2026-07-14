@@ -603,7 +603,6 @@ test('buildSite renders menu helpers from preview-data menus', async () => {
       {
         title: 'Docs',
         url: '/docs/',
-        type: 'custom',
         target: '_blank',
         children: [],
       },
@@ -643,13 +642,11 @@ test('buildSite renders custom menu loops with hyphenated slot ids', async () =>
       {
         title: 'Getting Started',
         url: '/docs/',
-        type: 'custom',
         target: '_self',
         children: [
           {
             title: 'Introduction',
             url: '/docs/introduction/',
-            type: 'custom',
             target: '_self',
             meta: {
               icon: 'book',
@@ -3579,6 +3576,79 @@ test('buildSite enables WordPress comments without exposing a request_token key'
   assert.doesNotMatch(postHtml, /token-present/);
 });
 
+test('buildSite never exposes item request tokens to WordPress or inactive theme contexts', async (t) => {
+  const cases = [
+    {
+      name: 'WordPress provider',
+      expectedState: 'enabled=true;provider=wordpress;',
+      configure(previewData) {
+        previewData.site.comments = {
+          provider: 'wordpress',
+          api_base_url: '/wp-json/wp/v2',
+        };
+      },
+    },
+    {
+      name: 'site comments absent',
+      expectedState: 'enabled=false;provider=;',
+      configure(previewData) {
+        delete previewData.site.comments;
+      },
+    },
+    {
+      name: 'global comments disabled',
+      expectedState: 'enabled=false;provider=;',
+      configure(previewData) {
+        previewData.site.disallow_comments = true;
+      },
+    },
+    {
+      name: 'item comments disabled',
+      expectedState: 'enabled=false;provider=;',
+      configure(previewData) {
+        previewData.content.posts[0].allow_comments = false;
+      },
+    },
+    {
+      name: 'theme comments unsupported',
+      expectedState: 'enabled=false;provider=;',
+      configure(_previewData, themePackage) {
+        themePackage.metadata.features.comments = false;
+      },
+    },
+  ];
+
+  for (const testCase of cases) {
+    await t.test(testCase.name, async () => {
+      const writer = new MemoryWriter();
+      const previewData = await loadDefaultPreviewData();
+      const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+      const requestToken = `must-not-reach-theme-${testCase.name.replaceAll(' ', '-').toLowerCase()}`;
+
+      previewData.content.posts[0].comments.request_token = requestToken;
+      testCase.configure(previewData, themePackage);
+      themePackage.templates.set('post', [
+        'enabled={{comments.enabled}};',
+        'provider={{comments.provider}};',
+        'root-token={{comments.request_token}};',
+        'raw-token={{post.comments.request_token}};',
+      ].join(''));
+
+      await buildSite({ previewData, themePackage, writer });
+
+      const files = writer.getFiles();
+      const postHtml = getFileContent(files, 'posts/hello-zeropress/index.html');
+      assert.match(postHtml, new RegExp(testCase.expectedState));
+      for (const file of files) {
+        const content = typeof file.content === 'string'
+          ? file.content
+          : Buffer.from(file.content).toString('utf8');
+        assert.equal(content.includes(requestToken), false, `request token leaked to ${file.path}`);
+      }
+    });
+  }
+});
+
 test('buildSite installs an explicit disabled comments root on every non-detail route', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -4385,7 +4455,7 @@ test('buildSite preserves markdown task list and alert HTML for pages and posts'
   assert.doesNotMatch(pageHtml, /\[!TIP\]/);
 });
 
-test('buildSite renders v0.6 raw content and resolves structured post author data from authors', async () => {
+test('buildSite renders v0.7 raw content and resolves structured post author data from authors', async () => {
   const writer = new MemoryWriter();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
   themePackage.templates.set('post', '<article class="post-entry">{{post.author.display_name}}|{{post.author.avatar}}|{{comments.enabled}}|{{post.slug}}|{{post.public_id}}|{{post.meta.badge}}|{{post.meta.rank}}|{{post.meta.featured}}|{{post.html}}</article>');
@@ -4393,7 +4463,7 @@ test('buildSite renders v0.6 raw content and resolves structured post author dat
 
   await buildSite({
     previewData: {
-      version: '0.6',
+      version: '0.7',
       generator: 'test-suite',
       generated_at: '2026-04-02T00:00:00Z',
       site: {
