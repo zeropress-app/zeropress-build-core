@@ -2607,29 +2607,34 @@ function assertPlannedOutputPathsSafe(state) {
       outputPath: pageToOutputPath(page, outputStyle),
     })),
   ];
-  assertUniqueRoutes(routeEntries);
-
-  const plannedPaths = [
-    ...routeEntries.map((entry) => entry.outputPath),
+  const nonRoutePaths = [
     ...state.assetOutputs.map((assetOutput) => assetOutput.path),
   ];
 
   if (shouldGenerateSearchArtifacts(state)) {
-    plannedPaths.push(SEARCH_INDEX_OUTPUT_PATH, SEARCH_ADAPTER_OUTPUT_PATH, SEARCH_PAGEFIND_ADAPTER_OUTPUT_PATH);
+    nonRoutePaths.push(SEARCH_INDEX_OUTPUT_PATH, SEARCH_ADAPTER_OUTPUT_PATH, SEARCH_PAGEFIND_ADAPTER_OUTPUT_PATH);
   }
 
   if (hasTemplate(state, '404')) {
-    plannedPaths.push('404.html');
+    nonRoutePaths.push('404.html');
   }
   if (shouldGenerateRobotsTxt(state.options)) {
-    plannedPaths.push('robots.txt');
+    nonRoutePaths.push('robots.txt');
   }
   if (hasCanonicalSiteUrl(state.previewData.site.url)) {
-    plannedPaths.push('sitemap.xml');
+    nonRoutePaths.push('sitemap.xml');
     if (shouldGenerateFeed(state.options)) {
-      plannedPaths.push('feed.xml');
+      nonRoutePaths.push('feed.xml');
     }
   }
+  if (state.options.writeManifest) {
+    nonRoutePaths.push('build-manifest.json');
+  }
+  nonRoutePaths.push(...normalizeReservedOutputPaths(state.options.reservedOutputPaths));
+  const plannedPaths = [
+    ...routeEntries.map((entry) => entry.outputPath),
+    ...nonRoutePaths,
+  ];
 
   for (const plannedPath of plannedPaths) {
     const rawPath = String(plannedPath || '');
@@ -2637,28 +2642,91 @@ function assertPlannedOutputPathsSafe(state) {
     assertSafeRelativeOutputPath(rawPath, normalizedPath);
   }
 
+  const publicUrlClaims = [
+    ...routeEntries.flatMap((entry, index) => {
+      const owner = `route:${index}`;
+      return [entry.url, ...buildOutputPublicUrlAliases(entry.outputPath)]
+        .map((url) => ({ url, owner }));
+    }),
+    ...nonRoutePaths.flatMap((outputPath, index) => {
+      const owner = `file:${index}`;
+      return buildOutputPublicUrlAliases(outputPath)
+        .map((url) => ({ url, owner }));
+    }),
+  ];
+  assertUniquePublicUrlClaims(publicUrlClaims);
   assertUniqueOutputPaths(plannedPaths);
 }
 
-function assertUniqueRoutes(routeEntries) {
-  const seenUrls = new Map();
-  for (const entry of routeEntries) {
-    const normalizedUrl = normalizeRouteCollisionKey(entry.url);
-    if (seenUrls.has(normalizedUrl)) {
-      throw new Error(`Duplicate public URL detected: ${entry.url}`);
+function normalizeReservedOutputPaths(value) {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    throw new Error('reservedOutputPaths must be an array of relative output file paths');
+  }
+  return value.map((outputPath) => {
+    if (typeof outputPath !== 'string') {
+      throw new Error('reservedOutputPaths must contain only relative output file paths');
     }
-    seenUrls.set(normalizedUrl, entry);
+    return outputPath;
+  });
+}
+
+function buildOutputPublicUrlAliases(outputPath) {
+  const normalizedPath = normalizeOutputPath(outputPath);
+  const aliases = new Set([`/${normalizedPath}`]);
+
+  if (normalizedPath.endsWith('.html')) {
+    aliases.add(`/${normalizedPath.slice(0, -'.html'.length)}`);
+  }
+  if (normalizedPath === 'index.html') {
+    aliases.add('/');
+  } else if (normalizedPath.endsWith('/index.html')) {
+    aliases.add(`/${normalizedPath.slice(0, -'index.html'.length)}`);
+  }
+
+  return [...aliases];
+}
+
+function assertUniquePublicUrlClaims(claims) {
+  const seenUrls = new Map();
+  for (const claim of claims) {
+    const normalizedUrl = normalizeRouteCollisionKey(claim.url);
+    const existingOwner = seenUrls.get(normalizedUrl);
+    if (existingOwner !== undefined && existingOwner !== claim.owner) {
+      throw new Error(`Duplicate public URL detected: ${claim.url}`);
+    }
+    seenUrls.set(normalizedUrl, claim.owner);
   }
 }
 
 function assertUniqueOutputPaths(plannedPaths) {
+  const normalizedPaths = plannedPaths.map((plannedPath) => normalizeOutputPath(plannedPath));
   const seenPaths = new Set();
-  for (const plannedPath of plannedPaths) {
-    const normalizedPath = normalizeOutputPath(plannedPath);
+  for (const [index, normalizedPath] of normalizedPaths.entries()) {
     if (seenPaths.has(normalizedPath)) {
-      throw new Error(`Duplicate output path detected: ${plannedPath}`);
+      throw new Error(`Duplicate output path detected: ${plannedPaths[index]}`);
     }
     seenPaths.add(normalizedPath);
+  }
+
+  const shallowestFirst = [...seenPaths]
+    .map((outputPath) => ({ outputPath, segments: outputPath.split('/') }))
+    .sort((left, right) => (
+      left.segments.length - right.segments.length
+      || left.outputPath.localeCompare(right.outputPath)
+    ));
+  const processedPaths = new Set();
+  for (const { outputPath, segments } of shallowestFirst) {
+    let ancestorPath = '';
+    for (const segment of segments.slice(0, -1)) {
+      ancestorPath = ancestorPath ? `${ancestorPath}/${segment}` : segment;
+      if (processedPaths.has(ancestorPath)) {
+        throw new Error(`Conflicting output path hierarchy detected: ${ancestorPath} and ${outputPath}`);
+      }
+    }
+    processedPaths.add(outputPath);
   }
 }
 
@@ -2702,6 +2770,7 @@ function assertSafeRelativeOutputPath(rawPath, normalizedPath = normalizeOutputP
   if (
     originalPath.startsWith('/') ||
     originalPath.startsWith('\\') ||
+    originalPath.includes('\\') ||
     /^[A-Za-z]:[\\/]/.test(originalPath) ||
     normalizedSeparators.startsWith('//')
   ) {

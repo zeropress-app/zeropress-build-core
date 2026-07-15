@@ -126,6 +126,8 @@ Notes:
 - fallback `robots.txt` is emitted when `generateRobotsTxt` is not `false`
 - fallback `robots.txt` uses `site.indexing`; `false` emits `Disallow: /`, while missing or `true` emits `Allow: /`
 - callers that disable fallback robots because a public `robots.txt` exists should copy that file as-is; sitemap directives in custom robots files are caller/user responsibility
+- dotted slug segments such as `v0.6` remain literal in route URLs, canonical URLs, and output filenames
+- output planning rejects duplicate public URLs, including clean-host aliases (`page.html` → `/page` and `page/index.html` → `/page/`), content routes shadowed by generated special files, and file/directory path hierarchy conflicts before writing
 
 ### `buildSiteFromThemeDir(input)`
 
@@ -277,6 +279,7 @@ Supported options:
 - `sitemapStylesheetHref`
 - `generateFeed`
 - `generateRobotsTxt`
+- `reservedOutputPaths`
 - `writeManifest`
 
 Defaults:
@@ -285,6 +288,8 @@ Defaults:
 - `generateFeed: true`
 - `generateRobotsTxt: true`
 - `writeManifest: false`
+
+`reservedOutputPaths` is an internal orchestration boundary for callers that already own files in the final output tree, such as a copied public directory. Reserved files are safety-validated and participate in clean-URL alias, exact-path, and file/directory hierarchy collision checks, but Build Core does not write them or include them in `build-manifest.json`.
 
 ## License
 

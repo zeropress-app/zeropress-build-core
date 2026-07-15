@@ -1506,7 +1506,17 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
     categories: '/topics/:slug/',
     tags: '/labels/:slug/',
   };
-  previewData.content.pages[0].path = 'spec/preview-data-v0-6';
+  previewData.content.pages[0].path = 'spec/preview-data-v0.6';
+  previewData.menus.primary = {
+    name: 'Primary Menu',
+    items: [{
+      title: 'Preview Data v0.6',
+      url: '/spec/preview-data-v0.6',
+      target: '_self',
+      children: [],
+    }],
+  };
+  themePackage.partials.set('header', '<header>{{menu:primary}}</header>');
   previewData.content.pages.push({
     ...previewData.content.pages[0],
     title: 'CLI Tools',
@@ -1525,7 +1535,7 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   const paths = new Set(files.map((file) => file.path));
   assert.equal(paths.has('posts/101.html'), true);
   assert.equal(paths.has('posts/101/index.html'), false);
-  assert.equal(paths.has('spec/preview-data-v0-6.html'), true);
+  assert.equal(paths.has('spec/preview-data-v0.6.html'), true);
   assert.equal(paths.has('cli/index.html'), true);
   assert.equal(paths.has('cli.html'), false);
   assert.equal(paths.has('topics/general.html'), true);
@@ -1537,7 +1547,7 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
 
   const indexHtml = getFileContent(files, 'index.html');
   const postHtml = getFileContent(files, 'posts/101.html');
-  const pageHtml = getFileContent(files, 'spec/preview-data-v0-6.html');
+  const pageHtml = getFileContent(files, 'spec/preview-data-v0.6.html');
   const indexPageHtml = getFileContent(files, 'cli/index.html');
   const categoryHtml = getFileContent(files, 'topics/general.html');
   const tagHtml = getFileContent(files, 'labels/intro.html');
@@ -1546,16 +1556,17 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
 
   assert.match(indexHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
   assert.match(indexHtml, /<a href="\/page\/2" class="page-link ">2<\/a>/);
+  assert.match(indexHtml, /<a href="\/spec\/preview-data-v0\.6" target="_self">Preview Data v0\.6<\/a>/);
   assert.match(postHtml, /<link rel="canonical" href="https:\/\/example\.com\/posts\/101">/);
   assert.match(postHtml, /<a href="\/topics\/general" class="category-link">General<\/a>/);
   assert.match(postHtml, /<a href="\/labels\/intro" class="tag-link">Intro<\/a>/);
-  assert.match(pageHtml, /<link rel="canonical" href="https:\/\/example\.com\/spec\/preview-data-v0-6">/);
+  assert.match(pageHtml, /<link rel="canonical" href="https:\/\/example\.com\/spec\/preview-data-v0\.6">/);
   assert.match(indexPageHtml, /<link rel="canonical" href="https:\/\/example\.com\/cli\/">/);
   assert.doesNotMatch(indexPageHtml, /https:\/\/example\.com\/cli\/index/);
   assert.match(categoryHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
   assert.match(tagHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/posts\/101<\/loc>/);
-  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/spec\/preview-data-v0-6<\/loc>/);
+  assert.match(sitemapXml, /<loc>https:\/\/example\.com\/spec\/preview-data-v0\.6<\/loc>/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/cli\/<\/loc>/);
   assert.doesNotMatch(sitemapXml, /https:\/\/example\.com\/cli\/index/);
   assert.match(feedXml, /<link>https:\/\/example\.com\/posts\/101<\/link>/);
@@ -2133,6 +2144,172 @@ test('buildSite rejects html-extension page path index public URL collisions', a
       writer,
     }),
     /Duplicate public URL detected: \/cli\//,
+  );
+  assert.equal(writer.getFiles().length, 0);
+});
+
+test('buildSite rejects dotted routes that collide with generated special-file URLs', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.content.pages[0].slug = 'sitemap.xml';
+
+  await assert.rejects(
+    () => buildSite({
+      previewData,
+      themePackage,
+      writer,
+    }),
+    /Duplicate public URL detected: \/sitemap\.xml/,
+  );
+  assert.equal(writer.getFiles().length, 0);
+});
+
+test('buildSite rejects clean URL aliases from caller-owned files across output styles', async (t) => {
+  const scenarios = [
+    {
+      name: 'directory route and sibling html file',
+      outputStyle: 'directory',
+      reservedOutputPath: 'guide.html',
+      expectedUrl: /Duplicate public URL detected: \/guide/,
+    },
+    {
+      name: 'html-extension route and nested index file',
+      outputStyle: 'html-extension',
+      reservedOutputPath: 'guide/index.html',
+      expectedUrl: /Duplicate public URL detected: \/guide\//,
+    },
+  ];
+
+  for (const scenario of scenarios) {
+    await t.test(scenario.name, async () => {
+      const writer = new MemoryWriter();
+      const previewData = await loadDefaultPreviewData();
+      const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+      previewData.site.permalinks = {
+        output_style: scenario.outputStyle,
+        posts: '/posts/:slug',
+        pages: '/:slug',
+        categories: '/categories/:slug',
+        tags: '/tags/:slug',
+      };
+      previewData.content.pages[0].slug = 'guide';
+      previewData.content.pages[0].path = 'guide';
+
+      await assert.rejects(
+        () => buildSite({
+          previewData,
+          themePackage,
+          writer,
+          options: { reservedOutputPaths: [scenario.reservedOutputPath] },
+        }),
+        scenario.expectedUrl,
+      );
+      assert.equal(writer.getFiles().length, 0);
+    });
+  }
+});
+
+test('buildSite rejects a directory route shadowed by the generated 404 clean URL', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.permalinks = {
+    output_style: 'directory',
+    posts: '/posts/:slug',
+    pages: '/:slug',
+    categories: '/categories/:slug',
+    tags: '/tags/:slug',
+  };
+  previewData.content.pages[0].slug = '404';
+  previewData.content.pages[0].path = '404';
+
+  await assert.rejects(
+    () => buildSite({
+      previewData,
+      themePackage,
+      writer,
+    }),
+    /Duplicate public URL detected: \/404/,
+  );
+  assert.equal(writer.getFiles().length, 0);
+});
+
+test('buildSite reserves the optional manifest URL only when manifest output is enabled', async () => {
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.content.pages[0].slug = 'build-manifest.json';
+
+  const withoutManifestWriter = new MemoryWriter();
+  await buildSite({
+    previewData,
+    themePackage,
+    writer: withoutManifestWriter,
+  });
+  assert.equal(
+    withoutManifestWriter.getFiles().some((file) => file.path === 'build-manifest.json/index.html'),
+    true,
+  );
+
+  const withManifestWriter = new MemoryWriter();
+  await assert.rejects(
+    () => buildSite({
+      previewData,
+      themePackage,
+      writer: withManifestWriter,
+      options: { writeManifest: true },
+    }),
+    /Duplicate public URL detected: \/build-manifest\.json/,
+  );
+  assert.equal(withManifestWriter.getFiles().length, 0);
+});
+
+test('buildSite validates and reserves caller-owned output paths without emitting them', async () => {
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  const writer = new MemoryWriter();
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { reservedOutputPaths: ['public-only.txt'], writeManifest: true },
+  });
+  assert.equal(writer.getFiles().some((file) => file.path === 'public-only.txt'), false);
+  const manifest = JSON.parse(getFileContent(writer.getFiles(), 'build-manifest.json'));
+  assert.equal(manifest.files.some((file) => file.path === 'public-only.txt'), false);
+
+  await assert.rejects(
+    () => buildSite({
+      previewData,
+      themePackage,
+      writer: new MemoryWriter(),
+      options: { reservedOutputPaths: ['../escape.txt'] },
+    }),
+    /Unsafe output path detected: \.\.\/escape\.txt/,
+  );
+});
+
+test('buildSite rejects file and directory output path hierarchy conflicts', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  themePackage.assets.set('collision', new TextEncoder().encode('file'));
+  themePackage.assets.set('collision-other', new TextEncoder().encode('sibling'));
+  themePackage.assets.set('collision/child.txt', new TextEncoder().encode('child'));
+
+  await assert.rejects(
+    () => buildSite({
+      previewData,
+      themePackage,
+      writer,
+      options: { assetHashing: false },
+    }),
+    /Conflicting output path hierarchy detected: assets\/collision and assets\/collision\/child\.txt/,
   );
   assert.equal(writer.getFiles().length, 0);
 });

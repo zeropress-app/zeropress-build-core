@@ -31,6 +31,7 @@ export interface BuildOptions {
   sitemapStylesheetHref?: string;
   generateFeed?: boolean;
   generateRobotsTxt?: boolean;
+  reservedOutputPaths?: readonly string[];
   writeManifest?: boolean;
 }
 
