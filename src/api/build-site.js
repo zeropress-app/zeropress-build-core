@@ -453,19 +453,19 @@ async function maybeRenderNotFoundPage(state) {
 }
 
 function normalizePreviewData(previewData, options = {}) {
-  const media_base_url = normalizeOptionalString(previewData.site.media_base_url);
+  const media_origin = normalizeMediaOrigin(previewData.site.media_origin);
   const { comments: siteComments, ...siteFields } = previewData.site;
   const normalizedComments = normalizeSiteComments(siteComments);
   const normalizedSite = {
     ...siteFields,
-    media_base_url,
+    media_origin,
     media_delivery_mode: MEDIA_DELIVERY_MODES.has(previewData.site.media_delivery_mode)
       ? previewData.site.media_delivery_mode
       : 'none',
     favicon: previewData.site.favicon
-      ? normalizeSiteFavicon(previewData.site.favicon, media_base_url)
+      ? normalizeSiteFavicon(previewData.site.favicon, media_origin)
       : normalizeSiteFavicon(options.favicon, ''),
-    logo: normalizeSiteLogo(previewData.site.logo, media_base_url),
+    logo: normalizeSiteLogo(previewData.site.logo, media_origin),
     newsletter: normalizeSiteNewsletter(previewData.site.newsletter),
     posts_per_page: Number.isInteger(previewData.site.posts_per_page) && previewData.site.posts_per_page > 0
       ? previewData.site.posts_per_page
@@ -496,13 +496,13 @@ function normalizePreviewData(previewData, options = {}) {
     site: normalizedSite,
     menus: normalizeRecordMap(previewData.menus),
     collections: normalizeCollections(previewData.collections),
-    widgets: normalizeWidgetAreas(previewData.widgets, normalizedSite.media_base_url),
+    widgets: normalizeWidgetAreas(previewData.widgets, normalizedSite.media_origin),
     custom_css: normalizeCustomCss(previewData.custom_css),
     custom_html: normalizeCustomHtml(previewData.custom_html),
     content: {
       ...previewData.content,
       authors: previewData.content.authors.map((author) => {
-        const avatar = normalizeMediaField(author.avatar, normalizedSite.media_base_url);
+        const avatar = normalizeMediaField(author.avatar, normalizedSite.media_origin);
         const avatarMedia = deriveManagedMedia(avatar, mediaRegistry, normalizedSite);
         return {
           ...author,
@@ -514,7 +514,7 @@ function normalizePreviewData(previewData, options = {}) {
         .map((post) => {
           const { comments, ...postFields } = post;
           const normalizedPostComments = normalizeTargetComments(comments);
-          const featuredImage = normalizeMediaField(post.featured_image, normalizedSite.media_base_url);
+          const featuredImage = normalizeMediaField(post.featured_image, normalizedSite.media_origin);
           const featuredMedia = deriveManagedMedia(featuredImage, mediaRegistry, normalizedSite);
           return {
             ...postFields,
@@ -531,7 +531,7 @@ function normalizePreviewData(previewData, options = {}) {
       pages: previewData.content.pages.map((page) => {
         const { comments, ...pageFields } = page;
         const normalizedPageComments = normalizeTargetComments(comments);
-        const featuredImage = normalizeMediaField(page.featured_image, normalizedSite.media_base_url);
+        const featuredImage = normalizeMediaField(page.featured_image, normalizedSite.media_origin);
         const featuredMedia = deriveManagedMedia(featuredImage, mediaRegistry, normalizedSite);
         return {
           ...pageFields,
@@ -580,7 +580,7 @@ function normalizeContentMedia(mediaItems, site) {
       if (!item || typeof item !== 'object') {
         return null;
       }
-      const src = normalizeMediaField(item.src, site.media_base_url);
+      const src = normalizeMediaField(item.src, site.media_origin);
       const width = Number.isInteger(item.width) && item.width > 0 ? item.width : 0;
       const height = Number.isInteger(item.height) && item.height > 0 ? item.height : 0;
       if (!src || !width || !height) {
@@ -626,8 +626,8 @@ function buildResponsiveImageSrcset(media, site) {
     return '';
   }
 
-  const media_base_url = normalizeOptionalString(site.media_base_url);
-  if (!media_base_url || !isUrlUnderMediaBase(media.src, media_base_url) || !isResponsiveRasterImage(media.src)) {
+  const media_origin = normalizeMediaOrigin(site.media_origin);
+  if (!media_origin || !isUrlAtMediaOrigin(media.src, media_origin) || !isResponsiveRasterImage(media.src)) {
     return '';
   }
 
@@ -654,12 +654,10 @@ function buildResponsiveImageVariantUrl(src, width) {
   }
 }
 
-function isUrlUnderMediaBase(src, media_base_url) {
+function isUrlAtMediaOrigin(src, media_origin) {
   try {
     const sourceUrl = new URL(src);
-    const baseUrl = new URL(media_base_url);
-    const basePath = baseUrl.pathname.endsWith('/') ? baseUrl.pathname : `${baseUrl.pathname}/`;
-    return sourceUrl.origin === baseUrl.origin && sourceUrl.pathname.startsWith(basePath);
+    return sourceUrl.origin === media_origin;
   } catch {
     return false;
   }
@@ -694,7 +692,7 @@ function normalizeCollections(collections) {
   );
 }
 
-function normalizeWidgetAreas(widget_areas, media_base_url) {
+function normalizeWidgetAreas(widget_areas, media_origin) {
   if (!widget_areas || typeof widget_areas !== 'object') {
     return {};
   }
@@ -706,7 +704,7 @@ function normalizeWidgetAreas(widget_areas, media_base_url) {
         ...widgetArea,
         name: normalizeNonEmptyString(widgetArea?.name, widgetAreaId),
         items: Array.isArray(widgetArea?.items)
-          ? widgetArea.items.map((item) => normalizeWidgetItem(item, media_base_url))
+          ? widgetArea.items.map((item) => normalizeWidgetItem(item, media_origin))
           : [],
       },
     ]),
@@ -723,7 +721,7 @@ function normalizeSiteFooter(footer) {
   };
 }
 
-function normalizeWidgetItem(item, media_base_url) {
+function normalizeWidgetItem(item, media_origin) {
   const normalizedItem = {
     ...item,
     title: typeof item?.title === 'string' ? item.title.trim() : '',
@@ -734,7 +732,7 @@ function normalizeWidgetItem(item, media_base_url) {
       ...normalizedItem,
       settings: {
         ...item.settings,
-        avatar: normalizeMediaField(item.settings.avatar, media_base_url),
+        avatar: normalizeMediaField(item.settings.avatar, media_origin),
       },
     };
   }
@@ -764,7 +762,7 @@ function normalizeCustomHtml(customHtml) {
   };
 }
 
-function normalizeSiteFavicon(favicon, media_base_url) {
+function normalizeSiteFavicon(favicon, media_origin) {
   if (!favicon || typeof favicon !== 'object') {
     return undefined;
   }
@@ -773,19 +771,19 @@ function normalizeSiteFavicon(favicon, media_base_url) {
   for (const key of ['icon', 'svg', 'png', 'apple_touch_icon']) {
     const value = normalizeOptionalString(favicon[key]);
     if (value) {
-      normalized[key] = normalizeMediaField(value, media_base_url);
+      normalized[key] = normalizeMediaField(value, media_origin);
     }
   }
 
   return Object.keys(normalized).length ? normalized : undefined;
 }
 
-function normalizeSiteLogo(logo, media_base_url) {
+function normalizeSiteLogo(logo, media_origin) {
   if (!logo || typeof logo !== 'object') {
     return undefined;
   }
 
-  const src = normalizeMediaField(logo.src, media_base_url);
+  const src = normalizeMediaField(logo.src, media_origin);
   if (!src) {
     return undefined;
   }
@@ -2360,7 +2358,7 @@ function resolveMetaImageUrl(image) {
   return '';
 }
 
-function normalizeMediaField(value, media_base_url) {
+function normalizeMediaField(value, media_origin) {
   if (value === undefined) {
     return undefined;
   }
@@ -2374,13 +2372,37 @@ function normalizeMediaField(value, media_base_url) {
     return normalizeAbsoluteUrl(normalizedValue, SAFE_MEDIA_PROTOCOLS);
   }
 
-  const normalizedBaseUrl = normalizeOptionalString(media_base_url);
-  if (!normalizedBaseUrl) {
+  const normalizedOrigin = normalizeMediaOrigin(media_origin);
+  if (!normalizedOrigin) {
     return normalizedValue;
   }
 
   try {
-    return decodeURI(new URL(normalizedValue, normalizedBaseUrl).toString());
+    return decodeURI(new URL(normalizedValue, `${normalizedOrigin}/`).toString());
+  } catch {
+    return '';
+  }
+}
+
+function normalizeMediaOrigin(value) {
+  const normalizedValue = normalizeOptionalString(value);
+  if (!normalizedValue) {
+    return '';
+  }
+
+  try {
+    const url = new URL(normalizedValue);
+    if (
+      !SAFE_MEDIA_PROTOCOLS.has(url.protocol)
+      || url.username
+      || url.password
+      || url.search
+      || url.hash
+      || url.pathname !== '/'
+    ) {
+      return '';
+    }
+    return url.origin;
   } catch {
     return '';
   }

@@ -499,7 +499,7 @@ test('buildSite exposes optional site.footer fields to themes', async () => {
 test('buildSite exposes optional site.logo fields to themes with media normalization', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
-  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.media_origin = 'https://media.example.com';
   previewData.site.logo = {
     src: '/logo.svg',
     alt: 'Example logo',
@@ -525,7 +525,7 @@ test('buildSite exposes optional site.logo fields to themes with media normaliza
 test('buildSite exposes optional site.newsletter fields to themes without media normalization', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
-  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.media_origin = 'https://media.example.com';
   previewData.site.newsletter = {
     enabled: true,
     title: 'Subscribe',
@@ -585,6 +585,20 @@ test('buildSite reports invalid preview data at the core API boundary', async ()
       themePackage,
       writer,
     }),
+    /Invalid preview-data:/,
+  );
+});
+
+test('buildSite rejects the removed site.media_base_url alias', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  delete previewData.site.media_origin;
+  previewData.site.media_base_url = 'https://media.example.com';
+
+  await assert.rejects(
+    () => buildSite({ previewData, themePackage, writer }),
     /Invalid preview-data:/,
   );
 });
@@ -704,7 +718,7 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
     {{/for}}
   </aside>
 </section>`);
-  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.media_origin = 'https://media.example.com';
 
   previewData.widgets = {
     sidebar: {
@@ -1053,12 +1067,12 @@ test('buildSite does not deduplicate custom generator meta', async () => {
   assert.match(indexHtml, /<meta name="generator" content="Custom Generator">/);
 });
 
-test('buildSite normalizes explicit preview-data favicon links against media_base_url', async () => {
+test('buildSite normalizes explicit preview-data favicon links against media_origin', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.media_origin = 'https://media.example.com';
   previewData.site.favicon = {
     icon: '/favicon.ico',
     svg: '/favicon.svg',
@@ -1083,7 +1097,7 @@ test('buildSite injects discovered favicon option when preview-data has no expli
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
-  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.media_origin = 'https://media.example.com';
 
   await buildSite({
     previewData,
@@ -1140,7 +1154,7 @@ test('buildSite runtime 0.6 renders resolved widgets with escaping and safe URL 
   </aside>
 </section>`);
 
-  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.media_origin = 'https://media.example.com';
   previewData.widgets = {
     sidebar: {
       name: 'Sidebar Widgets',
@@ -2612,7 +2626,7 @@ test('buildSite renders SEO meta for post and page routes', async () => {
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.media_origin = 'https://media.example.com';
   previewData.content.posts[0].featured_image = '/images/post-share.png';
   previewData.content.pages[0].excerpt = 'About page summary';
   previewData.content.pages[0].featured_image = './images/page-share.png';
@@ -2641,13 +2655,13 @@ test('buildSite renders SEO meta for post and page routes', async () => {
   assert.doesNotMatch(pageHtml, /property="article:modified_time"/);
 });
 
-test('buildSite omits canonical and og:url when site.url is empty and still emits og:image from media_base_url', async () => {
+test('buildSite omits canonical and og:url when site.url is empty and still emits og:image from media_origin', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
   previewData.site.url = '';
-  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.media_origin = 'https://media.example.com';
   previewData.content.posts[0].featured_image = '/images/post-share.png';
   previewData.content.pages[0].featured_image = 'https://cdn.example.com/page-share.png';
 
@@ -2668,18 +2682,19 @@ test('buildSite omits canonical and og:url when site.url is empty and still emit
   assert.match(pageHtml, /property="og:image" content="https:\/\/cdn\.example\.com\/page-share\.png"/);
 });
 
-test('buildSite normalizes media fields against site.media_base_url before rendering', async () => {
+test('buildSite normalizes media fields against site.media_origin before rendering', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.media_base_url = 'https://media.example.com/base/';
+  previewData.site.media_origin = 'https://media.example.com/';
   previewData.content.authors[0].avatar = '/avatars/author.png?size=96';
   previewData.content.posts[0].featured_image = './images/post-share.png?fit=cover';
   previewData.content.pages[0].featured_image = '/images/page-share.png?format=webp';
 
   themePackage.templates.set('post', [
     '<article',
+    ' data-media-origin="{{site.media_origin}}"',
     ' data-author-avatar="{{post.author.avatar}}"',
     ' data-featured-image="{{post.featured_image}}">',
     '{{post.title}}',
@@ -2696,8 +2711,9 @@ test('buildSite normalizes media fields against site.media_base_url before rende
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
   const pageHtml = getFileContent(writer.getFiles(), 'about/index.html');
 
+  assert.match(postHtml, /data-media-origin="https:\/\/media\.example\.com"/);
   assert.match(postHtml, /data-author-avatar="https:\/\/media\.example\.com\/avatars\/author\.png\?size=96"/);
-  assert.match(postHtml, /data-featured-image="https:\/\/media\.example\.com\/base\/images\/post-share\.png\?fit=cover"/);
+  assert.match(postHtml, /data-featured-image="https:\/\/media\.example\.com\/images\/post-share\.png\?fit=cover"/);
   assert.match(pageHtml, /data-featured-image="https:\/\/media\.example\.com\/images\/page-share\.png\?format=webp"/);
 });
 
@@ -2706,7 +2722,7 @@ test('buildSite derives managed media and responsive srcset from content media r
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.media_origin = 'https://media.example.com';
   previewData.site.media_delivery_mode = 'media_domain';
   previewData.content.authors[0].avatar = '/avatars/admin.jpg';
   previewData.content.posts[0].featured_image = '/originals/hello.jpg';
@@ -2760,12 +2776,12 @@ test('buildSite derives managed media and responsive srcset from content media r
   assert.doesNotMatch(pageHtml, /w=768&amp;fit=scale-down&amp;format=auto 768w/);
 });
 
-test('buildSite omits managed media srcset when delivery mode or media host is unavailable', async () => {
+test('buildSite omits managed media srcset when delivery mode or media origin is unavailable', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.media_base_url = '';
+  previewData.site.media_origin = '';
   previewData.site.media_delivery_mode = 'media_domain';
   previewData.content.posts[0].featured_image = '/originals/hello.jpg';
   previewData.content.posts[1].featured_image = 'https://cdn.example.com/external.jpg';
@@ -2802,7 +2818,7 @@ test('buildSite leaves managed media undefined when registry does not match medi
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.media_base_url = 'https://media.example.com';
+  previewData.site.media_origin = 'https://media.example.com';
   previewData.site.media_delivery_mode = 'media_domain';
   previewData.content.posts[0].featured_image = '/originals/hello.jpg';
   previewData.content.media = [
@@ -2828,7 +2844,7 @@ test('buildSite leaves managed media undefined when registry does not match medi
   assert.match(postHtml, /data-featured-srcset=""/);
 });
 
-test('buildSite preserves relative media fields when site.media_base_url is missing', async () => {
+test('buildSite preserves relative media fields when site.media_origin is missing', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
@@ -4647,7 +4663,7 @@ test('buildSite renders v0.7 raw content and resolves structured post author dat
         title: 'ZeroPress',
         description: 'Test preview data',
         url: 'https://example.com',
-        media_base_url: 'https://media.example.com',
+        media_origin: 'https://media.example.com',
         locale: 'en-US',
         posts_per_page: 10,
         date_style: 'medium',

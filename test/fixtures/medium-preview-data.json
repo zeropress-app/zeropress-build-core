@@ -6,7 +6,7 @@
     "title": "ZeroPress Medium Preview",
     "description": "Medium preview data",
     "url": "https://ko.example",
-    "media_base_url": "",
+    "media_origin": "",
     "locale": "ko-KR",
     "posts_per_page": 2,
     "date_style": "medium",

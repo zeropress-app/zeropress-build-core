@@ -6,7 +6,7 @@
     "title": "ZeroPress Preview",
     "description": "Default preview data",
     "url": "https://example.com",
-    "media_base_url": "",
+    "media_origin": "",
     "locale": "en-US",
     "posts_per_page": 2,
     "date_style": "medium",

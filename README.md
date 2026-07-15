@@ -247,7 +247,7 @@ The theme-facing `request_token` key exists only for the `zeropress` provider. P
 
 The canonical `preview-data v0.7` site contract uses:
 
-- `site.media_base_url`
+- `site.media_origin`
 - `site.media_delivery_mode`
 - `site.locale`
 - `site.timezone`
@@ -258,6 +258,8 @@ The canonical `preview-data v0.7` site contract uses:
 - `site.indexing`
 - `site.expose_generator`
 - `site.search`
+
+`site.media_origin` is either an empty string or an absolute HTTP(S) origin. Build Core resolves root-relative and relative site favicon/logo, profile-widget avatar, author avatar, Post/Page featured-image, and `content.media[].src` values against that origin, while preserving already-absolute external URLs. SEO image metadata receives the normalized featured image. Responsive `srcset` variants require `media_delivery_mode: "media_domain"` and an exact origin match; paths, credentials, query strings, and fragments are not part of the media-origin contract.
 
 Native search artifacts are emitted only when preview-data does not set `site.search: false` and the active theme declares `features.search: true`. When that effective search state is disabled, search widgets are omitted from resolved widget items while their widget areas and non-search siblings remain available. `search_pagefind.js` is a Pagefind adapter that can replace `search.js` after a post-build Pagefind step.
 
