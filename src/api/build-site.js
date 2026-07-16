@@ -51,6 +51,9 @@ const SAFE_MEDIA_PROTOCOLS = new Set(['http:', 'https:']);
 const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
 const MEDIA_DELIVERY_MODES = new Set(['none', 'media_domain']);
 const DISCOVERABILITY_VALUES = new Set(['default', 'noindex', 'delist']);
+const CUSTOM_HTML_SLOT_MAX_CODE_POINTS = 65_536;
+const HEAD_CLOSING_TAG_PATTERN = /<\/head\s*>/i;
+const BODY_CLOSING_TAG_PATTERN = /<\/body\s*>/i;
 const RESPONSIVE_IMAGE_WIDTHS = [320, 480, 768, 1024, 1280, 1600, 1920];
 const RESPONSIVE_IMAGE_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'webp', 'avif']);
 const SEARCH_FIELD_WEIGHTS = Object.freeze({
@@ -220,6 +223,7 @@ async function finalizeBuildResult(writer, summaries, options) {
 
 async function renderRoute(state, templateName, route) {
   const currentUrl = routePathToPublicUrl(route.path, state.previewData.site.permalinks.output_style);
+  const outputPath = routePathToOutputPath(route.path, state.previewData.site.permalinks.output_style);
   const routeContext = buildRouteContext(route.route_type || templateName, currentUrl, {
     isFrontPage: route.is_front_page === true,
     isPostIndex: route.is_post_index === true,
@@ -245,8 +249,11 @@ async function renderRoute(state, templateName, route) {
     createRenderContext(state.previewData.site, currentUrl),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
-  html = injectSiteCustomizations(html, state);
-  await writeOutput(state.writer, state.summaries, routePathToOutputPath(route.path, state.previewData.site.permalinks.output_style), html, 'text/html');
+  html = injectSiteCustomizations(html, state, {
+    route: currentUrl,
+    outputPath,
+  });
+  await writeOutput(state.writer, state.summaries, outputPath, html, 'text/html');
   recordRouteEmission(state, templateName, route, currentUrl);
 }
 
@@ -298,7 +305,10 @@ async function renderFrontPage(state, route) {
       ),
     );
     html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
-    html = injectSiteCustomizations(html, state);
+    html = injectSiteCustomizations(html, state, {
+      route: currentUrl,
+      outputPath: 'index.html',
+    });
     await writeOutput(state.writer, state.summaries, 'index.html', html, 'text/html');
     state.emitted.frontPage = {
       url: currentUrl,
@@ -330,7 +340,10 @@ async function renderFrontPage(state, route) {
     createRenderContext(state.previewData.site, currentUrl),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
-  html = injectSiteCustomizations(html, state);
+  html = injectSiteCustomizations(html, state, {
+    route: currentUrl,
+    outputPath: 'index.html',
+  });
   await writeOutput(state.writer, state.summaries, 'index.html', html, 'text/html');
   state.emitted.frontPage = {
     url: currentUrl,
@@ -342,6 +355,7 @@ async function renderFrontPage(state, route) {
 
 async function renderPost(state, post) {
   const currentUrl = post.url;
+  const outputPath = routePathToOutputPath(post.url, state.previewData.site.permalinks.output_style);
   let html = await state.engine.render(
     'post',
     {
@@ -369,8 +383,11 @@ async function renderPost(state, post) {
     ),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
-  html = injectSiteCustomizations(html, state);
-  await writeOutput(state.writer, state.summaries, routePathToOutputPath(post.url, state.previewData.site.permalinks.output_style), html, 'text/html');
+  html = injectSiteCustomizations(html, state, {
+    route: currentUrl,
+    outputPath,
+  });
+  await writeOutput(state.writer, state.summaries, outputPath, html, 'text/html');
   if (!isDelistedDocument(post)) {
     state.emitted.posts.push({
       url: currentUrl,
@@ -413,7 +430,10 @@ async function renderPage(state, page) {
     ),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
-  html = injectSiteCustomizations(html, state);
+  html = injectSiteCustomizations(html, state, {
+    route: currentUrl,
+    outputPath,
+  });
   await writeOutput(state.writer, state.summaries, outputPath, html, 'text/html');
   state.emitted.pages.push({
     url: currentUrl,
@@ -448,7 +468,10 @@ async function maybeRenderNotFoundPage(state) {
     createRenderContext(state.previewData.site, '/404.html'),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
-  html = injectSiteCustomizations(html, state);
+  html = injectSiteCustomizations(html, state, {
+    route: '/404.html',
+    outputPath: '404.html',
+  });
   await writeOutput(state.writer, state.summaries, '404.html', html, 'text/html');
 }
 
@@ -746,20 +769,28 @@ function normalizeCustomCss(customCss) {
 }
 
 function normalizeCustomHtml(customHtml) {
-  if (!customHtml || typeof customHtml !== 'object') {
+  if (!customHtml || typeof customHtml !== 'object' || Array.isArray(customHtml)) {
     return undefined;
   }
 
-  const headEnd = normalizeOptionalRawString(customHtml.head_end?.content);
-  const bodyEnd = normalizeOptionalRawString(customHtml.body_end?.content);
+  const headEnd = normalizeCustomHtmlSlot(customHtml.head_end);
+  const bodyEnd = normalizeCustomHtmlSlot(customHtml.body_end);
   if (!headEnd && !bodyEnd) {
     return undefined;
   }
 
   return {
-    ...(headEnd ? { head_end: { content: headEnd } } : {}),
-    ...(bodyEnd ? { body_end: { content: bodyEnd } } : {}),
+    ...(headEnd ? { head_end: headEnd } : {}),
+    ...(bodyEnd ? { body_end: bodyEnd } : {}),
   };
+}
+
+function normalizeCustomHtmlSlot(value) {
+  if (typeof value !== 'string' || !value.trim()) {
+    return '';
+  }
+
+  return [...value].length <= CUSTOM_HTML_SLOT_MAX_CODE_POINTS ? value : '';
 }
 
 function normalizeSiteFavicon(favicon, media_origin) {
@@ -2815,11 +2846,11 @@ function sha256(content) {
   return hash.digest('hex');
 }
 
-function injectSiteCustomizations(html, state) {
+function injectSiteCustomizations(html, state, target) {
   let next = injectFaviconLinks(html, state.favicon);
   next = injectGeneratorMeta(next, state.exposeGenerator);
   next = injectCustomCssAssetLink(next, state.customCssHref);
-  next = injectCustomHtml(next, state.customHtml);
+  next = injectCustomHtml(next, state.customHtml, target);
   return next;
 }
 
@@ -2829,7 +2860,7 @@ function injectFaviconLinks(html, favicon) {
     return html;
   }
 
-  return html.replace('</head>', `${links}\n</head>`);
+  return insertBeforeClosingTag(html, HEAD_CLOSING_TAG_PATTERN, `${links}\n`);
 }
 
 function buildFaviconLinks(favicon) {
@@ -2885,7 +2916,11 @@ function injectGeneratorMeta(html, exposeGenerator) {
     return html;
   }
 
-  return html.replace('</head>', '  <meta name="generator" content="ZeroPress">\n</head>');
+  return insertBeforeClosingTag(
+    html,
+    HEAD_CLOSING_TAG_PATTERN,
+    '  <meta name="generator" content="ZeroPress">\n',
+  );
 }
 
 function injectCustomCssAssetLink(html, href) {
@@ -2893,22 +2928,64 @@ function injectCustomCssAssetLink(html, href) {
     return html;
   }
 
-  return html.replace('</head>', `  <link rel="stylesheet" href="${escapeHtml(href)}">\n</head>`);
+  return insertBeforeClosingTag(
+    html,
+    HEAD_CLOSING_TAG_PATTERN,
+    `  <link rel="stylesheet" href="${escapeHtml(href)}">\n`,
+  );
 }
 
-function injectCustomHtml(html, customHtml) {
+function injectCustomHtml(html, customHtml, target) {
   let next = html;
-  const headEnd = normalizeOptionalRawString(customHtml?.head_end?.content);
-  const bodyEnd = normalizeOptionalRawString(customHtml?.body_end?.content);
+  const headEnd = normalizeCustomHtmlSlot(customHtml?.head_end);
+  const bodyEnd = normalizeCustomHtmlSlot(customHtml?.body_end);
 
   if (headEnd) {
-    next = next.replace('</head>', `${headEnd}\n</head>`);
+    next = injectRequiredCustomHtmlSlot(
+      next,
+      'head_end',
+      headEnd,
+      'head',
+      HEAD_CLOSING_TAG_PATTERN,
+      target,
+    );
   }
   if (bodyEnd) {
-    next = next.replace('</body>', `${bodyEnd}\n</body>`);
+    next = injectRequiredCustomHtmlSlot(
+      next,
+      'body_end',
+      bodyEnd,
+      'body',
+      BODY_CLOSING_TAG_PATTERN,
+      target,
+    );
   }
 
   return next;
+}
+
+function injectRequiredCustomHtmlSlot(html, slot, content, tagName, closingTagPattern, target) {
+  let injected = false;
+  const next = String(html).replace(closingTagPattern, (closingTag) => {
+    injected = true;
+    return `${content}\n${closingTag}`;
+  });
+
+  if (injected) {
+    return next;
+  }
+
+  const route = normalizeOptionalString(target?.route) || '<unknown>';
+  const outputPath = normalizeOptionalString(target?.outputPath) || '<unknown>';
+  throw new Error(
+    `Unable to inject custom_html.${slot} for route "${route}" into output "${outputPath}": `
+    + `rendered theme HTML is missing a closing </${tagName}> tag. `
+    + `Add </${tagName}> to the rendered theme layout or remove custom_html.${slot}.`,
+  );
+}
+
+function insertBeforeClosingTag(html, closingTagPattern, content) {
+  return String(html).replace(closingTagPattern, (closingTag) => `${content}${closingTag}`);
 }
 
 function buildSearchIndexJson(state) {

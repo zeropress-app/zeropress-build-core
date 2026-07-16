@@ -27,7 +27,6 @@
     ],
     "posts": [
       {
-        "id": "post-ko-1",
         "public_id": 201,
         "title": "안녕하세요 제로프레스",
         "slug": "안녕하세요-제로프레스",
@@ -47,7 +46,6 @@
         ]
       },
       {
-        "id": "post-ko-2",
         "public_id": 202,
         "title": "디자인 시스템 가이드",
         "slug": "디자인-시스템-가이드",
@@ -68,7 +66,6 @@
         ]
       },
       {
-        "id": "post-en-1",
         "public_id": 203,
         "title": "April Release Notes",
         "slug": "april-release-notes",
@@ -88,7 +85,6 @@
         ]
       },
       {
-        "id": "post-en-2",
         "public_id": 204,
         "title": "Taxonomy Coverage Check",
         "slug": "taxonomy-coverage-check",

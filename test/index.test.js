@@ -937,12 +937,8 @@ test('buildSite injects trusted custom HTML into rendered HTML routes', async ()
     content: 'body { color: rgb(10, 20, 30); }',
   };
   previewData.custom_html = {
-    head_end: {
-      content: '<meta name="zp-custom-head" content="ok">\n<script>window.__zp_head = true;</script>',
-    },
-    body_end: {
-      content: '<script defer src="/vendor/app.js"></script>',
-    },
+    head_end: '<meta name="zp-custom-head" content="ok">\n<script>window.__zp_head = true;</script>',
+    body_end: '<script defer src="/vendor/app.js"></script>',
   };
 
   await buildSite({
@@ -974,6 +970,156 @@ test('buildSite injects trusted custom HTML into rendered HTML routes', async ()
   assert.doesNotMatch(sitemapXml, /zp-custom-head|vendor\/app\.js/);
 });
 
+test('buildSite preserves custom HTML source and injects site customizations before case-insensitive closing tags', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  const headEnd = ' \n<meta name="zp-raw-head" content="ok">\n  ';
+  const bodyEnd = '\t<script>window.__zp_raw_body = true;</script>\n ';
+
+  previewData.site.favicon = {
+    icon: '/favicon.ico',
+  };
+  previewData.custom_css = {
+    content: 'body { color: rgb(10, 20, 30); }',
+  };
+  previewData.custom_html = {
+    head_end: headEnd,
+    body_end: bodyEnd,
+  };
+  themePackage.templates.set('layout', [
+    '<HTML>',
+    '  <HEAD>',
+    '    <meta charset="utf-8">',
+    '    {{meta.head_tags}}',
+    '  </HEAD>',
+    '  <BODY>',
+    '    <main>{{slot:content}}</main>',
+    '  </BODY>',
+    '</HTML>',
+  ].join('\n'));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  const iconIndex = indexHtml.indexOf('<link rel="icon" href="/favicon.ico">');
+  const generatorIndex = indexHtml.indexOf('<meta name="generator" content="ZeroPress">');
+  const customCssLinkIndex = indexHtml.indexOf('<link rel="stylesheet" href="/assets/zeropress-custom');
+  const customHeadIndex = indexHtml.indexOf(headEnd);
+  const headCloseIndex = indexHtml.indexOf('</HEAD>');
+
+  assert.ok(iconIndex > -1, 'Expected favicon injection before case-insensitive </head>');
+  assert.ok(generatorIndex > iconIndex, 'Expected generator injection after favicon');
+  assert.ok(customCssLinkIndex > generatorIndex, 'Expected custom CSS injection after generator');
+  assert.ok(customHeadIndex > customCssLinkIndex, 'Expected custom HTML injection after custom CSS');
+  assert.ok(headCloseIndex > customHeadIndex, 'Expected custom HTML before case-insensitive </head>');
+  assert.equal(indexHtml.includes(`${headEnd}\n</HEAD>`), true);
+  assert.equal(indexHtml.includes(`${bodyEnd}\n</BODY>`), true);
+});
+
+for (const testCase of [
+  {
+    slot: 'head_end',
+    content: '<meta name="missing-head-test" content="1">',
+    layout: '<html><body><main>{{slot:content}}</main></body></html>',
+    tagName: 'head',
+  },
+  {
+    slot: 'body_end',
+    content: '<script>window.missingBodyTest = true;</script>',
+    layout: '<html><head>{{meta.head_tags}}</head><main>{{slot:content}}</main></html>',
+    tagName: 'body',
+  },
+]) {
+  test(`buildSite reports the route, output, and remedy when custom_html.${testCase.slot} cannot be injected`, async () => {
+    const writer = new MemoryWriter();
+    const previewData = await loadDefaultPreviewData();
+    const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+    previewData.custom_html = {
+      [testCase.slot]: testCase.content,
+    };
+    themePackage.templates.set('layout', testCase.layout);
+
+    await assert.rejects(
+      buildSite({
+        previewData,
+        themePackage,
+        writer,
+      }),
+      (error) => {
+        assert.match(error.message, new RegExp(`Unable to inject custom_html\\.${testCase.slot}`));
+        assert.match(error.message, /route "\/"/);
+        assert.match(error.message, /output "index\.html"/);
+        assert.match(error.message, new RegExp(`missing a closing <\\/${testCase.tagName}> tag`));
+        assert.match(error.message, new RegExp(`remove custom_html\\.${testCase.slot}`));
+        return true;
+      },
+    );
+  });
+}
+
+test('buildSite accepts at most 65536 Unicode code points per custom HTML slot', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = withoutTemplates(await loadGoldenThemePackage(), ['404']);
+  const exactLimitContent = '😀'.repeat(65_536);
+
+  previewData.content.posts = [];
+  previewData.content.pages = [];
+  previewData.content.categories = [];
+  previewData.content.tags = [];
+  previewData.custom_html = {
+    head_end: exactLimitContent,
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.equal(indexHtml.includes(exactLimitContent), true);
+
+  const overLimitPreviewData = structuredClone(previewData);
+  overLimitPreviewData.custom_html.head_end = '😀'.repeat(65_537);
+
+  await assert.rejects(
+    buildSite({
+      previewData: overLimitPreviewData,
+      themePackage,
+      writer: new MemoryWriter(),
+    }),
+    /Custom HTML slot must not exceed 65536 Unicode code points/,
+  );
+});
+
+test('buildSite rejects the removed nested custom HTML slot shape', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.custom_html = {
+    head_end: {
+      content: '<meta name="legacy-custom-head" content="1">',
+    },
+  };
+
+  await assert.rejects(
+    buildSite({
+      previewData,
+      themePackage,
+      writer,
+    }),
+    /custom_html\.head_end: Expected a non-blank string/,
+  );
+});
+
 test('buildSite injects favicon links before custom CSS and custom HTML', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -986,9 +1132,7 @@ test('buildSite injects favicon links before custom CSS and custom HTML', async 
     content: 'body { color: rgb(10, 20, 30); }',
   };
   previewData.custom_html = {
-    head_end: {
-      content: '<meta name="zp-custom-head" content="ok">',
-    },
+    head_end: '<meta name="zp-custom-head" content="ok">',
   };
 
   await buildSite({
@@ -1032,9 +1176,7 @@ test('buildSite can omit generator meta while preserving custom head HTML', asyn
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
   previewData.site.expose_generator = false;
   previewData.custom_html = {
-    head_end: {
-      content: '<meta name="generator" content="Custom Generator">',
-    },
+    head_end: '<meta name="generator" content="Custom Generator">',
   };
 
   await buildSite({
@@ -1053,9 +1195,7 @@ test('buildSite does not deduplicate custom generator meta', async () => {
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
   previewData.custom_html = {
-    head_end: {
-      content: '<meta name="generator" content="Custom Generator">',
-    },
+    head_end: '<meta name="generator" content="Custom Generator">',
   };
 
   await buildSite({
@@ -1878,9 +2018,7 @@ test('buildSite supports standalone front page HTML', async () => {
     icon: '/favicon.ico',
   };
   previewData.custom_html = {
-    head_end: {
-      content: '<meta name="zp-custom-head" content="ok">',
-    },
+    head_end: '<meta name="zp-custom-head" content="ok">',
   };
   previewData.site.post_index = {
     enabled: true,
@@ -2123,7 +2261,6 @@ for (const scenario of [
     };
     previewData.content.posts = scenario.posts.map((post, index) => ({
       ...sourcePost,
-      id: `timezone-post-${index + 1}`,
       public_id: 900 + index,
       title: post.title,
       slug: post.slug,
