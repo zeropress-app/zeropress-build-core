@@ -2013,6 +2013,34 @@ for (const scenario of [
     ],
   },
   {
+    name: '+09:00 advances UTC month-end and year-end dates',
+    timezone: '+09:00',
+    posts: [
+      {
+        slug: 'offset-february',
+        title: 'Offset February',
+        published_at_iso: '2026-01-31T15:30:00Z',
+        expectedPath: 'posts/2026/02/01/offset-february/index.html',
+        expectedUrl: '/posts/2026/02/01/offset-february/',
+        archiveLabel: '2026-02',
+        widgetLabel: 'February 2026',
+        year: 2026,
+        month: 2,
+      },
+      {
+        slug: 'offset-new-year',
+        title: 'Offset New Year',
+        published_at_iso: '2025-12-31T15:30:00Z',
+        expectedPath: 'posts/2026/01/01/offset-new-year/index.html',
+        expectedUrl: '/posts/2026/01/01/offset-new-year/',
+        archiveLabel: '2026-01',
+        widgetLabel: 'January 2026',
+        year: 2026,
+        month: 1,
+      },
+    ],
+  },
+  {
     name: 'America/Los_Angeles rolls UTC month-start and year-start dates back',
     timezone: 'America/Los_Angeles',
     posts: [
@@ -2923,6 +2951,50 @@ test('buildSite formats localized fallback timestamps and always exposes ISO tim
     assert.match(postHtml, new RegExp(`<time class="published" datetime="2026-05-15T13:12:34Z">${escapeRegExp(expected)}<\\/time>`));
     assert.match(postHtml, new RegExp(`<time class="updated" datetime="2026-05-15T13:12:34Z">${escapeRegExp(expected)}<\\/time>`));
   }
+});
+
+test('buildSite formats +09:00 timestamps identically to Asia/Seoul for fixed +9 dates', async () => {
+  const publishedAt = '2026-01-31T15:30:00Z';
+  const renderedByTimezone = new Map();
+
+  for (const timezone of ['+09:00', 'Asia/Seoul']) {
+    const writer = new MemoryWriter();
+    const previewData = await loadDefaultPreviewData();
+    const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+    previewData.site.locale = 'en-US';
+    previewData.site.timezone = timezone;
+    previewData.site.date_style = 'full';
+    previewData.site.time_style = 'short';
+    previewData.content.posts = [{
+      ...previewData.content.posts[0],
+      published_at_iso: publishedAt,
+      updated_at_iso: publishedAt,
+    }];
+    themePackage.templates.set('post', [
+      '<time class="published" datetime="{{post.published_at_iso}}">{{post.published_at}}</time>',
+      '<time class="updated" datetime="{{post.updated_at_iso}}">{{post.updated_at}}</time>',
+    ].join(''));
+
+    await buildSite({
+      previewData,
+      themePackage,
+      writer,
+    });
+
+    const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+    const expected = formatExpectedIntlTimestamp(publishedAt, {
+      locale: 'en-US',
+      timezone,
+      date_style: 'full',
+      time_style: 'short',
+    });
+
+    assert.match(postHtml, new RegExp(`<time class="published" datetime="2026-01-31T15:30:00Z">${escapeRegExp(expected)}<\\/time>`));
+    assert.match(postHtml, new RegExp(`<time class="updated" datetime="2026-01-31T15:30:00Z">${escapeRegExp(expected)}<\\/time>`));
+    renderedByTimezone.set(timezone, postHtml);
+  }
+
+  assert.equal(renderedByTimezone.get('+09:00'), renderedByTimezone.get('Asia/Seoul'));
 });
 
 test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async () => {
