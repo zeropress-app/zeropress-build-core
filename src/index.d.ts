@@ -24,6 +24,7 @@ export interface BuildOptions {
   assetHashing?: boolean;
   favicon?: {
     icon?: string;
+    icon_dark?: string;
     svg?: string;
     png?: string;
     apple_touch_icon?: string;

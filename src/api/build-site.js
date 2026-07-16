@@ -768,7 +768,7 @@ function normalizeSiteFavicon(favicon, media_origin) {
   }
 
   const normalized = {};
-  for (const key of ['icon', 'svg', 'png', 'apple_touch_icon']) {
+  for (const key of ['icon', 'icon_dark', 'svg', 'png', 'apple_touch_icon']) {
     const value = normalizeOptionalString(favicon[key]);
     if (value) {
       normalized[key] = normalizeMediaField(value, media_origin);
@@ -2838,20 +2838,46 @@ function buildFaviconLinks(favicon) {
   }
 
   const lines = [];
-  if (normalizeOptionalString(favicon.icon)) {
-    lines.push(`  <link rel="icon" href="${escapeHtml(favicon.icon)}" sizes="any">`);
+  const icon = normalizeOptionalString(favicon.icon);
+  const iconDark = normalizeOptionalString(favicon.icon_dark);
+  const svg = normalizeOptionalString(favicon.svg);
+  const png = normalizeOptionalString(favicon.png);
+  const hasDefaultIcon = Boolean(icon || svg || png);
+  const hasBothColorSchemes = Boolean(iconDark && hasDefaultIcon);
+
+  if (iconDark) {
+    lines.push(buildFaviconLink(
+      iconDark,
+      undefined,
+      hasBothColorSchemes ? '(prefers-color-scheme: dark)' : undefined,
+    ));
   }
-  if (normalizeOptionalString(favicon.svg)) {
-    lines.push(`  <link rel="icon" href="${escapeHtml(favicon.svg)}" type="image/svg+xml">`);
+  if (icon) {
+    lines.push(buildFaviconLink(icon, undefined, hasBothColorSchemes ? '(prefers-color-scheme: light)' : undefined));
   }
-  if (normalizeOptionalString(favicon.png)) {
-    lines.push(`  <link rel="icon" href="${escapeHtml(favicon.png)}" type="image/png">`);
+  if (svg) {
+    lines.push(buildFaviconLink(
+      svg,
+      'image/svg+xml',
+      hasBothColorSchemes ? '(prefers-color-scheme: light)' : undefined,
+    ));
+  }
+  if (png) {
+    lines.push(buildFaviconLink(
+      png,
+      'image/png',
+      hasBothColorSchemes ? '(prefers-color-scheme: light)' : undefined,
+    ));
   }
   if (normalizeOptionalString(favicon.apple_touch_icon)) {
     lines.push(`  <link rel="apple-touch-icon" href="${escapeHtml(favicon.apple_touch_icon)}">`);
   }
 
   return lines.join('\n');
+}
+
+function buildFaviconLink(href, type, media) {
+  return `  <link rel="icon" href="${escapeHtml(href)}"${type ? ` type="${type}"` : ''}${media ? ` media="${media}"` : ''}>`;
 }
 
 function injectGeneratorMeta(html, exposeGenerator) {

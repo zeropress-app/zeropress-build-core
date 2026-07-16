@@ -261,6 +261,8 @@ The canonical `preview-data v0.7` site contract uses:
 
 `site.media_origin` is either an empty string or an absolute HTTP(S) origin. Build Core resolves root-relative and relative site favicon/logo, profile-widget avatar, author avatar, Post/Page featured-image, and `content.media[].src` values against that origin, while preserving already-absolute external URLs. SEO image metadata receives the normalized featured image. Responsive `srcset` variants require `media_delivery_mode: "media_domain"` and an exact origin match; paths, credentials, query strings, and fragments are not part of the media-origin contract.
 
+`site.favicon.icon`, `svg`, and `png` form the default favicon set. `icon_dark` is the optional dark color-scheme icon. When both sets exist, Build Core emits the dark icon first with `media="(prefers-color-scheme: dark)"` and marks every default icon link with the light media query. A single available set is emitted without a media condition, and `apple_touch_icon` is always unconditional. An explicit preview-data `site.favicon` object replaces the complete auto-discovered build option instead of merging field by field.
+
 Native search artifacts are emitted only when preview-data does not set `site.search: false` and the active theme declares `features.search: true`. When that effective search state is disabled, search widgets are omitted from resolved widget items while their widget areas and non-search siblings remain available. `search_pagefind.js` is a Pagefind adapter that can replace `search.js` after a post-build Pagefind step.
 
 Optional route templates behave as rendering capabilities, not guaranteed outputs:

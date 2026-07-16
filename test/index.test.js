@@ -998,6 +998,7 @@ test('buildSite injects favicon links before custom CSS and custom HTML', async 
     options: {
       favicon: {
         icon: '/favicon.ico',
+        icon_dark: '/favicon.dark.ico',
         svg: '/favicon.svg',
         png: '/favicon.png',
         apple_touch_icon: '/apple-touch-icon.png',
@@ -1006,12 +1007,14 @@ test('buildSite injects favicon links before custom CSS and custom HTML', async 
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
-  assert.match(indexHtml, /<link rel="icon" href="\/explicit\.ico" sizes="any">/);
+  assert.match(indexHtml, /<link rel="icon" href="\/explicit\.ico">/);
   assert.match(indexHtml, /<meta name="generator" content="ZeroPress">/);
   assert.doesNotMatch(indexHtml, /href="\/favicon\.ico"/);
   assert.doesNotMatch(indexHtml, /href="\/favicon\.svg"/);
+  assert.doesNotMatch(indexHtml, /href="\/favicon\.dark\.ico"/);
+  assert.doesNotMatch(indexHtml, /sizes="any"/);
 
-  const iconIndex = indexHtml.indexOf('<link rel="icon" href="/explicit.ico" sizes="any">');
+  const iconIndex = indexHtml.indexOf('<link rel="icon" href="/explicit.ico">');
   const generatorIndex = indexHtml.indexOf('<meta name="generator" content="ZeroPress">');
   const customCssLinkIndex = indexHtml.indexOf('<link rel="stylesheet" href="/assets/zeropress-custom');
   const customHeadIndex = indexHtml.indexOf('<meta name="zp-custom-head" content="ok">');
@@ -1075,6 +1078,7 @@ test('buildSite normalizes explicit preview-data favicon links against media_ori
   previewData.site.media_origin = 'https://media.example.com';
   previewData.site.favicon = {
     icon: '/favicon.ico',
+    icon_dark: '/favicon.dark.ico',
     svg: '/favicon.svg',
     png: '/favicon.png',
     apple_touch_icon: '/apple-touch-icon.png',
@@ -1087,10 +1091,41 @@ test('buildSite normalizes explicit preview-data favicon links against media_ori
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
-  assert.match(indexHtml, /<link rel="icon" href="https:\/\/media\.example\.com\/favicon\.ico" sizes="any">/);
-  assert.match(indexHtml, /<link rel="icon" href="https:\/\/media\.example\.com\/favicon\.svg" type="image\/svg\+xml">/);
-  assert.match(indexHtml, /<link rel="icon" href="https:\/\/media\.example\.com\/favicon\.png" type="image\/png">/);
+  assert.match(indexHtml, /<link rel="icon" href="https:\/\/media\.example\.com\/favicon\.dark\.ico" media="\(prefers-color-scheme: dark\)">/);
+  assert.match(indexHtml, /<link rel="icon" href="https:\/\/media\.example\.com\/favicon\.ico" media="\(prefers-color-scheme: light\)">/);
+  assert.match(indexHtml, /<link rel="icon" href="https:\/\/media\.example\.com\/favicon\.svg" type="image\/svg\+xml" media="\(prefers-color-scheme: light\)">/);
+  assert.match(indexHtml, /<link rel="icon" href="https:\/\/media\.example\.com\/favicon\.png" type="image\/png" media="\(prefers-color-scheme: light\)">/);
   assert.match(indexHtml, /<link rel="apple-touch-icon" href="https:\/\/media\.example\.com\/apple-touch-icon\.png">/);
+
+  const darkIndex = indexHtml.indexOf('href="https://media.example.com/favicon.dark.ico"');
+  const defaultIndex = indexHtml.indexOf('href="https://media.example.com/favicon.ico"');
+  const appleIndex = indexHtml.indexOf('href="https://media.example.com/apple-touch-icon.png"');
+  assert.ok(darkIndex > -1 && defaultIndex > darkIndex);
+  assert.ok(appleIndex > defaultIndex);
+  assert.doesNotMatch(indexHtml, /sizes="any"/);
+});
+
+test('buildSite emits a lone dark favicon without a color-scheme condition', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.media_origin = 'https://media.example.com';
+  previewData.site.favicon = {
+    icon_dark: '/favicon.dark.ico',
+    apple_touch_icon: '/apple-touch-icon.png',
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /<link rel="icon" href="https:\/\/media\.example\.com\/favicon\.dark\.ico">/);
+  assert.match(indexHtml, /<link rel="apple-touch-icon" href="https:\/\/media\.example\.com\/apple-touch-icon\.png">/);
+  assert.doesNotMatch(indexHtml, /prefers-color-scheme|sizes="any"/);
 });
 
 test('buildSite injects discovered favicon option when preview-data has no explicit favicon', async () => {
@@ -1114,10 +1149,11 @@ test('buildSite injects discovered favicon option when preview-data has no expli
   });
 
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
-  assert.match(indexHtml, /<link rel="icon" href="\/favicon\.ico" sizes="any">/);
+  assert.match(indexHtml, /<link rel="icon" href="\/favicon\.ico">/);
   assert.match(indexHtml, /<link rel="icon" href="\/favicon\.svg" type="image\/svg\+xml">/);
   assert.match(indexHtml, /<link rel="icon" href="\/favicon\.png" type="image\/png">/);
   assert.match(indexHtml, /<link rel="apple-touch-icon" href="\/apple-touch-icon\.png">/);
+  assert.doesNotMatch(indexHtml, /prefers-color-scheme|sizes="any"/);
   assert.doesNotMatch(indexHtml, /media\.example\.com\/favicon/);
 });
 
