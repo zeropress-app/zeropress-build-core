@@ -12,8 +12,8 @@
     "date_style": "medium",
     "time_style": "none",
     "timezone": "UTC",
-    "disallow_comments": false,
     "comments": {
+      "enabled": true,
       "api_base_url": "https://comments.example.com/"
     }
   },

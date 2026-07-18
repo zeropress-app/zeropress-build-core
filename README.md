@@ -121,7 +121,7 @@ Notes:
 - `previewData` must already satisfy the canonical preview-data contract
 - `themePackage` must already be a validated in-memory theme package
 - `sitemap.xml` is emitted only when `site.url` is a non-empty canonical URL
-- `feed.xml` is emitted only when `site.url` is a non-empty canonical URL and `generateFeed` is not `false`
+- `feed.xml` is emitted only when `site.feed.enabled` is not `false`, `site.url` is a non-empty canonical URL, and `generateFeed` is not `false`
 - callers may pass `sitemapStylesheetHref` to add an XML stylesheet processing instruction to generated `sitemap.xml`
 - fallback `robots.txt` is emitted when `generateRobotsTxt` is not `false`
 - fallback `robots.txt` uses `site.indexing`; `false` emits `Disallow: /`, while missing or `true` emits `Allow: /`
@@ -192,6 +192,26 @@ Build-core derives:
 - `reading_time`
 - a route-root `comments` discriminated context
 
+Every ordinary rendered route receives effective feature state on `site`, regardless of whether the corresponding Preview Data preference was omitted:
+
+```js
+{
+  search: { enabled: true },
+  feed: { enabled: true, url: '/feed.xml' },
+  archive: { enabled: true, url: '/archive/' },
+  comments: {
+    enabled: true,
+    provider: 'zeropress',
+    api_base_url: 'https://comments.example.com',
+    per_page: 50,
+    order: 'desc',
+    threading: { enabled: true, max_depth: 2 }
+  }
+}
+```
+
+Disabled states are exactly `{ enabled: false }`. Search combines the Preview Data request with `theme.json.features.search`. Feed additionally requires a canonical `site.url` and is hard-disabled by `generateFeed: false`. Archive additionally requires `archive.html`; its URL is `/archive/` for directory output and `/archive` for html-extension output. Comments additionally require `theme.json.features.comments`. `site.post_index.enabled` and `site.post_index.paginate` are also effective values after applying `theme.json.features.post_index` and route generation.
+
 Build Core always emits localized fallback datetime strings together with canonical ISO timestamps. Themes may progressively enhance explicitly marked `<time datetime="...">` elements for the visitor's browser locale and timezone, but must preserve the fallback when JavaScript, `Intl`, or ISO parsing is unavailable. Themes that want canonical site-local display should use the fallback without client enhancement.
 
 When `site.comments` is present, Build Core materializes the following defaults before rendering:
@@ -238,8 +258,7 @@ An active post or page detail route receives:
 The active state requires all of the following:
 
 - the theme declares `features.comments: true`
-- `site.comments` is configured
-- `site.disallow_comments` is `false`
+- `site.comments` is configured with `enabled: true`
 - the post or page has `allow_comments: true` and a positive `public_id`
 - the ZeroPress provider has a non-empty item `comments.request_token`
 
@@ -253,7 +272,8 @@ The canonical `preview-data v0.7` site contract uses:
 - `site.timezone`
 - `site.date_style`
 - `site.time_style`
-- `site.disallow_comments`
+- `site.feed`
+- `site.archive`
 - `site.comments`
 - `site.indexing`
 - `site.expose_generator`
@@ -290,7 +310,9 @@ For ordinary theme-rendered HTML routes, site customization order is determinist
 
 Closing `</head>` and `</body>` tags are matched case-insensitively. If a configured custom HTML slot has no matching closing tag, the build fails with the route, output path, missing tag, and remediation guidance instead of silently dropping the configured content. Themes that consume these slots must render the corresponding closing tag. A `site.front_page.type: "standalone_html"` document remains byte-for-byte independent and does not receive favicon, generator, custom CSS, or custom HTML injection.
 
-Native search artifacts are emitted only when preview-data does not set `site.search: false` and the active theme declares `features.search: true`. When that effective search state is disabled, search widgets are omitted from resolved widget items while their widget areas and non-search siblings remain available. `search_pagefind.js` is a Pagefind adapter that can replace `search.js` after a post-build Pagefind step.
+Native search artifacts are emitted only when preview-data does not set `site.search.enabled: false` and the active theme declares `features.search: true`. When that effective search state is disabled, search widgets are omitted from resolved widget items while their widget areas and non-search siblings remain available. `search_pagefind.js` is a Pagefind adapter that can replace `search.js` after a post-build Pagefind step.
+
+When archive is disabled or `archive.html` is missing, archive routes and archive widget items are omitted while authored menu items, widget areas, and non-archive siblings remain unchanged. No archive output path is claimed in that state, so content may use `/archive`. Feed behaves the same way for `feed.xml`: a disabled feed neither emits nor claims the file. Enabled feeds add one RSS autodiscovery link to `meta.head_tags` on ordinary theme-rendered routes; `404.html` and standalone front-page HTML do not receive it.
 
 Optional route templates behave as rendering capabilities, not guaranteed outputs:
 

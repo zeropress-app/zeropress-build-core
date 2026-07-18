@@ -123,7 +123,7 @@ export async function buildSite(input) {
       buildSitemapXml(state.previewData.site, state.emitted, state.generatedAt, options.sitemapStylesheetHref),
       'application/xml',
     );
-    if (shouldGenerateFeed(options)) {
+    if (shouldGenerateFeed(state)) {
       await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.generatedAt), 'application/rss+xml');
     }
   }
@@ -146,7 +146,7 @@ async function createBuildState(input, options) {
   const assetProcessor = new AssetProcessor();
   const summaries = [];
   const previewData = normalizePreviewData(input.previewData, options);
-  const renderData = createRenderData(previewData, themePackage.metadata);
+  const renderData = createRenderData(previewData, themePackage, options);
 
   engine.initialize(themePackage);
 
@@ -463,6 +463,7 @@ async function maybeRenderNotFoundPage(state) {
         title: buildDocumentTitle('Page Not Found', state.previewData.site.title),
         robotsNoindex: true,
         includeRichMetadata: false,
+        includeFeedLink: false,
       }),
     },
     createRenderContext(state.previewData.site, '/404.html'),
@@ -477,7 +478,13 @@ async function maybeRenderNotFoundPage(state) {
 
 function normalizePreviewData(previewData, options = {}) {
   const media_origin = normalizeMediaOrigin(previewData.site.media_origin);
-  const { comments: siteComments, ...siteFields } = previewData.site;
+  const {
+    search: siteSearch,
+    feed: siteFeed,
+    archive: siteArchive,
+    comments: siteComments,
+    ...siteFields
+  } = previewData.site;
   const normalizedComments = normalizeSiteComments(siteComments);
   const normalizedSite = {
     ...siteFields,
@@ -501,9 +508,10 @@ function normalizePreviewData(previewData, options = {}) {
       : DEFAULT_TIME_STYLE,
     timezone: normalizeNonEmptyString(previewData.site.timezone, DEFAULT_TIMEZONE),
     locale: normalizeLocale(previewData.site.locale || DEFAULT_LOCALE),
-    disallow_comments: previewData.site.disallow_comments === true,
     expose_generator: previewData.site.expose_generator !== false,
-    search: previewData.site.search !== false,
+    search: normalizeRequestedFeatureState(siteSearch),
+    feed: normalizeRequestedFeatureState(siteFeed),
+    archive: normalizeRequestedFeatureState(siteArchive),
     indexing: previewData.site.indexing !== false,
     permalinks: normalizePermalinks(previewData.site.permalinks),
     front_page: normalizeFrontPage(previewData.site.front_page),
@@ -862,6 +870,7 @@ function normalizeSiteComments(comments) {
     : {};
 
   return {
+    enabled: comments.enabled === true,
     provider: COMMENTS_PROVIDERS.has(comments.provider)
       ? comments.provider
       : DEFAULT_COMMENTS_PROVIDER,
@@ -880,6 +889,12 @@ function normalizeSiteComments(comments) {
         ? threading.max_depth
         : DEFAULT_COMMENTS_THREADING_MAX_DEPTH,
     },
+  };
+}
+
+function normalizeRequestedFeatureState(value) {
+  return {
+    enabled: value?.enabled !== false,
   };
 }
 
@@ -943,11 +958,31 @@ function normalizePostIndex(post_index) {
   };
 }
 
-function createRenderData(previewData, themeMetadata = {}) {
+function createRenderData(previewData, themePackage = {}, options = {}) {
+  const themeMetadata = themePackage.metadata || {};
   const themeSupportsComments = themeMetadata?.features?.comments === true;
   const themeSupportsPostIndex = themeMetadata?.features?.post_index !== false;
   const themeSupportsSearch = themeMetadata?.features?.search === true;
-  previewData.site.search = previewData.site.search !== false && themeSupportsSearch;
+  const outputStyle = previewData.site.permalinks.output_style;
+  const requestedComments = previewData.site.comments;
+  previewData.site.search = {
+    enabled: previewData.site.search.enabled === true && themeSupportsSearch,
+  };
+  previewData.site.feed = previewData.site.feed.enabled === true
+    && hasCanonicalSiteUrl(previewData.site.url)
+    && options.generateFeed !== false
+    ? { enabled: true, url: '/feed.xml' }
+    : { enabled: false };
+  previewData.site.archive = previewData.site.archive.enabled === true
+    && themePackage.templates?.has('archive') === true
+    ? {
+        enabled: true,
+        url: outputStyle === 'html-extension' ? '/archive' : '/archive/',
+      }
+    : { enabled: false };
+  previewData.site.comments = requestedComments?.enabled === true && themeSupportsComments
+    ? { ...requestedComments, enabled: true }
+    : { enabled: false };
   const authorsById = new Map(previewData.content.authors.map((author) => [author.id, author]));
   const categoriesBySlug = new Map(previewData.content.categories.map((category) => [category.slug, category]));
   const tagsBySlug = new Map(previewData.content.tags.map((tag) => [tag.slug, tag]));
@@ -1018,6 +1053,11 @@ function createRenderData(previewData, themeMetadata = {}) {
   const effectivePostIndexEnabled = post_index.enabled !== false && themeSupportsPostIndex;
   const effectivePostIndexPaginate = effectivePostIndexEnabled && post_index.paginate !== false;
   const post_indexBasePath = normalizeRoutePath(post_index.path || DEFAULT_POST_INDEX.path);
+  previewData.site.post_index = {
+    ...post_index,
+    enabled: effectivePostIndexEnabled,
+    paginate: effectivePostIndexPaginate,
+  };
 
   if (frontPage.type !== 'theme_index' && effectivePostIndexEnabled && post_indexBasePath === '/') {
     throw new Error('Invalid front page configuration: site.front_page occupies "/" so site.post_index.path must not be "/". Set site.post_index.path to a non-root path or disable site.post_index.');
@@ -1047,20 +1087,22 @@ function createRenderData(previewData, themeMetadata = {}) {
       postBySlug,
       frontPage,
     }),
-    archiveRoutes: buildPaginatedCollection({
-      items: discoverableSourcePosts,
-      posts_per_page: previewData.site.posts_per_page,
-      basePath: '/archive/',
-      outputStyle: previewData.site.permalinks.output_style,
-    }).map((entry) => ({
-      path: entry.path,
-      page: entry.page,
-      totalPages: entry.totalPages,
-      archive: {
-        groups: buildArchiveGroups(entry.items, postBySlug, previewData.site),
-      },
-      pagination: buildStructuredPagination(entry.paginationData),
-    })),
+    archiveRoutes: previewData.site.archive.enabled
+      ? buildPaginatedCollection({
+          items: discoverableSourcePosts,
+          posts_per_page: previewData.site.posts_per_page,
+          basePath: '/archive/',
+          outputStyle: previewData.site.permalinks.output_style,
+        }).map((entry) => ({
+          path: entry.path,
+          page: entry.page,
+          totalPages: entry.totalPages,
+          archive: {
+            groups: buildArchiveGroups(entry.items, postBySlug, previewData.site),
+          },
+          pagination: buildStructuredPagination(entry.paginationData),
+        }))
+      : [],
     categoryRoutes: buildTaxonomyRoutes({
       items: previewData.content.categories,
       postsBySlug: categoryPostsBySlug,
@@ -1092,8 +1134,7 @@ export function buildTargetCommentsContext({ site, target, targetType, themeSupp
 
   if (
     themeSupportsComments !== true ||
-    site?.disallow_comments === true ||
-    !comments ||
+    comments?.enabled !== true ||
     target?.allow_comments !== true ||
     !Number.isInteger(targetPublicId) ||
     targetPublicId <= 0
@@ -1413,13 +1454,15 @@ function resolveWidgetItem(item, previewData, renderData, widgetAreaId, index) {
     case 'tags':
       return resolveTagsWidget(baseWidget, item.settings, previewData);
     case 'archives':
-      return resolveArchivesWidget(baseWidget, item.settings, previewData);
+      return previewData.site.archive.enabled === true
+        ? resolveArchivesWidget(baseWidget, item.settings, previewData)
+        : null;
     case 'text':
       return resolveTextWidget(baseWidget, item.settings);
     case 'link-list':
       return resolveLinkListWidget(baseWidget, item.settings);
     case 'search':
-      return previewData.site.search === true
+      return previewData.site.search.enabled === true
         ? resolveSearchWidget(baseWidget, item.settings, widgetAreaId, index)
         : null;
     case 'profile':
@@ -1506,7 +1549,7 @@ function resolveArchivesWidget(baseWidget, settings, previewData) {
     .slice(0, limit)
     .map((entry) => ({
       label: entry.label,
-      url: routePathToPublicUrl('/archive/', previewData.site.permalinks.output_style),
+      url: previewData.site.archive.url,
       count: entry.count,
       year: entry.year,
       month: entry.month,
@@ -2320,7 +2363,7 @@ function buildPageMeta(site, options = {}) {
 
   return {
     ...meta,
-    head_tags: buildMetaHeadTags(meta),
+    head_tags: buildMetaHeadTags(meta, site, options),
   };
 }
 
@@ -2336,7 +2379,7 @@ function buildFrontPageTitle(site) {
   return resolvedDescription ? `${resolvedSiteTitle} - ${resolvedDescription}` : resolvedSiteTitle;
 }
 
-function buildMetaHeadTags(meta) {
+function buildMetaHeadTags(meta, site, options = {}) {
   const tags = [];
 
   if (meta.description) {
@@ -2347,6 +2390,9 @@ function buildMetaHeadTags(meta) {
   }
   if (meta.canonical_url) {
     tags.push(`<link rel="canonical" href="${meta.canonical_url}">`);
+  }
+  if (options.includeFeedLink !== false && site.feed?.enabled === true) {
+    tags.push(`<link rel="alternate" type="application/rss+xml" title="${escapeHtml(site.title)} Feed" href="${escapeHtml(site.feed.url)}">`);
   }
 
   if (meta.og_title) {
@@ -2681,7 +2727,7 @@ function assertPlannedOutputPathsSafe(state) {
   }
   if (hasCanonicalSiteUrl(state.previewData.site.url)) {
     nonRoutePaths.push('sitemap.xml');
-    if (shouldGenerateFeed(state.options)) {
+    if (shouldGenerateFeed(state)) {
       nonRoutePaths.push('feed.xml');
     }
   }
@@ -3555,12 +3601,12 @@ function shouldGenerateRobotsTxt(options) {
   return options.generateRobotsTxt !== false;
 }
 
-function shouldGenerateFeed(options) {
-  return options.generateFeed !== false;
+function shouldGenerateFeed(state) {
+  return state.previewData.site.feed.enabled === true;
 }
 
 function shouldGenerateSearchArtifacts(state) {
-  return state.previewData.site.search === true;
+  return state.previewData.site.search.enabled === true;
 }
 
 function getContentType(assetPath) {

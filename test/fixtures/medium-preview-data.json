@@ -11,8 +11,7 @@
     "posts_per_page": 2,
     "date_style": "medium",
     "time_style": "none",
-    "timezone": "UTC",
-    "disallow_comments": false
+    "timezone": "UTC"
   },
   "content": {
     "authors": [

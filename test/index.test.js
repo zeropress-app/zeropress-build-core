@@ -811,7 +811,7 @@ for (const scenario of [
     const previewData = await loadDefaultPreviewData();
     const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-    previewData.site.search = scenario.siteSearch;
+    previewData.site.search = { enabled: scenario.siteSearch };
     previewData.widgets = {
       sidebar: {
         name: 'Sidebar Widgets',
@@ -840,7 +840,7 @@ for (const scenario of [
       search: scenario.themeSearch,
     };
     themePackage.templates.set('index', [
-      '{{#if site.search}}SEARCH_ENABLED{{#else}}SEARCH_DISABLED{{/if}}',
+      '{{#if site.search.enabled}}SEARCH_ENABLED{{#else}}SEARCH_DISABLED{{/if}}',
       '{{#for widget in widgets.sidebar.items}}<span data-widget="{{widget.type}}">{{widget.title}}</span>{{/for}}',
     ].join(''));
 
@@ -867,7 +867,7 @@ test('buildSite preserves a widget area when its only search widget is inactive'
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  previewData.site.search = false;
+  previewData.site.search = { enabled: false };
   previewData.widgets = {
     sidebar: {
       name: 'Sidebar Widgets',
@@ -891,6 +891,66 @@ test('buildSite preserves a widget area when its only search widget is inactive'
   const indexHtml = getFileContent(writer.getFiles(), 'index.html');
   assert.match(indexHtml, /AREA_PRESENT:EMPTY_AREA/);
   assert.doesNotMatch(indexHtml, /AREA_MISSING|HAS_ITEMS/);
+});
+
+test('buildSite exposes effective site feature objects and runtime URLs', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  themePackage.templates.set('index', [
+    'search={{site.search.enabled}};',
+    'feed={{site.feed.enabled}}:{{site.feed.url}};',
+    'archive={{site.archive.enabled}}:{{site.archive.url}};',
+    'comments={{site.comments.enabled}}:{{site.comments.provider}}:{{site.comments.api_base_url}};',
+    'post-index={{site.post_index.enabled}}:{{site.post_index.paginate}};',
+  ].join(''));
+  themePackage.templates.set('404', 'feed={{site.feed.enabled}};{{meta.head_tags}}');
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const indexHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(indexHtml, /search=true;/);
+  assert.match(indexHtml, /feed=true:\/feed\.xml;/);
+  assert.match(indexHtml, /archive=true:\/archive\//);
+  assert.match(indexHtml, /comments=true:zeropress:https:\/\/comments\.example\.com;/);
+  assert.match(indexHtml, /post-index=true:true;/);
+  assert.equal((indexHtml.match(/rel="alternate" type="application\/rss\+xml"/g) || []).length, 1);
+  const notFoundHtml = getFileContent(writer.getFiles(), '404.html');
+  assert.match(notFoundHtml, /feed=true/);
+  assert.doesNotMatch(notFoundHtml, /application\/rss\+xml/);
+});
+
+test('buildSite disables archive routes and widgets without changing authored menus', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.site.archive = { enabled: false };
+  previewData.widgets = {
+    sidebar: {
+      name: 'Sidebar',
+      items: [
+        { type: 'archives', title: 'Archive', settings: {} },
+        { type: 'text', title: 'Kept', settings: { document_type: 'html', content: '<p>Kept</p>' } },
+      ],
+    },
+  };
+  themePackage.templates.set('index', [
+    'archive={{site.archive.enabled}}:{{site.archive.url}};',
+    '{{menu:primary}}',
+    '{{#for widget in widgets.sidebar.items}}<span data-widget="{{widget.type}}">{{widget.title}}</span>{{/for}}',
+  ].join(''));
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const files = writer.getFiles();
+  const indexHtml = getFileContent(files, 'index.html');
+  assert.match(indexHtml, /archive=false:/);
+  assert.match(indexHtml, /href="\/archive\/"/);
+  assert.doesNotMatch(indexHtml, /data-widget="archives"/);
+  assert.match(indexHtml, /data-widget="text">Kept<\/span>/);
+  assert.equal(files.some((file) => file.path.startsWith('archive/')), false);
 });
 
 test('buildSite normalizes empty and whitespace-only widget titles to an empty runtime value', async () => {
@@ -1697,6 +1757,7 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
     tags: '/labels/:slug/',
   };
   previewData.content.pages[0].path = 'spec/preview-data-v0.6';
+  themePackage.templates.set('archive', '<section data-archive-url="{{site.archive.url}}"></section>');
   previewData.menus.primary = {
     name: 'Primary Menu',
     items: [{
@@ -1741,6 +1802,7 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   const indexPageHtml = getFileContent(files, 'cli/index.html');
   const categoryHtml = getFileContent(files, 'topics/general.html');
   const tagHtml = getFileContent(files, 'labels/intro.html');
+  const archiveHtml = getFileContent(files, 'archive.html');
   const sitemapXml = getFileContent(files, 'sitemap.xml');
   const feedXml = getFileContent(files, 'feed.xml');
 
@@ -1755,6 +1817,7 @@ test('buildSite applies html-extension permalinks and page path overrides', asyn
   assert.doesNotMatch(indexPageHtml, /https:\/\/example\.com\/cli\/index/);
   assert.match(categoryHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
   assert.match(tagHtml, /<a href="\/posts\/101">Hello ZeroPress<\/a>/);
+  assert.match(archiveHtml, /data-archive-url="\/archive"/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/posts\/101<\/loc>/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/spec\/preview-data-v0\.6<\/loc>/);
   assert.match(sitemapXml, /<loc>https:\/\/example\.com\/cli\/<\/loc>/);
@@ -1813,7 +1876,7 @@ test('buildSite treats theme post_index=false as effective post index disabled',
     post_index: false,
   };
   themePackage.templates.set('index', [
-    '<section data-route="{{route.type}}" data-front="{{route.is_front_page}}" data-post-index="{{route.is_post_index}}" data-pagination="{{pagination.enabled}}">',
+    '<section data-route="{{route.type}}" data-front="{{route.is_front_page}}" data-post-index="{{route.is_post_index}}" data-site-post-index="{{site.post_index.enabled}}" data-pagination="{{pagination.enabled}}">',
     '{{#for post in posts.items}}<a href="{{post.url}}">{{post.title}}</a>{{/for}}',
     '</section>',
   ].join(''));
@@ -1830,6 +1893,7 @@ test('buildSite treats theme post_index=false as effective post index disabled',
   assert.match(indexHtml, /data-route="front_page"/);
   assert.match(indexHtml, /data-front="true"/);
   assert.match(indexHtml, /data-post-index="false"/);
+  assert.match(indexHtml, /data-site-post-index="false"/);
   assert.match(indexHtml, /data-pagination="false"/);
   assert.doesNotMatch(indexHtml, /Hello ZeroPress/);
   assert.equal(files.some((file) => file.path === 'page/2/index.html'), false);
@@ -3264,9 +3328,10 @@ test('buildSite formats +09:00 timestamps identically to Asia/Seoul for fixed +9
 test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
-  const themePackage = await loadGoldenThemePackage();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
   previewData.site.url = '';
+  themePackage.templates.set('index', 'feed={{site.feed.enabled}}:{{site.feed.url}};{{meta.head_tags}}');
 
   await buildSite({
     previewData,
@@ -3280,6 +3345,8 @@ test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async ()
   assert.equal(files.some((file) => file.path === 'feed.xml'), false);
   assert.equal(files.some((file) => file.path === 'robots.txt'), true);
   assert.equal(files.some((file) => file.path === 'meta.json'), false);
+  assert.match(getFileContent(files, 'index.html'), /feed=false:/);
+  assert.doesNotMatch(getFileContent(files, 'index.html'), /application\/rss\+xml/);
 
   const robotsTxt = getFileContent(files, 'robots.txt');
   assert.equal(robotsTxt.trim(), 'User-agent: *\nAllow: /');
@@ -3292,7 +3359,8 @@ test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async ()
 test('buildSite can disable feed.xml while keeping other special files', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
-  const themePackage = await loadGoldenThemePackage();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.templates.set('index', 'feed={{site.feed.enabled}}:{{site.feed.url}};{{meta.head_tags}}');
 
   await buildSite({
     previewData,
@@ -3305,11 +3373,43 @@ test('buildSite can disable feed.xml while keeping other special files', async (
   assert.equal(files.some((file) => file.path === 'sitemap.xml'), true);
   assert.equal(files.some((file) => file.path === 'feed.xml'), false);
   assert.equal(files.some((file) => file.path === 'robots.txt'), true);
+  const indexHtml = getFileContent(files, 'index.html');
+  assert.match(indexHtml, /feed=false:/);
+  assert.doesNotMatch(indexHtml, /application\/rss\+xml/);
 
   const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
   assert.equal(manifest.files.some((file) => file.path === 'sitemap.xml'), true);
   assert.equal(manifest.files.some((file) => file.path === 'feed.xml'), false);
   assert.equal(manifest.files.some((file) => file.path === 'robots.txt'), true);
+});
+
+test('buildSite applies the Preview Data feed preference and releases the feed public URL', async () => {
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.feed = { enabled: false };
+  previewData.site.permalinks = {
+    output_style: 'html-extension',
+    posts: '/posts/:slug',
+    pages: '/:slug',
+    categories: '/categories/:slug',
+    tags: '/tags/:slug',
+  };
+  previewData.content.pages[0].slug = 'feed.xml';
+  previewData.content.pages[0].path = 'feed.xml';
+
+  const disabledWriter = new MemoryWriter();
+  await buildSite({ previewData, themePackage, writer: disabledWriter });
+  assert.equal(disabledWriter.getFiles().some((file) => file.path === 'feed.xml'), false);
+  assert.equal(disabledWriter.getFiles().some((file) => file.path === 'feed.xml.html'), true);
+
+  const enabledPreviewData = structuredClone(previewData);
+  enabledPreviewData.site.feed = { enabled: true };
+  const enabledWriter = new MemoryWriter();
+  await assert.rejects(
+    () => buildSite({ previewData: enabledPreviewData, themePackage, writer: enabledWriter }),
+    /Duplicate public URL detected: \/feed\.xml/,
+  );
+  assert.equal(enabledWriter.getFiles().length, 0);
 });
 
 test('buildSite can add a stylesheet processing instruction to sitemap.xml', async () => {
@@ -3745,7 +3845,7 @@ test('buildSite skips native search artifacts when theme does not support search
     comments: true,
     newsletter: false,
   };
-  themePackage.templates.set('index', '{{#if site.search}}search enabled{{#else}}search disabled{{/if}}');
+  themePackage.templates.set('index', '{{#if site.search.enabled}}search enabled{{#else}}search disabled{{/if}}');
 
   await buildSite({
     previewData,
@@ -3768,9 +3868,9 @@ test('buildSite skips native search artifacts when theme does not support search
 test('buildSite skips native search artifacts when site search is disabled', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
-  previewData.site.search = false;
+  previewData.site.search = { enabled: false };
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
-  themePackage.templates.set('index', '{{#if site.search}}search enabled{{#else}}search disabled{{/if}}');
+  themePackage.templates.set('index', '{{#if site.search.enabled}}search enabled{{#else}}search disabled{{/if}}');
 
   await buildSite({
     previewData,
@@ -3794,6 +3894,7 @@ test('buildSite skips archive routes when archive template is missing', async ()
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = withoutTemplates(await loadGoldenThemePackage(), ['archive']);
+  themePackage.templates.set('index', 'archive={{site.archive.enabled}}:{{site.archive.url}};');
 
   await buildSite({
     previewData,
@@ -3804,6 +3905,7 @@ test('buildSite skips archive routes when archive template is missing', async ()
 
   const files = writer.getFiles();
   assert.equal(files.some((file) => file.path === 'archive/index.html'), false);
+  assert.match(getFileContent(files, 'index.html'), /archive=false:/);
 
   const sitemapXml = getFileContent(files, 'sitemap.xml');
   assert.equal(sitemapXml.includes('https://example.com/archive/'), false);
@@ -3876,6 +3978,34 @@ test('buildSite emits only renderable special-file URLs when optional route temp
   assert.equal(sitemapXml.includes('https://example.com/about/'), true);
 });
 
+test('buildSite releases the archive route when disabled and claims it when enabled', async () => {
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.permalinks = {
+    output_style: 'html-extension',
+    posts: '/posts/:slug',
+    pages: '/:slug',
+    categories: '/categories/:slug',
+    tags: '/tags/:slug',
+  };
+  previewData.content.pages[0].slug = 'archive';
+  previewData.content.pages[0].path = 'archive';
+  previewData.site.archive = { enabled: false };
+
+  const disabledWriter = new MemoryWriter();
+  await buildSite({ previewData, themePackage, writer: disabledWriter });
+  assert.equal(disabledWriter.getFiles().some((file) => file.path === 'archive.html'), true);
+
+  const enabledPreviewData = structuredClone(previewData);
+  enabledPreviewData.site.archive = { enabled: true };
+  const enabledWriter = new MemoryWriter();
+  await assert.rejects(
+    () => buildSite({ previewData: enabledPreviewData, themePackage, writer: enabledWriter }),
+    /Duplicate public URL detected: \/archive/,
+  );
+  assert.equal(enabledWriter.getFiles().length, 0);
+});
+
 test('buildSite skips 404.html when the theme does not provide a 404 template', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -3909,13 +4039,12 @@ test('buildSite does not reserve 404.html when the theme does not provide a 404 
   assert.match(getFileContent(notFoundPathFiles, '404.html'), /<h1>About<\/h1>/);
 });
 
-test('buildSite omits comment container markup when site.disallow_comments is true', async () => {
+test('buildSite omits comment container markup when site.comments.enabled is false', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.disallow_comments = true;
-  removeContentCommentsMetadata(previewData);
+  previewData.site.comments.enabled = false;
 
   await buildSite({
     previewData,
@@ -3994,11 +4123,12 @@ test('buildSite disables comments when site.comments is not configured', async (
 
   delete previewData.site.comments;
   removeContentCommentsMetadata(previewData);
-  themePackage.templates.set('post', '{{#if comments.enabled}}enabled{{#else}}disabled{{/if}}');
+  themePackage.templates.set('post', 'site={{site.comments.enabled}};route={{#if comments.enabled}}enabled{{#else}}disabled{{/if}}');
 
   await buildSite({ previewData, themePackage, writer });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  assert.match(postHtml, /site=false/);
   assert.match(postHtml, /disabled/);
   assert.doesNotMatch(postHtml, /enabled/);
 });
@@ -4053,8 +4183,8 @@ test('buildSite preserves an opaque nonblank request token byte-for-byte', async
 test('buildTargetCommentsContext defensively disables a blank-only request token', () => {
   const context = buildTargetCommentsContext({
     site: {
-      disallow_comments: false,
       comments: {
+        enabled: true,
         provider: 'zeropress',
         api_base_url: '/api/comments',
         per_page: 50,
@@ -4080,6 +4210,7 @@ test('buildSite enables WordPress comments without exposing a request_token key'
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
   previewData.site.comments = {
+    enabled: true,
     provider: 'wordpress',
     api_base_url: '/wp-json/wp/v2/',
     per_page: 100,
@@ -4112,6 +4243,7 @@ test('buildSite never exposes item request tokens to WordPress or inactive theme
       expectedState: 'enabled=true;provider=wordpress;',
       configure(previewData) {
         previewData.site.comments = {
+          enabled: true,
           provider: 'wordpress',
           api_base_url: '/wp-json/wp/v2',
         };
@@ -4128,7 +4260,7 @@ test('buildSite never exposes item request tokens to WordPress or inactive theme
       name: 'global comments disabled',
       expectedState: 'enabled=false;provider=;',
       configure(previewData) {
-        previewData.site.disallow_comments = true;
+        previewData.site.comments.enabled = false;
       },
     },
     {
@@ -5005,7 +5137,6 @@ test('buildSite renders v0.7 raw content and resolves structured post author dat
         date_style: 'medium',
         time_style: 'none',
         timezone: 'UTC',
-        disallow_comments: true,
       },
       content: {
         authors: [
