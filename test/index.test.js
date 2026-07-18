@@ -2606,6 +2606,44 @@ test('buildSite runtime 0.6 exposes structured post surroundings without legacy 
   assert.doesNotMatch(thirdPostHtml, /class="next-post"/);
 });
 
+test('buildSite preserves per-post tag display order independently of the global tag catalog order', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.content.tags.push(
+    { name: 'Alpha', slug: 'alpha' },
+    { name: 'Important', slug: 'important' },
+  );
+  previewData.content.posts[0].tag_slugs = ['important', 'intro', 'alpha'];
+  themePackage.templates.set(
+    'post',
+    '<article>{{#for tag in post.tags}}<span class="ordered-tag" data-slug="{{tag.slug}}">{{tag.name}}</span>{{/for}}</article>',
+  );
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const html = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+  assert.match(
+    html,
+    /data-slug="important">Important<\/span><span class="ordered-tag" data-slug="intro">Intro<\/span><span class="ordered-tag" data-slug="alpha">Alpha<\/span>/,
+  );
+});
+
+test('buildSite rejects duplicate post tag_slugs before rendering', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+
+  previewData.content.posts[0].tag_slugs = ['intro', 'intro'];
+
+  await assert.rejects(
+    buildSite({ previewData, themePackage, writer }),
+    /DUPLICATE_POST_TAG_SLUG/,
+  );
+  assert.equal(writer.getFiles().length, 0);
+});
+
 test('buildSite fails closed before FilesystemWriter can escape the output directory', async () => {
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-out-'));
   const escapedFileName = `${path.basename(outDir)}-escape.css`;
