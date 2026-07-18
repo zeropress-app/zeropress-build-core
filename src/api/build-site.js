@@ -460,9 +460,9 @@ async function maybeRenderNotFoundPage(state) {
       route: buildRouteContext('not_found', '/404.html'),
       meta: buildPageMeta(state.previewData.site, {
         currentUrl: '/404.html',
-        title: state.previewData.site.title,
-        description: state.previewData.site.description,
-        ogType: 'website',
+        title: buildDocumentTitle('Page Not Found', state.previewData.site.title),
+        robotsNoindex: true,
+        includeRichMetadata: false,
       }),
     },
     createRenderContext(state.previewData.site, '/404.html'),
@@ -2292,23 +2292,26 @@ function buildRouteContext(type, url, options = {}) {
 
 function buildPageMeta(site, options = {}) {
   const resolvedTitle = normalizeNonEmptyString(options.title, site.title);
-  const resolvedDescription = normalizeOptionalString(options.description);
-  const canonicalUrl = resolveMetaCanonicalUrl(site, options.canonicalUrl || options.currentUrl);
-  const ogImage = resolveMetaImageUrl(options.image);
-  const ogType = normalizeNonEmptyString(options.ogType, 'website');
-  const publishedTime = normalizeOptionalString(options.publishedTime);
-  const modifiedTime = normalizeOptionalString(options.modifiedTime);
+  const includeRichMetadata = options.includeRichMetadata !== false;
+  const resolvedDescription = includeRichMetadata ? normalizeOptionalString(options.description) : '';
+  const canonicalUrl = includeRichMetadata
+    ? resolveMetaCanonicalUrl(site, options.canonicalUrl || options.currentUrl)
+    : '';
+  const ogImage = includeRichMetadata ? resolveMetaImageUrl(options.image) : '';
+  const ogType = includeRichMetadata ? normalizeNonEmptyString(options.ogType, 'website') : '';
+  const publishedTime = includeRichMetadata ? normalizeOptionalString(options.publishedTime) : '';
+  const modifiedTime = includeRichMetadata ? normalizeOptionalString(options.modifiedTime) : '';
   const robotsNoindex = options.robotsNoindex === true;
 
   const meta = {
     title: escapeHtml(resolvedTitle),
     description: resolvedDescription ? escapeHtml(resolvedDescription) : '',
     canonical_url: canonicalUrl ? escapeHtml(canonicalUrl) : '',
-    og_title: escapeHtml(resolvedTitle),
-    og_description: resolvedDescription ? escapeHtml(resolvedDescription) : '',
+    og_title: includeRichMetadata ? escapeHtml(resolvedTitle) : '',
+    og_description: includeRichMetadata && resolvedDescription ? escapeHtml(resolvedDescription) : '',
     og_type: escapeHtml(ogType),
-    og_url: canonicalUrl ? escapeHtml(canonicalUrl) : '',
-    og_site_name: escapeHtml(site.title),
+    og_url: includeRichMetadata && canonicalUrl ? escapeHtml(canonicalUrl) : '',
+    og_site_name: includeRichMetadata ? escapeHtml(site.title) : '',
     og_image: ogImage ? escapeHtml(ogImage) : '',
     article_published_time: publishedTime ? escapeHtml(publishedTime) : '',
     article_modified_time: modifiedTime ? escapeHtml(modifiedTime) : '',
@@ -2346,23 +2349,25 @@ function buildMetaHeadTags(meta) {
     tags.push(`<link rel="canonical" href="${meta.canonical_url}">`);
   }
 
-  tags.push(`<meta property="og:title" content="${meta.og_title}">`);
-  if (meta.og_description) {
-    tags.push(`<meta property="og:description" content="${meta.og_description}">`);
-  }
-  tags.push(`<meta property="og:type" content="${meta.og_type}">`);
-  if (meta.og_url) {
-    tags.push(`<meta property="og:url" content="${meta.og_url}">`);
-  }
-  tags.push(`<meta property="og:site_name" content="${meta.og_site_name}">`);
-  if (meta.og_image) {
-    tags.push(`<meta property="og:image" content="${meta.og_image}">`);
-  }
-  if (meta.article_published_time) {
-    tags.push(`<meta property="article:published_time" content="${meta.article_published_time}">`);
-  }
-  if (meta.article_modified_time) {
-    tags.push(`<meta property="article:modified_time" content="${meta.article_modified_time}">`);
+  if (meta.og_title) {
+    tags.push(`<meta property="og:title" content="${meta.og_title}">`);
+    if (meta.og_description) {
+      tags.push(`<meta property="og:description" content="${meta.og_description}">`);
+    }
+    tags.push(`<meta property="og:type" content="${meta.og_type}">`);
+    if (meta.og_url) {
+      tags.push(`<meta property="og:url" content="${meta.og_url}">`);
+    }
+    tags.push(`<meta property="og:site_name" content="${meta.og_site_name}">`);
+    if (meta.og_image) {
+      tags.push(`<meta property="og:image" content="${meta.og_image}">`);
+    }
+    if (meta.article_published_time) {
+      tags.push(`<meta property="article:published_time" content="${meta.article_published_time}">`);
+    }
+    if (meta.article_modified_time) {
+      tags.push(`<meta property="article:modified_time" content="${meta.article_modified_time}">`);
+    }
   }
 
   return tags.length ? `${tags.join('\n')}\n` : '';

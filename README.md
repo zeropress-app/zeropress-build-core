@@ -301,6 +301,8 @@ Optional route templates behave as rendering capabilities, not guaranteed output
 
 If preview-data includes content that could produce archive/category/tag pages but the theme omits the matching optional template, build-core skips those outputs. `404.html` is emitted only when the theme provides its matching template. Special files are derived from emitted outputs rather than raw preview-data alone.
 
+Generated `404.html` uses the document title `Page Not Found - <site title>` and always includes `robots: noindex`. It omits description, canonical, Open Graph, and article metadata because a static error document is not a canonical or shareable content route. Build-core writes the artifact only; the development server or deployment host remains responsible for serving it with HTTP status `404` for missing URLs.
+
 ## Build Options
 
 Supported options:

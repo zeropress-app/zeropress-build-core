@@ -1960,6 +1960,59 @@ test('buildSite uses page excerpt for front page page meta description', async (
   assert.match(rootHtml, /property="og:description" content="About excerpt should become front page meta description\."/);
 });
 
+test('buildSite renders non-indexable 404 metadata without canonical or social tags', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.templates.set('404', [
+    '<div class="not-found-meta-state"',
+    ' data-description="{{meta.description}}"',
+    ' data-canonical="{{meta.canonical_url}}"',
+    ' data-og-title="{{meta.og_title}}"',
+    ' data-og-description="{{meta.og_description}}"',
+    ' data-og-type="{{meta.og_type}}"',
+    ' data-og-url="{{meta.og_url}}"',
+    ' data-og-site-name="{{meta.og_site_name}}"',
+    ' data-og-image="{{meta.og_image}}"',
+    ' data-article-published="{{meta.article_published_time}}"',
+    ' data-article-modified="{{meta.article_modified_time}}"',
+    ' data-robots-noindex="{{meta.robots_noindex}}"></div>',
+  ].join(''));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const notFoundHtml = getFileContent(writer.getFiles(), '404.html');
+  const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
+
+  assert.match(notFoundHtml, /<title>Page Not Found - ZeroPress Preview<\/title>/);
+  assert.match(notFoundHtml, /<meta name="robots" content="noindex">/);
+  assert.doesNotMatch(notFoundHtml, /<meta name="description"/);
+  assert.doesNotMatch(notFoundHtml, /rel="canonical"/);
+  assert.doesNotMatch(notFoundHtml, /property="(?:og|article):/);
+  assert.match(notFoundHtml, new RegExp([
+    /data-description=""/,
+    /data-canonical=""/,
+    /data-og-title=""/,
+    /data-og-description=""/,
+    /data-og-type=""/,
+    /data-og-url=""/,
+    /data-og-site-name=""/,
+    /data-og-image=""/,
+    /data-article-published=""/,
+    /data-article-modified=""/,
+    /data-robots-noindex="true"/,
+  ].map((pattern) => pattern.source).join('.*')));
+
+  assert.match(postHtml, /<link rel="canonical" href="https:\/\/example\.com\/posts\/hello-zeropress\/">/);
+  assert.match(postHtml, /property="og:title" content="Hello ZeroPress - ZeroPress Preview"/);
+  assert.match(postHtml, /property="article:published_time"/);
+  assert.doesNotMatch(postHtml, /<meta name="robots" content="noindex">/);
+});
+
 test('buildSite supports an index slug as front page without emitting a duplicate page route', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
