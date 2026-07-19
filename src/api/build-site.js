@@ -48,7 +48,7 @@ const SEARCH_ADAPTER_OUTPUT_PATH = '_zeropress/search.js';
 const SEARCH_PAGEFIND_ADAPTER_OUTPUT_PATH = '_zeropress/search_pagefind.js';
 const OUTPUT_PATH_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
 const SAFE_MEDIA_PROTOCOLS = new Set(['http:', 'https:']);
-const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
+const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:']);
 const MEDIA_DELIVERY_MODES = new Set(['none', 'media_domain']);
 const DISCOVERABILITY_VALUES = new Set(['default', 'noindex', 'delist']);
 const CUSTOM_HTML_SLOT_MAX_CODE_POINTS = 65_536;
@@ -301,7 +301,7 @@ async function renderFrontPage(state, route) {
       createRenderContext(
         state.previewData.site,
         currentUrl,
-        getTargetCommentsContext(state, 'page', page.slug),
+        getTargetCommentsContext(state, 'page', state.renderData.pageReferencePathByPage.get(route.page)),
       ),
     );
     html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
@@ -426,7 +426,7 @@ async function renderPage(state, page) {
     createRenderContext(
       state.previewData.site,
       currentUrl,
-      getTargetCommentsContext(state, 'page', page.slug),
+      getTargetCommentsContext(state, 'page', state.renderData.pageReferencePathByPage.get(page)),
     ),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
@@ -478,20 +478,26 @@ async function maybeRenderNotFoundPage(state) {
 
 function normalizePreviewData(previewData, options = {}) {
   const media_origin = normalizeMediaOrigin(previewData.site.media_origin);
+  const mediaDeliveryMode = MEDIA_DELIVERY_MODES.has(previewData.site.media_delivery_mode)
+    ? previewData.site.media_delivery_mode
+    : 'none';
+  if (mediaDeliveryMode === 'media_domain' && !media_origin) {
+    throw new Error('Invalid preview-data: site.media_origin must be a non-empty HTTP(S) origin when site.media_delivery_mode is "media_domain".');
+  }
   const {
     search: siteSearch,
     feed: siteFeed,
     archive: siteArchive,
     comments: siteComments,
+    robots: siteRobots,
     ...siteFields
   } = previewData.site;
   const normalizedComments = normalizeSiteComments(siteComments);
   const normalizedSite = {
     ...siteFields,
+    url: normalizeSiteOrigin(previewData.site.url),
     media_origin,
-    media_delivery_mode: MEDIA_DELIVERY_MODES.has(previewData.site.media_delivery_mode)
-      ? previewData.site.media_delivery_mode
-      : 'none',
+    media_delivery_mode: mediaDeliveryMode,
     favicon: previewData.site.favicon
       ? normalizeSiteFavicon(previewData.site.favicon, media_origin)
       : normalizeSiteFavicon(options.favicon, ''),
@@ -506,13 +512,15 @@ function normalizePreviewData(previewData, options = {}) {
     time_style: DATETIME_STYLES.has(previewData.site.time_style)
       ? previewData.site.time_style
       : DEFAULT_TIME_STYLE,
-    timezone: normalizeNonEmptyString(previewData.site.timezone, DEFAULT_TIMEZONE),
-    locale: normalizeLocale(previewData.site.locale || DEFAULT_LOCALE),
+    timezone: normalizeTimezone(previewData.site.timezone),
+    locale: normalizeLocale(previewData.site.locale),
     expose_generator: previewData.site.expose_generator !== false,
     search: normalizeRequestedFeatureState(siteSearch),
     feed: normalizeRequestedFeatureState(siteFeed),
     archive: normalizeRequestedFeatureState(siteArchive),
-    indexing: previewData.site.indexing !== false,
+    robots: {
+      allow_indexing: siteRobots?.allow_indexing !== false,
+    },
     permalinks: normalizePermalinks(previewData.site.permalinks),
     front_page: normalizeFrontPage(previewData.site.front_page),
     post_index: normalizePostIndex(previewData.site.post_index),
@@ -525,7 +533,7 @@ function normalizePreviewData(previewData, options = {}) {
   return {
     ...previewData,
     site: normalizedSite,
-    menus: normalizeRecordMap(previewData.menus),
+    menus: normalizeMenus(previewData.menus),
     collections: normalizeCollections(previewData.collections),
     widgets: normalizeWidgetAreas(previewData.widgets, normalizedSite.media_origin),
     custom_css: normalizeCustomCss(previewData.custom_css),
@@ -587,6 +595,22 @@ function normalizeRecordMap(value) {
   }
 
   return { ...value };
+}
+
+function normalizeMenus(menus) {
+  const normalized = normalizeRecordMap(menus);
+  return Object.fromEntries(Object.entries(normalized).map(([menuId, menu]) => [
+    menuId,
+    {
+      ...menu,
+      items: Array.isArray(menu?.items)
+        ? menu.items.map((item) => ({
+            ...item,
+            url: normalizeNavigationUrl(item?.url),
+          }))
+        : [],
+    },
+  ]));
 }
 
 function normalizeDiscoverability(value) {
@@ -842,8 +866,8 @@ function normalizeSiteNewsletter(newsletter) {
   const title = normalizeOptionalString(newsletter.title);
   const description = normalizeOptionalString(newsletter.description);
   const buttonLabel = normalizeOptionalString(newsletter.button_label);
-  const signupUrl = normalizeOptionalString(newsletter.signup_url);
-  const embedUrl = normalizeOptionalString(newsletter.embed_url);
+  const signupUrl = normalizeNavigationUrl(newsletter.signup_url);
+  const embedUrl = normalizeNavigationUrl(newsletter.embed_url);
 
   return {
     enabled: newsletter.enabled === true,
@@ -941,7 +965,7 @@ function normalizeFrontPage(frontPage) {
 
   return {
     type,
-    ...(type === 'page' ? { page_slug: normalizeOptionalString(frontPage.page_slug) } : {}),
+    ...(type === 'page' ? { page_path: normalizePageReferencePath(frontPage.page_path) } : {}),
     ...(type === 'standalone_html' ? { html: normalizeOptionalRawString(frontPage.html) } : {}),
   };
 }
@@ -1004,6 +1028,11 @@ function createRenderData(previewData, themePackage = {}, options = {}) {
     }
   }
 
+  const rawPageReferencePaths = new Map(previewData.content.pages.map((page) => [
+    page,
+    resolveEffectivePageReferencePath(previewData.site, page),
+  ]));
+  assertUniquePageReferencePaths(rawPageReferencePaths);
   const commentsByTarget = {
     posts: new Map(previewData.content.posts.map((post) => [
       post.slug,
@@ -1015,7 +1044,7 @@ function createRenderData(previewData, themePackage = {}, options = {}) {
       }),
     ])),
     pages: new Map(previewData.content.pages.map((page) => [
-      page.slug,
+      rawPageReferencePaths.get(page),
       buildTargetCommentsContext({
         site: previewData.site,
         target: page,
@@ -1044,11 +1073,23 @@ function createRenderData(previewData, themePackage = {}, options = {}) {
     next: adjacentPostsBySlug.get(post.slug)?.next || null,
   }));
   const pages = previewData.content.pages.map((page) => preparePage(page, previewData.site));
+  const pageReferencePathByPage = new Map(pages.map((page, index) => [
+    page,
+    rawPageReferencePaths.get(previewData.content.pages[index]),
+  ]));
   const postBySlug = new Map(posts.map((post) => [post.slug, post]));
-  const pageBySlug = new Map(pages.map((page) => [page.slug, page]));
+  const pageByPath = new Map(pages.map((page) => [pageReferencePathByPage.get(page), page]));
   const frontPage = previewData.site.front_page;
-  const collections = resolveCollections(previewData.collections, postBySlug, pageBySlug, frontPage);
-  attachCollectionCursors(posts, pages, collections);
+  const collectionTargetByItem = new WeakMap();
+  const collections = resolveCollections(
+    previewData.collections,
+    postBySlug,
+    pageByPath,
+    frontPage,
+    pageReferencePathByPage,
+    collectionTargetByItem,
+  );
+  attachCollectionCursors(collections, collectionTargetByItem);
   const post_index = previewData.site.post_index;
   const effectivePostIndexEnabled = post_index.enabled !== false && themeSupportsPostIndex;
   const effectivePostIndexPaginate = effectivePostIndexEnabled && post_index.paginate !== false;
@@ -1063,16 +1104,18 @@ function createRenderData(previewData, themePackage = {}, options = {}) {
     throw new Error('Invalid front page configuration: site.front_page occupies "/" so site.post_index.path must not be "/". Set site.post_index.path to a non-root path or disable site.post_index.');
   }
 
-  const frontPageRoute = buildFrontPageRoute(frontPage, pages, effectivePostIndexEnabled, post_indexBasePath);
-  const pageFrontPageSlug = frontPage.type === 'page' ? frontPage.page_slug : '';
-  const preparedPages = pageFrontPageSlug
-    ? pages.filter((page) => page.slug !== pageFrontPageSlug)
+  const frontPageRoute = buildFrontPageRoute(frontPage, pageByPath, effectivePostIndexEnabled, post_indexBasePath);
+  const frontPagePage = frontPageRoute?.front_page_type === 'page' ? frontPageRoute.page : null;
+  const preparedPages = frontPagePage
+    ? pages.filter((page) => page !== frontPagePage)
     : pages;
 
   return {
     posts,
     pages: preparedPages,
     postBySlug,
+    pageByPath,
+    pageReferencePathByPage,
     commentsByTarget,
     collections,
     taxonomies: buildGlobalTaxonomies(previewData, categoryCountBySlug, tagCountBySlug),
@@ -1184,14 +1227,22 @@ function buildGlobalTaxonomies(previewData, categoryCountBySlug, tagCountBySlug)
   };
 }
 
-function resolveCollections(collections, postBySlug, pageBySlug, frontPage) {
+function resolveCollections(collections, postBySlug, pageByPath, frontPage, pageReferencePathByPage, collectionTargetByItem) {
   if (!collections || typeof collections !== 'object') {
     return {};
   }
 
   return Object.fromEntries(
     Object.entries(collections).map(([collectionId, collection]) => {
-      const items = resolveCollectionItems(collectionId, collection?.items, postBySlug, pageBySlug, frontPage);
+      const items = resolveCollectionItems(
+        collectionId,
+        collection?.items,
+        postBySlug,
+        pageByPath,
+        frontPage,
+        pageReferencePathByPage,
+        collectionTargetByItem,
+      );
       return [
         collectionId,
         {
@@ -1206,44 +1257,58 @@ function resolveCollections(collections, postBySlug, pageBySlug, frontPage) {
   );
 }
 
-function resolveCollectionItems(collectionId, items, postBySlug, pageBySlug, frontPage) {
+function resolveCollectionItems(collectionId, items, postBySlug, pageByPath, frontPage, pageReferencePathByPage, collectionTargetByItem) {
   if (!Array.isArray(items)) {
     return [];
   }
 
-  return items.map((item, index) => resolveCollectionItem(collectionId, item, index, postBySlug, pageBySlug, frontPage));
+  return items.map((item, index) => resolveCollectionItem(
+    collectionId,
+    item,
+    index,
+    postBySlug,
+    pageByPath,
+    frontPage,
+    pageReferencePathByPage,
+    collectionTargetByItem,
+  ));
 }
 
-function resolveCollectionItem(collectionId, item, index, postBySlug, pageBySlug, frontPage) {
+function resolveCollectionItem(collectionId, item, index, postBySlug, pageByPath, frontPage, pageReferencePathByPage, collectionTargetByItem) {
   if (item?.type === 'post') {
     const post = postBySlug.get(item.slug);
     if (!post) {
       throw new Error(`Invalid collection "${collectionId}": item ${index + 1} references missing post slug "${item.slug}".`);
     }
-    return {
+    const resolved = {
       type: 'post',
       meta: post.meta,
       ...buildStructuredPostSummary(post),
     };
+    collectionTargetByItem.set(resolved, post);
+    return resolved;
   }
 
   if (item?.type === 'page') {
-    const page = pageBySlug.get(item.slug);
+    const pagePath = normalizePageReferencePath(item.path);
+    const page = pageByPath.get(pagePath);
     if (!page) {
-      throw new Error(`Invalid collection "${collectionId}": item ${index + 1} references missing page slug "${item.slug}".`);
+      throw new Error(`Invalid collection "${collectionId}": item ${index + 1} references missing page path "${item.path}".`);
     }
-    return buildCollectionPageSummary(page, frontPage);
+    const resolved = buildCollectionPageSummary(page, frontPage, pageReferencePathByPage.get(page));
+    collectionTargetByItem.set(resolved, page);
+    return resolved;
   }
 
   throw new Error(`Invalid collection "${collectionId}": item ${index + 1} has unsupported type "${item?.type}".`);
 }
 
-function buildCollectionPageSummary(page, frontPage) {
+function buildCollectionPageSummary(page, frontPage, pageReferencePath) {
   return {
     type: 'page',
     title: page.title,
     slug: page.slug,
-    url: frontPage?.type === 'page' && frontPage.page_slug === page.slug ? '/' : page.url,
+    url: frontPage?.type === 'page' && frontPage.page_path === pageReferencePath ? '/' : page.url,
     excerpt: page.excerpt || '',
     featured_image: page.featured_image || '',
     updated_at: page.updated_at || '',
@@ -1254,19 +1319,12 @@ function buildCollectionPageSummary(page, frontPage) {
   };
 }
 
-function attachCollectionCursors(posts, pages, collections) {
-  const postTargets = new Map(posts.map((post) => [post.slug, post]));
-  const pageTargets = new Map(pages.map((page) => [page.slug, page]));
-
+function attachCollectionCursors(collections, collectionTargetByItem) {
   for (const [collectionId, collection] of Object.entries(collections || {})) {
     const items = Array.isArray(collection.items) ? collection.items : [];
 
     items.forEach((item, index) => {
-      const target = item.type === 'post'
-        ? postTargets.get(item.slug)
-        : item.type === 'page'
-          ? pageTargets.get(item.slug)
-          : null;
+      const target = collectionTargetByItem.get(item);
 
       if (!target) {
         return;
@@ -1317,7 +1375,7 @@ function buildCollectionCursorItemSummary(item) {
   };
 }
 
-function buildFrontPageRoute(frontPage, pages, effectivePostIndexEnabled, post_indexBasePath) {
+function buildFrontPageRoute(frontPage, pageByPath, effectivePostIndexEnabled, post_indexBasePath) {
   if (frontPage.type === 'theme_index') {
     if (effectivePostIndexEnabled && post_indexBasePath === '/') {
       return null;
@@ -1332,9 +1390,9 @@ function buildFrontPageRoute(frontPage, pages, effectivePostIndexEnabled, post_i
   }
 
   if (frontPage.type === 'page') {
-    const page = pages.find((entry) => entry.slug === frontPage.page_slug);
+    const page = pageByPath.get(frontPage.page_path);
     if (!page) {
-      throw new Error(`Invalid front page configuration: site.front_page.page_slug "${frontPage.page_slug}" does not match a page.`);
+      throw new Error(`Invalid front page configuration: site.front_page.page_path "${frontPage.page_path}" does not match a page.`);
     }
 
     return {
@@ -2040,7 +2098,7 @@ function buildArchiveEntries(posts, site) {
 
 function formatArchiveLabel(date, site) {
   return new Intl.DateTimeFormat(normalizeLocale(site.locale || DEFAULT_LOCALE), {
-    timeZone: normalizeNonEmptyString(site.timezone, DEFAULT_TIMEZONE),
+    timeZone: normalizeTimezone(site.timezone),
     year: 'numeric',
     month: 'long',
   }).format(date);
@@ -2051,7 +2109,7 @@ function formatTimestamp(value, site) {
   const locale = normalizeLocale(site.locale || DEFAULT_LOCALE);
   const dateStyle = DATETIME_STYLES.has(site.date_style) ? site.date_style : DEFAULT_DATE_STYLE;
   const timeStyle = DATETIME_STYLES.has(site.time_style) ? site.time_style : DEFAULT_TIME_STYLE;
-  const siteTimezone = normalizeNonEmptyString(site.timezone, DEFAULT_TIMEZONE);
+  const siteTimezone = normalizeTimezone(site.timezone);
 
   if (dateStyle === 'none' && timeStyle === 'none') {
     return '';
@@ -2100,27 +2158,34 @@ function normalizeOptionalRawString(value) {
 }
 
 function normalizeLocale(value) {
-  if (typeof value !== 'string' || !value.trim()) {
-    return DEFAULT_LOCALE;
+  const candidate = typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_LOCALE;
+  try {
+    return Intl.getCanonicalLocales(candidate)[0] || DEFAULT_LOCALE;
+  } catch {
+    throw new Error(`Invalid preview-data: site.locale "${candidate}" is not a valid BCP 47 language tag.`);
+  }
+}
+
+function normalizeTimezone(value) {
+  const candidate = typeof value === 'string' && value.trim() ? value.trim() : DEFAULT_TIMEZONE;
+  const offsetMatch = /^([+-])(\d{2}):(\d{2})$/u.exec(candidate);
+  if (offsetMatch) {
+    const hours = Number(offsetMatch[2]);
+    const minutes = Number(offsetMatch[3]);
+    if (minutes > 59 || hours > 14 || (hours === 14 && minutes !== 0)) {
+      throw new Error(`Invalid preview-data: site.timezone "${candidate}" is outside the supported fixed-offset range.`);
+    }
+    if (hours === 0 && minutes === 0) {
+      return DEFAULT_TIMEZONE;
+    }
+    return `${offsetMatch[1]}${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
   }
 
-  const parts = value.trim().replace(/_/g, '-').split('-').filter(Boolean);
-  if (parts.length === 0) {
-    return DEFAULT_LOCALE;
+  try {
+    return new Intl.DateTimeFormat('en-US', { timeZone: candidate }).resolvedOptions().timeZone;
+  } catch {
+    throw new Error(`Invalid preview-data: site.timezone "${candidate}" is not UTC, an IANA time zone, or a valid fixed offset.`);
   }
-
-  return parts.map((part, index) => {
-    if (index === 0) {
-      return part.toLowerCase();
-    }
-    if (part.length === 2 || part.length === 3) {
-      return part.toUpperCase();
-    }
-    if (part.length === 4) {
-      return part.charAt(0).toUpperCase() + part.slice(1).toLowerCase();
-    }
-    return part.toLowerCase();
-  }).join('-');
 }
 
 function normalizeDocumentType(value) {
@@ -2450,17 +2515,22 @@ function normalizeMediaField(value, media_origin) {
     return '';
   }
 
-  if (isAbsoluteUrl(normalizedValue)) {
-    return normalizeAbsoluteUrl(normalizedValue, SAFE_MEDIA_PROTOCOLS);
+  const normalizedMediaUrl = normalizeMediaUrl(normalizedValue);
+  if (!normalizedMediaUrl) {
+    return '';
+  }
+
+  if (isAbsoluteUrl(normalizedMediaUrl)) {
+    return normalizedMediaUrl;
   }
 
   const normalizedOrigin = normalizeMediaOrigin(media_origin);
   if (!normalizedOrigin) {
-    return normalizedValue;
+    return normalizedMediaUrl;
   }
 
   try {
-    return decodeURI(new URL(normalizedValue, `${normalizedOrigin}/`).toString());
+    return decodeURI(new URL(normalizedMediaUrl, `${normalizedOrigin}/`).toString());
   } catch {
     return '';
   }
@@ -2481,6 +2551,7 @@ function normalizeMediaOrigin(value) {
       || url.search
       || url.hash
       || url.pathname !== '/'
+      || !isSafeUrlText(normalizedValue)
     ) {
       return '';
     }
@@ -2488,6 +2559,99 @@ function normalizeMediaOrigin(value) {
   } catch {
     return '';
   }
+}
+
+function normalizeSiteOrigin(value) {
+  const normalizedValue = normalizeOptionalString(value);
+  if (!normalizedValue) {
+    return '';
+  }
+
+  try {
+    const url = new URL(normalizedValue);
+    if (
+      !SAFE_LINK_PROTOCOLS.has(url.protocol)
+      || url.username
+      || url.password
+      || url.search
+      || url.hash
+      || url.pathname !== '/'
+      || !isSafeUrlText(normalizedValue)
+    ) {
+      throw new Error('site.url must be an HTTP(S) origin without credentials, path, query, or fragment');
+    }
+    return url.origin;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid preview-data: site.url is not a safe HTTP(S) origin: ${reason}`);
+  }
+}
+
+function normalizeNavigationUrl(value) {
+  return normalizeSafeResourceUrl(value, { allowRoot: true });
+}
+
+function normalizeMediaUrl(value) {
+  return normalizeSafeResourceUrl(value, { allowRoot: false });
+}
+
+function normalizeSafeResourceUrl(value, options) {
+  const normalizedValue = normalizeOptionalString(value);
+  if (!normalizedValue || !isSafeUrlText(normalizedValue)) {
+    return '';
+  }
+
+  if (normalizedValue.startsWith('/')) {
+    if (normalizedValue.startsWith('//')) {
+      return '';
+    }
+    const pathname = normalizedValue.split(/[?#]/u, 1)[0];
+    if ((!options.allowRoot && pathname === '/') || hasDotPathSegment(pathname)) {
+      return '';
+    }
+    return normalizedValue;
+  }
+
+  if (!isAbsoluteUrl(normalizedValue)) {
+    return '';
+  }
+
+  const rawPath = extractAbsoluteUrlPath(normalizedValue);
+  if ((!options.allowRoot && (!rawPath || rawPath === '/')) || hasDotPathSegment(rawPath || '/')) {
+    return '';
+  }
+  return normalizeAbsoluteUrl(normalizedValue, SAFE_LINK_PROTOCOLS);
+}
+
+function isSafeUrlText(value) {
+  if (/[\s\\\u0000-\u001F\u007F]/u.test(value)) {
+    return false;
+  }
+  try {
+    decodeURI(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function extractAbsoluteUrlPath(value) {
+  const match = /^[A-Za-z][A-Za-z0-9+.-]*:\/\/[^/?#]*(?<path>[^?#]*)/u.exec(value);
+  return match?.groups?.path || '/';
+}
+
+function hasDotPathSegment(pathname) {
+  return String(pathname || '').split('/').some((segment) => {
+    if (!segment) {
+      return false;
+    }
+    try {
+      const decoded = decodeURIComponent(segment).normalize('NFC');
+      return decoded === '.' || decoded === '..';
+    } catch {
+      return true;
+    }
+  });
 }
 
 function isAbsoluteUrl(value) {
@@ -2502,7 +2666,7 @@ function isAbsoluteUrl(value) {
 function normalizeAbsoluteUrl(value, allowedProtocols) {
   try {
     const url = new URL(value);
-    if (!allowedProtocols.has(url.protocol)) {
+    if (!allowedProtocols.has(url.protocol) || url.username || url.password || !isSafeUrlText(value)) {
       return '';
     }
     return decodeURI(url.toString());
@@ -2512,16 +2676,7 @@ function normalizeAbsoluteUrl(value, allowedProtocols) {
 }
 
 function normalizeThemeLinkUrl(value) {
-  const normalizedValue = normalizeOptionalString(value);
-  if (!normalizedValue || normalizedValue.startsWith('//')) {
-    return '';
-  }
-
-  if (isAbsoluteUrl(normalizedValue)) {
-    return normalizeAbsoluteUrl(normalizedValue, SAFE_LINK_PROTOCOLS);
-  }
-
-  return normalizedValue;
+  return normalizeNavigationUrl(value);
 }
 
 async function writeOutput(writer, summaries, path, content, contentType) {
@@ -2590,6 +2745,31 @@ function resolvePagePermalink(site, page) {
   return resolvePermalink(site, 'pages', page);
 }
 
+function resolveEffectivePageReferencePath(site, page) {
+  return normalizePageReferencePath(resolvePagePermalink(site, page).path);
+}
+
+function normalizePageReferencePath(value) {
+  const normalized = decodeRoutePath(normalizeOptionalString(value))
+    .replace(/^\/+|\/+$/gu, '')
+    .normalize('NFC');
+  return normalized;
+}
+
+function assertUniquePageReferencePaths(pageReferencePaths) {
+  const seen = new Map();
+  for (const [page, pagePath] of pageReferencePaths.entries()) {
+    if (!pagePath) {
+      throw new Error(`Invalid preview-data: Page "${page?.slug || ''}" resolves to an empty effective path.`);
+    }
+    const existing = seen.get(pagePath);
+    if (existing) {
+      throw new Error(`Invalid preview-data: Pages "${existing.slug}" and "${page.slug}" resolve to the same effective path "${pagePath}".`);
+    }
+    seen.set(pagePath, page);
+  }
+}
+
 function resolvePermalink(site, kind, item) {
   const pattern = normalizeNonEmptyString(site.permalinks?.[kind], DEFAULT_PERMALINKS[kind]);
   return buildRouteInfo(applyPermalinkPattern(pattern, kind, item, site), site.permalinks.output_style);
@@ -2640,7 +2820,7 @@ function buildPermalinkTokenValues(kind, item, site) {
 
 function getZonedDateParts(value, site) {
   const date = toDate(value);
-  const timeZone = normalizeNonEmptyString(site.timezone, DEFAULT_TIMEZONE);
+  const timeZone = normalizeTimezone(site.timezone);
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone,
     year: 'numeric',
@@ -3064,18 +3244,26 @@ function buildSearchIndexItems(state) {
     ? state.renderData.frontPageRoute.page
     : null;
   const frontPageItems = frontPagePage && frontPagePage.status === 'published' && !isDelistedDocument(frontPagePage)
-    ? [buildSearchPageItem(frontPagePage, '/')]
+    ? [buildSearchPageItem(
+        frontPagePage,
+        '/',
+        state.renderData.pageReferencePathByPage.get(frontPagePage),
+      )]
     : [];
   const pageItems = state.renderData.pages
     .filter((page) => page.status === 'published' && !isDelistedDocument(page))
-    .map((page) => buildSearchPageItem(page, page.url));
+    .map((page) => buildSearchPageItem(
+      page,
+      page.url,
+      state.renderData.pageReferencePathByPage.get(page),
+    ));
 
   return [...posts, ...frontPageItems, ...pageItems];
 }
 
-function buildSearchPageItem(page, url) {
+function buildSearchPageItem(page, url, pageReferencePath) {
   return {
-    id: `page:${page.slug}`,
+    id: `page:${pageReferencePath}`,
     type: 'page',
     title: page.title,
     url,
@@ -3585,7 +3773,7 @@ function buildFeedXml(site, emitted, generatedAt) {
 
 function buildRobotsTxt(site) {
   const lines = ['User-agent: *'];
-  if (site.indexing === false) {
+  if (site.robots?.allow_indexing === false) {
     lines.push('Disallow: /');
     return `${lines.join('\n')}\n`;
   }
@@ -3655,7 +3843,14 @@ function resolveSiteUrl(siteUrl, relativePath) {
 }
 
 function hasCanonicalSiteUrl(siteUrl) {
-  return typeof siteUrl === 'string' && siteUrl.trim() !== '';
+  if (typeof siteUrl !== 'string' || !siteUrl.trim()) {
+    return false;
+  }
+  try {
+    return normalizeSiteOrigin(siteUrl) === siteUrl;
+  } catch {
+    return false;
+  }
 }
 
 function toDate(value) {

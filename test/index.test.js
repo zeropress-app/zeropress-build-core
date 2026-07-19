@@ -1462,9 +1462,9 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
         newsletter: false,
       },
       links: {
-        homepage: '  https://example.com/theme  ',
-        support: '  mailto:support@example.com  ',
-        license: '  https://example.com/theme/license  ',
+        homepage: 'https://example.com/theme',
+        support: 'mailto:support@example.com',
+        license: 'https://example.com/theme/license',
       },
       menu_slots: {
         primary: {
@@ -1478,7 +1478,7 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
           description: '  Right rail widgets  ',
         },
       },
-      thumbnail: '/preview.png',
+      thumbnail: 'assets/preview.png',
     }, null, 2));
     await fs.writeFile(path.join(themeDir, 'layout.html'), '<main>{{slot:content}}</main>');
     await fs.writeFile(path.join(themeDir, 'index.html'), '<h1>{{site.title}}</h1>');
@@ -1486,6 +1486,7 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
     await fs.writeFile(path.join(themeDir, 'page.html'), '<section>{{page.title}}</section>');
     await fs.mkdir(path.join(themeDir, 'assets'));
     await fs.writeFile(path.join(themeDir, 'assets', 'style.css'), 'body { color: black; }');
+    await fs.writeFile(path.join(themeDir, 'assets', 'preview.png'), 'preview');
 
     const themePackage = await loadThemePackageFromDir(themeDir);
 
@@ -1519,7 +1520,7 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
           description: 'Right rail widgets',
         },
       },
-      thumbnail: '/preview.png',
+      thumbnail: 'assets/preview.png',
     });
   } finally {
     await fs.rm(themeDir, { recursive: true, force: true });
@@ -1942,7 +1943,7 @@ test('buildSite supports front page page content with a separate post index', as
   previewData.site.posts_per_page = 1;
   previewData.site.front_page = {
     type: 'page',
-    page_slug: 'about',
+    page_path: 'about',
   };
   previewData.site.post_index = {
     enabled: true,
@@ -2007,7 +2008,7 @@ test('buildSite uses page excerpt for front page page meta description', async (
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
-  previewData.site.front_page = { type: 'page', page_slug: 'about' };
+  previewData.site.front_page = { type: 'page', page_path: 'about' };
   previewData.site.description = '';
   previewData.site.post_index = { enabled: false };
   previewData.content.pages[0].excerpt = 'About excerpt should become front page meta description.';
@@ -2092,7 +2093,7 @@ test('buildSite supports an index slug as front page without emitting a duplicat
   };
   previewData.site.front_page = {
     type: 'page',
-    page_slug: 'index',
+    page_path: 'index',
   };
   previewData.site.post_index = {
     enabled: false,
@@ -2169,7 +2170,7 @@ test('buildSite rejects front page root conflicts before writing files', async (
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
   previewData.site.front_page = {
     type: 'page',
-    page_slug: 'about',
+    page_path: 'about',
   };
   previewData.site.post_index = {
     enabled: true,
@@ -2987,7 +2988,7 @@ test('buildSite renders SEO meta for post and page routes', async () => {
   previewData.site.media_origin = 'https://media.example.com';
   previewData.content.posts[0].featured_image = '/images/post-share.png';
   previewData.content.pages[0].excerpt = 'About page summary';
-  previewData.content.pages[0].featured_image = './images/page-share.png';
+  previewData.content.pages[0].featured_image = '/images/page-share.png';
 
   await buildSite({
     previewData,
@@ -3047,7 +3048,7 @@ test('buildSite normalizes media fields against site.media_origin before renderi
 
   previewData.site.media_origin = 'https://media.example.com/';
   previewData.content.authors[0].avatar = '/avatars/author.png?size=96';
-  previewData.content.posts[0].featured_image = './images/post-share.png?fit=cover';
+  previewData.content.posts[0].featured_image = '/images/post-share.png?fit=cover';
   previewData.content.pages[0].featured_image = '/images/page-share.png?format=webp';
 
   themePackage.templates.set('post', [
@@ -3134,13 +3135,13 @@ test('buildSite derives managed media and responsive srcset from content media r
   assert.doesNotMatch(pageHtml, /w=768&amp;fit=scale-down&amp;format=auto 768w/);
 });
 
-test('buildSite omits managed media srcset when delivery mode or media origin is unavailable', async () => {
+test('buildSite omits managed media srcset when delivery mode is disabled or media is external', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
   previewData.site.media_origin = '';
-  previewData.site.media_delivery_mode = 'media_domain';
+  previewData.site.media_delivery_mode = 'none';
   previewData.content.posts[0].featured_image = '/originals/hello.jpg';
   previewData.content.posts[1].featured_image = 'https://cdn.example.com/external.jpg';
   previewData.content.media = [
@@ -3169,6 +3170,20 @@ test('buildSite omits managed media srcset when delivery mode or media origin is
   assert.match(localPostHtml, /data-featured-srcset=""/);
   assert.match(externalPostHtml, /data-featured-src="https:\/\/cdn\.example\.com\/external\.jpg"/);
   assert.match(externalPostHtml, /data-featured-srcset=""/);
+});
+
+test('buildSite rejects media_domain delivery without a media origin', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+  previewData.site.media_origin = '';
+  previewData.site.media_delivery_mode = 'media_domain';
+
+  await assert.rejects(
+    buildSite({ previewData, themePackage, writer }),
+    /site\.media_origin must be non-empty when media_delivery_mode is media_domain/,
+  );
+  assert.deepEqual(writer.getFiles(), []);
 });
 
 test('buildSite leaves managed media undefined when registry does not match media fields', async () => {
@@ -3202,13 +3217,13 @@ test('buildSite leaves managed media undefined when registry does not match medi
   assert.match(postHtml, /data-featured-srcset=""/);
 });
 
-test('buildSite preserves relative media fields when site.media_origin is missing', async () => {
+test('buildSite preserves root-relative media fields when site.media_origin is missing', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
   previewData.content.authors[0].avatar = '/avatars/author.png';
-  previewData.content.posts[0].featured_image = './images/post-share.png';
+  previewData.content.posts[0].featured_image = '/images/post-share.png';
   previewData.content.pages[0].featured_image = '/images/page-share.png';
 
   themePackage.templates.set('post', [
@@ -3230,7 +3245,7 @@ test('buildSite preserves relative media fields when site.media_origin is missin
   const pageHtml = getFileContent(writer.getFiles(), 'about/index.html');
 
   assert.match(postHtml, /data-author-avatar="\/avatars\/author\.png"/);
-  assert.match(postHtml, /data-featured-image="\.\/images\/post-share\.png"/);
+  assert.match(postHtml, /data-featured-image="\/images\/post-share\.png"/);
   assert.match(pageHtml, /data-featured-image="\/images\/page-share\.png"/);
   assert.doesNotMatch(postHtml, /property="og:image"/);
   assert.doesNotMatch(pageHtml, /property="og:image"/);
@@ -3453,8 +3468,8 @@ test('buildSite exposes page updated timestamp and writes page sitemap lastmod',
     docs: {
       title: 'Docs',
       items: [
-        { type: 'page', slug: 'about' },
-        { type: 'page', slug: 'guide' },
+        { type: 'page', path: 'about' },
+        { type: 'page', path: 'guide' },
       ],
     },
   };
@@ -3506,13 +3521,13 @@ test('buildSite rejects invalid page updated_at_iso', async () => {
   );
 });
 
-test('buildSite renders fallback robots.txt from site.indexing policy', async () => {
+test('buildSite renders fallback robots.txt from site.robots policy', async () => {
   const themePackage = await loadGoldenThemePackage();
 
   {
     const writer = new MemoryWriter();
     const previewData = await loadDefaultPreviewData();
-    previewData.site.indexing = true;
+    previewData.site.robots = { allow_indexing: true };
 
     await buildSite({
       previewData,
@@ -3528,7 +3543,7 @@ test('buildSite renders fallback robots.txt from site.indexing policy', async ()
   {
     const writer = new MemoryWriter();
     const previewData = await loadDefaultPreviewData();
-    previewData.site.indexing = false;
+    previewData.site.robots = { allow_indexing: false };
 
     await buildSite({
       previewData,
@@ -3655,7 +3670,7 @@ test('buildSite delists page front pages from sitemap and native search while pr
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.front_page = { type: 'page', page_slug: 'about' };
+  previewData.site.front_page = { type: 'page', page_path: 'about' };
   previewData.site.post_index = { enabled: false };
   previewData.content.pages[0].discoverability = 'delist';
 
@@ -3699,7 +3714,7 @@ test('buildSite emits native static search artifacts and adapter results', async
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.site.front_page = { type: 'page', page_slug: 'about' };
+  previewData.site.front_page = { type: 'page', page_path: 'about' };
   previewData.site.post_index = { enabled: false };
   previewData.content.posts = [
     {
@@ -4379,7 +4394,7 @@ test('buildSite exposes active page comments on page and page-front-page routes'
   const frontPagePreviewData = structuredClone(previewData);
   frontPagePreviewData.site.front_page = {
     type: 'page',
-    page_slug: 'about',
+    page_path: 'about',
   };
   frontPagePreviewData.site.post_index = {
     enabled: true,
@@ -4392,6 +4407,78 @@ test('buildSite exposes active page comments on page and page-front-page routes'
   const frontPageHtml = getFileContent(frontPageWriter.getFiles(), 'index.html');
   assert.match(frontPageHtml, /true\|page\|901\|zeropress\|https:\/\/comments\.example\.com\|50\|desc\|true\|2\|page-route-sensitive-token\|/);
   assert.equal(frontPageWriter.getFiles().some((file) => file.path === 'about/index.html'), false);
+});
+
+test('buildSite uses effective page paths for duplicate leaf slugs, front page, collections, comments, and cursors', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  const originalPage = previewData.content.pages[0];
+
+  previewData.site.front_page = { type: 'page', page_path: 'reference/guide' };
+  previewData.site.post_index = { enabled: true, path: '/blog/', paginate: true };
+  previewData.content.pages = [
+    {
+      ...originalPage,
+      title: 'Docs Guide',
+      slug: 'guide',
+      path: 'docs/guide',
+      public_id: 901,
+      allow_comments: true,
+      comments: { request_token: 'docs-guide-route-token' },
+    },
+    {
+      ...originalPage,
+      title: 'Reference Guide',
+      slug: 'guide',
+      path: 'reference/guide',
+      public_id: 902,
+      allow_comments: true,
+      comments: { request_token: 'reference-guide-route-token' },
+    },
+  ];
+  previewData.collections = {
+    guides: {
+      items: [
+        { type: 'page', path: 'docs/guide' },
+        { type: 'page', path: 'reference/guide' },
+      ],
+    },
+  };
+  themePackage.templates.set('page', [
+    '<h1>{{page.title}}</h1>',
+    '<span data-comments="{{comments.target_public_id}}">{{comments.request_token}}</span>',
+    '{{#if page.collection_cursor.prev}}<a data-prev href="{{page.collection_cursor.prev.url}}">{{page.collection_cursor.prev.title}}</a>{{/if}}',
+    '{{#if page.collection_cursor.next}}<a data-next href="{{page.collection_cursor.next.url}}">{{page.collection_cursor.next.title}}</a>{{/if}}',
+    '{{#for item in collections.guides.items}}<a data-guide href="{{item.url}}">{{item.title}}:{{item.comments.request_token}}</a>{{/for}}',
+  ].join(''));
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const files = writer.getFiles();
+  const docsHtml = getFileContent(files, 'docs/guide/index.html');
+  const frontHtml = getFileContent(files, 'index.html');
+
+  assert.match(docsHtml, /<h1>Docs Guide<\/h1>/);
+  assert.match(docsHtml, /data-comments="901">docs-guide-route-token/);
+  assert.match(docsHtml, /data-next href="\/">Reference Guide<\/a>/);
+  assert.match(frontHtml, /<h1>Reference Guide<\/h1>/);
+  assert.match(frontHtml, /data-comments="902">reference-guide-route-token/);
+  assert.match(frontHtml, /data-prev href="\/docs\/guide\/">Docs Guide<\/a>/);
+  assert.equal(files.some((file) => file.path === 'reference/guide/index.html'), false);
+
+  const searchItems = JSON.parse(getFileContent(files, '_zeropress/search.json'));
+  assert.deepEqual(
+    searchItems.filter((item) => item.type === 'page').map((item) => item.id),
+    ['page:reference/guide', 'page:docs/guide'],
+  );
+
+  for (const html of [docsHtml, frontHtml]) {
+    assert.match(html, /data-guide href="\/docs\/guide\/">Docs Guide:<\/a>/);
+    assert.match(html, /data-guide href="\/">Reference Guide:<\/a>/);
+    assert.equal(html.match(/docs-guide-route-token/g)?.length ?? 0, html === docsHtml ? 1 : 0);
+    assert.equal(html.match(/reference-guide-route-token/g)?.length ?? 0, html === frontHtml ? 1 : 0);
+  }
 });
 
 test('buildSite keeps request tokens confined to their active detail-route comments root', async () => {
@@ -4409,7 +4496,7 @@ test('buildSite keeps request tokens confined to their active detail-route comme
       items: [
         { type: 'post', slug: 'hello-zeropress' },
         { type: 'post', slug: 'theme-blocks-deep-dive' },
-        { type: 'page', slug: 'about' },
+        { type: 'page', path: 'about' },
       ],
     },
   };
@@ -5266,7 +5353,7 @@ test('buildSite resolves named collections in every render context', async () =>
       title: 'Cover Story',
       items: [
         { type: 'post', slug: previewData.content.posts[0].slug },
-        { type: 'page', slug: previewData.content.pages[0].slug },
+        { type: 'page', path: previewData.content.pages[0].slug },
       ],
     },
   };
@@ -5302,14 +5389,14 @@ test('buildSite exposes collection counts and route collection cursors', async (
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  previewData.site.front_page = { type: 'page', page_slug: 'about' };
+  previewData.site.front_page = { type: 'page', page_path: 'about' };
   previewData.site.post_index = { enabled: true, path: '/blog/', paginate: true };
   previewData.collections = {
     work: {
       title: 'Selected Work',
       items: [
         { type: 'post', slug: 'hello-zeropress' },
-        { type: 'page', slug: 'about' },
+        { type: 'page', path: 'about' },
         { type: 'post', slug: 'theme-blocks-deep-dive' },
       ],
     },
@@ -5416,7 +5503,7 @@ test('buildSite rejects collections that reference missing content slugs', async
       themePackage,
       writer,
     }),
-    /Invalid collection "features": item 1 references missing post slug "missing-post"/,
+    /INVALID_COLLECTION_ITEM_REFERENCE.*Referenced Post slug does not exist/,
   );
 });
 

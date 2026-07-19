@@ -124,7 +124,7 @@ Notes:
 - `feed.xml` is emitted only when `site.feed.enabled` is not `false`, `site.url` is a non-empty canonical URL, and `generateFeed` is not `false`
 - callers may pass `sitemapStylesheetHref` to add an XML stylesheet processing instruction to generated `sitemap.xml`
 - fallback `robots.txt` is emitted when `generateRobotsTxt` is not `false`
-- fallback `robots.txt` uses `site.indexing`; `false` emits `Disallow: /`, while missing or `true` emits `Allow: /`
+- fallback `robots.txt` uses the effective `site.robots.allow_indexing` policy; omitted Preview Data defaults to `true`, `false` emits `Disallow: /`, and `true` emits `Allow: /`
 - callers that disable fallback robots because a public `robots.txt` exists should copy that file as-is; sitemap directives in custom robots files are caller/user responsibility
 - dotted slug segments such as `v0.6` remain literal in route URLs, canonical URLs, and output filenames
 - output planning rejects duplicate public URLs, including clean-host aliases (`page.html` → `/page` and `page/index.html` → `/page/`), content routes shadowed by generated special files, and file/directory path hierarchy conflicts before writing
@@ -275,13 +275,19 @@ The canonical `preview-data v0.7` site contract uses:
 - `site.feed`
 - `site.archive`
 - `site.comments`
-- `site.indexing`
+- `site.robots`
 - `site.expose_generator`
 - `site.search`
 
 Post objects use `public_id` as their public numeric identity. The removed internal `content.posts[].id` field is neither required nor exposed to the theme runtime.
 
-`site.media_origin` is either an empty string or an absolute HTTP(S) origin. Build Core resolves root-relative and relative site favicon/logo, profile-widget avatar, author avatar, Post/Page featured-image, and `content.media[].src` values against that origin, while preserving already-absolute external URLs. SEO image metadata receives the normalized featured image. Responsive `srcset` variants require `media_delivery_mode: "media_domain"` and an exact origin match; paths, credentials, query strings, and fragments are not part of the media-origin contract.
+`site.url` is either an empty string or a credential-free HTTP(S) origin. A trailing root slash is accepted and normalized to `URL.origin`; credentials, paths, queries, and fragments are invalid. Menu and newsletter navigation URLs must be safe single-slash root-relative paths or credential-free HTTP(S) URLs. Query and fragment are allowed, while bare/dot-relative paths, protocol-relative URLs, path dot segments, backslashes, whitespace/control characters, and malformed percent escapes are invalid.
+
+`site.media_origin` is either an empty string or an absolute HTTP(S) origin. Media fields accept only safe single-slash root-relative paths with a real path or credential-free HTTP(S) URLs with a path; `/`, bare paths, and dot-relative paths are invalid. Build Core resolves root-relative site favicon/logo, profile-widget avatar, author avatar, Post/Page featured-image, and `content.media[].src` values against that origin, while preserving already-absolute external URLs. SEO image metadata receives the normalized featured image. Responsive `srcset` variants require `media_delivery_mode: "media_domain"`, a non-empty origin, and an exact origin match; paths, credentials, query strings, and fragments are not part of the media-origin contract.
+
+Locale and time zone are canonicalized once at build start. Locale uses canonical BCP 47. Time zone accepts `UTC`, canonical IANA identifiers, or canonical fixed offsets within `±14:00`; zero offset becomes `UTC`. The same values drive fallback date strings, archives, date-based permalinks, feeds, and rendered metadata.
+
+When routing fields are omitted, Build Core uses directory output, `/posts/:slug/`, `/:slug/`, `/categories/:slug/`, and `/tags/:slug/`; `front_page` defaults to `theme_index`; and `post_index` defaults to `{ enabled: true, path: "/", paginate: true }`. Page objects retain a leaf `slug`, but external identity uses the NFC-normalized effective route path. Page front-page references use `page_path`, Page collection references use `path`, and different Page paths may share the same leaf slug.
 
 `site.favicon.icon`, `svg`, and `png` form the default favicon set. `icon_dark` is the optional dark color-scheme icon. When both sets exist, Build Core emits the dark icon first with `media="(prefers-color-scheme: dark)"` and marks every default icon link with the light media query. A single available set is emitted without a media condition, and `apple_touch_icon` is always unconditional. An explicit preview-data `site.favicon` object replaces the complete auto-discovered build option instead of merging field by field.
 
