@@ -8,6 +8,7 @@ import { buildSite, buildSiteFromThemeDir, FilesystemWriter, MemoryWriter } from
 import { buildTargetCommentsContext } from '../src/api/build-site.js';
 import { ControlFlowRenderer } from '../src/render/control-flow-renderer.js';
 import { renderDocument } from '../src/render/content-renderer.js';
+import { VariableResolver } from '../src/render/variable-resolver.js';
 import { loadThemePackageFromDir } from '../src/theme/load-theme-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -186,6 +187,45 @@ test('ControlFlowRenderer renders nested if/if_eq/for blocks and strips comments
   assert.match(output, /<h2>\{\{widget\.title\}\}<\/h2>/);
   assert.match(output, /<li>\{\{item\.label\}\}<\/li><li>\{\{item\.label\}\}<\/li>/);
   assert.doesNotMatch(output, /inline note|block note|fallback/);
+});
+
+test('VariableResolver always escapes user-defined meta values regardless of key suffix', () => {
+  const resolver = new VariableResolver();
+  const injection = '" data-injected="true';
+  const markup = '<em>untrusted</em>';
+  const data = {
+    site: {
+      meta: {
+        issue_html: markup,
+        destination_url: injection,
+      },
+    },
+    post: {
+      meta: {
+        badge_html: markup,
+      },
+    },
+    item: {
+      meta: {
+        link_url: injection,
+      },
+    },
+  };
+
+  const result = resolver.resolve([
+    '<div>{{site.meta.issue_html}}</div>',
+    '<a href="{{site.meta.destination_url}}">site</a>',
+    '<span>{{post.meta.badge_html}}</span>',
+    '<a href="{{item.meta.link_url}}">item</a>',
+  ].join(''), data, { escapeValues: true });
+
+  assert.equal(result, [
+    '<div>&lt;em&gt;untrusted&lt;/em&gt;</div>',
+    '<a href="&quot; data-injected=&quot;true">site</a>',
+    '<span>&lt;em&gt;untrusted&lt;/em&gt;</span>',
+    '<a href="&quot; data-injected=&quot;true">item</a>',
+  ].join(''));
+  assert.doesNotMatch(result, /<em>|href="" data-injected=/);
 });
 
 test('ControlFlowRenderer rejects duplicate else blocks', () => {
@@ -1459,7 +1499,6 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
       description: '  Theme fixture  ',
       features: {
         comments: true,
-        newsletter: false,
       },
       links: {
         homepage: 'https://example.com/theme',
@@ -1501,7 +1540,6 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
       description: 'Theme fixture',
       features: {
         comments: true,
-        newsletter: false,
       },
       links: {
         homepage: 'https://example.com/theme',
@@ -1532,7 +1570,6 @@ test('loadThemePackageFromDir preserves theme capability metadata for internal f
 
   assert.deepEqual(themePackage.metadata.features, {
     comments: true,
-    newsletter: false,
     search: true,
   });
 });
@@ -3860,7 +3897,6 @@ test('buildSite skips native search artifacts when theme does not support search
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
   themePackage.metadata.features = {
     comments: true,
-    newsletter: false,
   };
   themePackage.templates.set('index', '{{#if site.search.enabled}}search enabled{{#else}}search disabled{{/if}}');
 

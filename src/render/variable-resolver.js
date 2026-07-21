@@ -94,7 +94,12 @@ export class VariableResolver {
       }
     }
 
-    if (variablePath === 'data' || variablePath.startsWith('data.') || variablePath.includes('.data.')) {
+    if (
+      variablePath === 'data'
+      || variablePath.startsWith('data.')
+      || variablePath.includes('.data.')
+      || variablePath.includes('.meta.')
+    ) {
       return false;
     }
 

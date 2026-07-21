@@ -181,6 +181,8 @@ Theme validation is enforced through:
 
 JavaScript theme assets are emitted as provided. Build-core may hash output filenames, but it does not rewrite or minify JavaScript content.
 
+User-defined scalar metadata under `site.meta`, `post.meta`, `page.meta`, and item `meta` is always HTML-escaped during template interpolation. Names ending in `_html` or `_url` do not opt metadata into raw rendering; use the explicit content and custom HTML contracts for trusted raw markup.
+
 Build-core derives:
 
 - index/archive/category/tag routes
