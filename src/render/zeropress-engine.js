@@ -1,3 +1,4 @@
+import { DEFAULT_RUNTIME } from '@zeropress/theme-validator';
 import { SlotResolver } from './slot-resolver.js';
 import { VariableResolver } from './variable-resolver.js';
 import { ControlFlowRenderer } from './control-flow-renderer.js';
@@ -51,7 +52,7 @@ export class ZeroPressEngine {
   }
 
   renderTemplate(template, data) {
-    if (this.themePackage?.metadata?.runtime !== '0.6') {
+    if (this.themePackage?.metadata?.runtime !== DEFAULT_RUNTIME) {
       throw new Error(`Unsupported theme runtime: ${this.themePackage?.metadata?.runtime || 'unknown'}`);
     }
 

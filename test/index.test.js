@@ -1357,12 +1357,12 @@ test('buildSite injects discovered favicon option when preview-data has no expli
   assert.doesNotMatch(indexHtml, /media\.example\.com\/favicon/);
 });
 
-test('buildSite runtime 0.6 renders resolved widgets with escaping and safe URL filtering', async () => {
+test('buildSite runtime 0.7 renders resolved widgets with escaping and safe URL filtering', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  themePackage.metadata.runtime = '0.6';
+  themePackage.metadata.runtime = '0.7';
   themePackage.templates.set('index', `
 <section class="index-page">
   <aside class="sidebar-stack">
@@ -1454,7 +1454,7 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
       slug: 'test-theme',
       version: '1.0.0',
       license: 'MIT',
-      runtime: '0.6',
+      runtime: '0.7',
       author: '  ZeroPress  ',
       description: '  Theme fixture  ',
       features: {
@@ -1495,7 +1495,7 @@ test('loadThemePackageFromDir uses normalized validator manifest metadata', asyn
       slug: 'test-theme',
       version: '1.0.0',
       license: 'MIT',
-      runtime: '0.6',
+      runtime: '0.7',
       author: 'ZeroPress',
       description: 'Theme fixture',
       features: {
@@ -1536,12 +1536,12 @@ test('loadThemePackageFromDir preserves theme capability metadata for internal f
   });
 });
 
-test('buildSite rejects theme packages that do not target runtime 0.6', async () => {
+test('buildSite rejects v0.6 theme packages before writing output', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  themePackage.metadata.runtime = '0.3';
+  themePackage.metadata.runtime = '0.6';
 
   await assert.rejects(
     buildSite({
@@ -1549,8 +1549,9 @@ test('buildSite rejects theme packages that do not target runtime 0.6', async ()
       themePackage,
       writer,
     }),
-    /Theme validation failed[\s\S]*ERROR INVALID_RUNTIME_VERSION[\s\S]*Reason: theme\.json field 'runtime' must be one of: 0\.6/,
+    /Theme validation failed[\s\S]*ERROR INVALID_RUNTIME_VERSION[\s\S]*Reason: theme\.json field 'runtime' must be one of: 0\.7/,
   );
+  assert.deepEqual(writer.getFiles(), []);
 });
 
 test('buildSiteFromThemeDir loads the golden fixture theme directory and FilesystemWriter writes files to disk', async () => {
@@ -1573,7 +1574,7 @@ test('buildSiteFromThemeDir loads the golden fixture theme directory and Filesys
   }
 });
 
-test('buildSiteFromThemeDir rejects themes that do not target runtime 0.6', async () => {
+test('buildSiteFromThemeDir rejects v0.6 themes before writing output', async () => {
   const themeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-theme-'));
   const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-out-'));
 
@@ -1584,7 +1585,7 @@ test('buildSiteFromThemeDir rejects themes that do not target runtime 0.6', asyn
       slug: 'legacy-theme',
       version: '1.0.0',
       license: 'MIT',
-      runtime: '0.3',
+      runtime: '0.6',
     }, null, 2));
     await fs.writeFile(path.join(themeDir, 'layout.html'), '<main>{{slot:content}}</main>');
     await fs.writeFile(path.join(themeDir, 'index.html'), '<h1>{{site.title}}</h1>');
@@ -1600,8 +1601,9 @@ test('buildSiteFromThemeDir rejects themes that do not target runtime 0.6', asyn
         themeDir,
         writer,
       }),
-      /Theme validation failed[\s\S]*ERROR INVALID_RUNTIME_VERSION[\s\S]*Reason: theme\.json field 'runtime' must be one of: 0\.6/,
+      /Theme validation failed[\s\S]*ERROR INVALID_RUNTIME_VERSION[\s\S]*Reason: theme\.json field 'runtime' must be one of: 0\.7/,
     );
+    assert.deepEqual(await fs.readdir(outDir), []);
   } finally {
     await fs.rm(themeDir, { recursive: true, force: true });
     await fs.rm(outDir, { recursive: true, force: true });
@@ -1658,12 +1660,12 @@ test('buildSite renders nested partials in templates and layout slot partials', 
   assert.match(indexHtml, /<main><main class="index-shell"><aside class="sidebar-stack"><section class="widget-card"><h2>Note<\/h2><div class="widget-copy"><p>Sidebar <strong>markdown<\/strong><\/p>\s*<\/div><\/section><\/aside><\/main><\/main>/);
 });
 
-test('buildSite runtime 0.6 exposes structured posts, archive groups, and pagination without legacy helpers', async () => {
+test('buildSite runtime 0.7 exposes structured posts, archive groups, and pagination without legacy helpers', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  themePackage.metadata.runtime = '0.6';
+  themePackage.metadata.runtime = '0.7';
   themePackage.templates.set('index', [
     '<section>',
     '  <div class="structured-posts">',
@@ -2681,12 +2683,12 @@ test('buildSite exposes pagination.window for compact page navigation', async ()
   assert.match(fifthPageHtml, /<a class="page" href="\/">1<\/a>\s*<span class="gap">…<\/span>\s*<a class="page" href="\/page\/4\/">4<\/a>\s*<a class="page current" href="\/page\/5\/">5<\/a>\s*<a class="page" href="\/page\/6\/">6<\/a>\s*<span class="gap">…<\/span>\s*<a class="page" href="\/page\/10\/">10<\/a>/);
 });
 
-test('buildSite runtime 0.6 exposes structured post surroundings without legacy post helpers', async () => {
+test('buildSite runtime 0.7 exposes structured post surroundings without legacy post helpers', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
 
-  themePackage.metadata.runtime = '0.6';
+  themePackage.metadata.runtime = '0.7';
   themePackage.templates.set('post', [
     '<article class="structured-post-shell">',
     '  <span class="structured-author">{{post.author.display_name}}</span>',

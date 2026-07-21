@@ -4,7 +4,7 @@
 ![license](https://img.shields.io/npm/l/%40zeropress%2Fbuild-core)
 ![node](https://img.shields.io/node/v/%40zeropress%2Fbuild-core)
 
-Shared deterministic rendering core for ZeroPress static output v0.6.
+Shared deterministic rendering core for Preview Data v0.7 and Theme Runtime v0.7.
 
 This package is the canonical rendering core for preview-data and theme packages consumed directly by:
 
@@ -15,8 +15,8 @@ Public contract references:
 
 - [Preview Data v0.7 Spec](https://zeropress.dev/reference/preview-data/specs/v0.7/)
 - [Preview Data v0.7 Schema](https://schemas.zeropress.dev/preview-data/v0.7/schema.json)
-- [Theme Runtime v0.6 Spec](https://zeropress.dev/spec/theme-runtime-v0.6.html)
-- [Theme Runtime v0.6 Schema](https://schemas.zeropress.dev/theme-runtime/v0.6/schema.json)
+- [Theme Runtime v0.7 Spec](https://zeropress.dev/reference/theme-runtime/specs/v0.7/)
+- [Theme Runtime v0.7 Schema](https://schemas.zeropress.dev/theme-runtime/v0.7/schema.json)
 
 It accepts canonical preview-data plus a validated theme package and produces static HTML artifacts through a writer interface.
 
