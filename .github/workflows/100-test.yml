@@ -11,7 +11,14 @@ permissions:
 
 jobs:
   test:
+    name: Node.js ${{ matrix.node-version }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version:
+          - "22.12.0"
+          - "24"
 
     steps:
       - name: Checkout
@@ -20,7 +27,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: 24
+          node-version: ${{ matrix.node-version }}
 
       - name: Reset local install state
         run: |
