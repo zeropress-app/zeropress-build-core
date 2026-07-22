@@ -101,10 +101,9 @@ function normalizeFeedXml(xml) {
   );
 }
 
-function normalizeManifestSummary(jsonText) {
-  const parsed = JSON.parse(jsonText);
+function normalizeBuildFilesSummary(files) {
   return JSON.stringify({
-    files: parsed.files.map(({ path: filePath, contentType }) => ({ path: filePath, contentType })),
+    files: files.map(({ path: filePath, contentType }) => ({ path: filePath, contentType })),
   }, null, 2);
 }
 
@@ -457,7 +456,6 @@ test('buildSite matches the golden fixture for the default preview payload', asy
     previewData,
     themePackage,
     writer,
-    options: { writeManifest: true },
   });
 
   const files = writer.getFiles();
@@ -478,7 +476,7 @@ test('buildSite matches the golden fixture for the default preview payload', asy
     ['robots.txt', getFileContent(files, 'robots.txt')],
     ['feed.xml', normalizeFeedXml(getFileContent(files, 'feed.xml'))],
     ['sitemap.xml', normalizeSitemapXml(getFileContent(files, 'sitemap.xml'))],
-    ['build-manifest.summary.json', normalizeManifestSummary(getFileContent(files, 'build-manifest.json'))],
+    ['build-files.summary.json', normalizeBuildFilesSummary(result.files)],
   ];
 
   for (const [relativePath, actual] of comparisons) {
@@ -2610,33 +2608,21 @@ test('buildSite rejects a directory route shadowed by the generated 404 clean UR
   assert.equal(writer.getFiles().length, 0);
 });
 
-test('buildSite reserves the optional manifest URL only when manifest output is enabled', async () => {
+test('buildSite does not reserve the former build manifest URL', async () => {
   const previewData = await loadDefaultPreviewData();
   const themePackage = cloneThemePackage(await loadGoldenThemePackage());
   previewData.content.pages[0].slug = 'build-manifest.json';
 
-  const withoutManifestWriter = new MemoryWriter();
+  const writer = new MemoryWriter();
   await buildSite({
     previewData,
     themePackage,
-    writer: withoutManifestWriter,
+    writer,
   });
   assert.equal(
-    withoutManifestWriter.getFiles().some((file) => file.path === 'build-manifest.json/index.html'),
+    writer.getFiles().some((file) => file.path === 'build-manifest.json/index.html'),
     true,
   );
-
-  const withManifestWriter = new MemoryWriter();
-  await assert.rejects(
-    () => buildSite({
-      previewData,
-      themePackage,
-      writer: withManifestWriter,
-      options: { writeManifest: true },
-    }),
-    /Duplicate public URL detected: \/build-manifest\.json/,
-  );
-  assert.equal(withManifestWriter.getFiles().length, 0);
 });
 
 test('buildSite validates and reserves caller-owned output paths without emitting them', async () => {
@@ -2648,11 +2634,9 @@ test('buildSite validates and reserves caller-owned output paths without emittin
     previewData,
     themePackage,
     writer,
-    options: { reservedOutputPaths: ['public-only.txt'], writeManifest: true },
+    options: { reservedOutputPaths: ['public-only.txt'] },
   });
   assert.equal(writer.getFiles().some((file) => file.path === 'public-only.txt'), false);
-  const manifest = JSON.parse(getFileContent(writer.getFiles(), 'build-manifest.json'));
-  assert.equal(manifest.files.some((file) => file.path === 'public-only.txt'), false);
 
   await assert.rejects(
     () => buildSite({
@@ -2838,7 +2822,6 @@ test('buildSite supports medium fixture with raw Unicode slugs and paginated tax
     previewData,
     themePackage,
     writer,
-    options: { writeManifest: true },
   });
 
   const files = writer.getFiles();
@@ -2878,11 +2861,6 @@ test('buildSite supports medium fixture with raw Unicode slugs and paginated tax
   assert.ok(sitemapXml.includes(`https://ko.example/${pageSlug}/`));
   assert.equal(sitemapXml.includes(`https://ko.example/categories/${categorySlug}/`), false);
   assert.equal(sitemapXml.includes(`https://ko.example/tags/${tagSlug}/`), false);
-
-  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
-  for (const outputPath of expectedPaths) {
-    assert.equal(manifest.files.some((file) => file.path === outputPath), true, `Expected ${outputPath} in manifest`);
-  }
 });
 
 test('buildSite rejects a page slug with traversal segments', async () => {
@@ -3391,7 +3369,6 @@ test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async ()
     previewData,
     themePackage,
     writer,
-    options: { writeManifest: true },
   });
 
   const files = writer.getFiles();
@@ -3404,10 +3381,6 @@ test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async ()
 
   const robotsTxt = getFileContent(files, 'robots.txt');
   assert.equal(robotsTxt.trim(), 'User-agent: *\nAllow: /');
-
-  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
-  assert.equal(manifest.files.some((file) => file.path === 'sitemap.xml'), false);
-  assert.equal(manifest.files.some((file) => file.path === 'feed.xml'), false);
 });
 
 test('buildSite can disable feed.xml while keeping other special files', async () => {
@@ -3420,7 +3393,7 @@ test('buildSite can disable feed.xml while keeping other special files', async (
     previewData,
     themePackage,
     writer,
-    options: { generateFeed: false, writeManifest: true },
+    options: { generateFeed: false },
   });
 
   const files = writer.getFiles();
@@ -3430,11 +3403,6 @@ test('buildSite can disable feed.xml while keeping other special files', async (
   const indexHtml = getFileContent(files, 'index.html');
   assert.match(indexHtml, /feed=false:/);
   assert.doesNotMatch(indexHtml, /application\/rss\+xml/);
-
-  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
-  assert.equal(manifest.files.some((file) => file.path === 'sitemap.xml'), true);
-  assert.equal(manifest.files.some((file) => file.path === 'feed.xml'), false);
-  assert.equal(manifest.files.some((file) => file.path === 'robots.txt'), true);
 });
 
 test('buildSite applies the Preview Data feed preference and releases the feed public URL', async () => {
@@ -3734,16 +3702,13 @@ test('buildSite can disable fallback robots.txt while keeping other special file
     previewData,
     themePackage,
     writer,
-    options: { writeManifest: true, generateRobotsTxt: false },
+    options: { generateRobotsTxt: false },
   });
 
   const files = writer.getFiles();
   assert.equal(files.some((file) => file.path === 'robots.txt'), false);
   assert.equal(files.some((file) => file.path === 'sitemap.xml'), true);
   assert.equal(files.some((file) => file.path === 'feed.xml'), true);
-
-  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
-  assert.equal(manifest.files.some((file) => file.path === 'robots.txt'), false);
 });
 
 test('buildSite emits native static search artifacts and adapter results', async () => {
@@ -3803,7 +3768,6 @@ test('buildSite emits native static search artifacts and adapter results', async
     previewData,
     themePackage,
     writer,
-    options: { writeManifest: true },
   });
 
   const files = writer.getFiles();
@@ -3811,14 +3775,9 @@ test('buildSite emits native static search artifacts and adapter results', async
   const searchJs = getFileContent(files, '_zeropress/search.js');
   const searchPagefindJs = getFileContent(files, '_zeropress/search_pagefind.js');
   const searchItems = JSON.parse(searchJson);
-  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
-
   assert.equal(files.some((file) => file.path === '_zeropress/search.json'), true);
   assert.equal(files.some((file) => file.path === '_zeropress/search.js'), true);
   assert.equal(files.some((file) => file.path === '_zeropress/search_pagefind.js'), true);
-  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.json'), true);
-  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.js'), true);
-  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search_pagefind.js'), true);
   assert.deepEqual(searchItems.map((item) => item.id).sort(), [
     'page:about',
     'page:visible-page',
@@ -3904,17 +3863,12 @@ test('buildSite skips native search artifacts when theme does not support search
     previewData,
     themePackage,
     writer,
-    options: { writeManifest: true },
   });
 
   const files = writer.getFiles();
-  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
   assert.equal(files.some((file) => file.path === '_zeropress/search.json'), false);
   assert.equal(files.some((file) => file.path === '_zeropress/search.js'), false);
   assert.equal(files.some((file) => file.path === '_zeropress/search_pagefind.js'), false);
-  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.json'), false);
-  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.js'), false);
-  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search_pagefind.js'), false);
   assert.match(getFileContent(files, 'index.html'), /search disabled/);
 });
 
@@ -3929,17 +3883,12 @@ test('buildSite skips native search artifacts when site search is disabled', asy
     previewData,
     themePackage,
     writer,
-    options: { writeManifest: true },
   });
 
   const files = writer.getFiles();
-  const manifest = JSON.parse(getFileContent(files, 'build-manifest.json'));
   assert.equal(files.some((file) => file.path === '_zeropress/search.json'), false);
   assert.equal(files.some((file) => file.path === '_zeropress/search.js'), false);
   assert.equal(files.some((file) => file.path === '_zeropress/search_pagefind.js'), false);
-  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.json'), false);
-  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search.js'), false);
-  assert.equal(manifest.files.some((file) => file.path === '_zeropress/search_pagefind.js'), false);
   assert.match(getFileContent(files, 'index.html'), /search disabled/);
 });
 
@@ -3953,7 +3902,6 @@ test('buildSite skips archive routes when archive template is missing', async ()
     previewData,
     themePackage,
     writer,
-    options: { writeManifest: true },
   });
 
   const files = writer.getFiles();
@@ -3973,7 +3921,6 @@ test('buildSite skips category routes and sitemap entries when category template
     previewData,
     themePackage,
     writer,
-    options: { writeManifest: true },
   });
 
   const files = writer.getFiles();
@@ -3992,7 +3939,6 @@ test('buildSite skips tag routes and sitemap entries when tag template is missin
     previewData,
     themePackage,
     writer,
-    options: { writeManifest: true },
   });
 
   const files = writer.getFiles();
@@ -4011,7 +3957,6 @@ test('buildSite emits only renderable special-file URLs when optional route temp
     previewData,
     themePackage,
     writer,
-    options: { writeManifest: true },
   });
 
   const files = writer.getFiles();
@@ -4558,7 +4503,6 @@ test('buildSite keeps request tokens confined to their active detail-route comme
     previewData,
     themePackage,
     writer,
-    options: { writeManifest: true },
   });
 
   const files = writer.getFiles();

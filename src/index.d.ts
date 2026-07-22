@@ -33,7 +33,6 @@ export interface BuildOptions {
   generateFeed?: boolean;
   generateRobotsTxt?: boolean;
   reservedOutputPaths?: readonly string[];
-  writeManifest?: boolean;
 }
 
 export interface DisabledThemeCommentsContext {
@@ -81,14 +80,8 @@ export interface BuildSummaryFile {
   sha256: string;
 }
 
-export interface BuildManifest {
-  generatedAt: string;
-  files: BuildSummaryFile[];
-}
-
 export interface BuildSiteResult {
   files: BuildSummaryFile[];
-  manifest?: BuildManifest;
 }
 
 export function buildSite(input: {

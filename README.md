@@ -83,9 +83,6 @@ const result = await buildSite({
   previewData,
   themePackage,
   writer,
-  options: {
-    writeManifest: true,
-  },
 });
 ```
 
@@ -100,18 +97,7 @@ Returns:
       size: 1234,
       sha256: '...'
     }
-  ],
-  manifest: {
-    generatedAt: '2026-04-02T00:00:00Z',
-    files: [
-      {
-        path: 'index.html',
-        contentType: 'text/html',
-        size: 1234,
-        sha256: '...'
-      }
-    ]
-  }
+  ]
 }
 ```
 
@@ -343,16 +329,14 @@ Supported options:
 - `generateFeed`
 - `generateRobotsTxt`
 - `reservedOutputPaths`
-- `writeManifest`
 
 Defaults:
 
 - `assetHashing: true`
 - `generateFeed: true`
 - `generateRobotsTxt: true`
-- `writeManifest: false`
 
-`reservedOutputPaths` is an internal orchestration boundary for callers that already own files in the final output tree, such as a copied public directory. Reserved files are safety-validated and participate in clean-URL alias, exact-path, and file/directory hierarchy collision checks, but Build Core does not write them or include them in `build-manifest.json`.
+`reservedOutputPaths` is an internal orchestration boundary for callers that already own files in the final output tree, such as a copied public directory. Reserved files are safety-validated and participate in clean-URL alias, exact-path, and file/directory hierarchy collision checks, but Build Core does not write them or include them in the returned file summaries.
 
 ## License
 

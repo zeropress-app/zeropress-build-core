@@ -10,7 +10,6 @@ const DEFAULT_OPTIONS = {
   assetHashing: true,
   generateFeed: true,
   generateRobotsTxt: true,
-  writeManifest: false,
 };
 
 const DEFAULT_POSTS_PER_PAGE = 10;
@@ -131,7 +130,9 @@ export async function buildSite(input) {
     await writeOutput(state.writer, state.summaries, 'robots.txt', buildRobotsTxt(state.previewData.site), 'text/plain');
   }
 
-  return finalizeBuildResult(state.writer, state.summaries, options);
+  return {
+    files: state.summaries,
+  };
 }
 
 async function createBuildState(input, options) {
@@ -197,28 +198,6 @@ function assertBuildPreviewData(previewData) {
     }
     throw new Error(`Invalid preview-data: ${message}`);
   }
-}
-
-async function finalizeBuildResult(writer, summaries, options) {
-  let manifest;
-  if (options.writeManifest) {
-    manifest = {
-      generatedAt: formatUtcIsoSeconds(new Date()),
-      files: summaries.map((file) => ({ ...file })),
-    };
-    await writeOutput(
-      writer,
-      summaries,
-      'build-manifest.json',
-      JSON.stringify(manifest, null, 2),
-      'application/json',
-    );
-  }
-
-  return {
-    files: summaries,
-    manifest,
-  };
 }
 
 async function renderRoute(state, templateName, route) {
@@ -2910,9 +2889,6 @@ function assertPlannedOutputPathsSafe(state) {
     if (shouldGenerateFeed(state)) {
       nonRoutePaths.push('feed.xml');
     }
-  }
-  if (state.options.writeManifest) {
-    nonRoutePaths.push('build-manifest.json');
   }
   nonRoutePaths.push(...normalizeReservedOutputPaths(state.options.reservedOutputPaths));
   const plannedPaths = [
