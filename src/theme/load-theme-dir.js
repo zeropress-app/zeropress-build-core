@@ -1,4 +1,7 @@
-import { validateThemeFiles } from '@zeropress/theme-validator';
+import {
+  validateThemeFiles,
+  validateThemePackageLimits,
+} from '@zeropress/theme-validator';
 
 const TEXT_FILE_EXTENSIONS = new Set(['.html', '.json', '.css', '.js', '.txt', '.svg', '.xml']);
 
@@ -7,9 +10,15 @@ export async function loadThemePackageFromDir(themeDir) {
   const path = await import('node:path');
 
   const fileMap = new Map();
-  await readThemeDir(fs, path, themeDir, themeDir, fileMap);
+  const packageState = {
+    entryCount: 0,
+    fileSizes: new Map(),
+  };
+  await readThemeDir(fs, path, themeDir, themeDir, fileMap, packageState);
 
-  const validation = await validateThemeFiles(fileMap);
+  const validation = await validateThemeFiles(fileMap, {
+    entryCount: packageState.entryCount,
+  });
   if (!validation.ok) {
     throw new Error(formatThemeValidationFailure(validation));
   }
@@ -113,17 +122,28 @@ function splitIssuePath(issuePath) {
   return { file: normalizedPath, path: '' };
 }
 
-async function readThemeDir(fs, path, rootDir, currentDir, fileMap) {
-  const entries = await fs.readdir(currentDir, { withFileTypes: true });
+async function readThemeDir(fs, path, rootDir, currentDir, fileMap, packageState) {
+  const entries = [];
+  const directory = await fs.opendir(currentDir);
+  for await (const entry of directory) {
+    packageState.entryCount += 1;
+    assertThemePackageLimits(packageState);
+    entries.push(entry);
+  }
+  entries.sort((left, right) => left.name.localeCompare(right.name, 'en'));
 
   for (const entry of entries) {
     const fullPath = path.join(currentDir, entry.name);
     const relativePath = path.relative(rootDir, fullPath).replace(/\\/g, '/');
 
     if (entry.isDirectory()) {
-      await readThemeDir(fs, path, rootDir, fullPath, fileMap);
+      await readThemeDir(fs, path, rootDir, fullPath, fileMap, packageState);
       continue;
     }
+
+    const stat = await fs.stat(fullPath);
+    packageState.fileSizes.set(relativePath, stat.size);
+    assertThemePackageLimits(packageState);
 
     const ext = path.extname(entry.name).toLowerCase();
     if (TEXT_FILE_EXTENSIONS.has(ext)) {
@@ -132,6 +152,20 @@ async function readThemeDir(fs, path, rootDir, currentDir, fileMap) {
       fileMap.set(relativePath, new Uint8Array(await fs.readFile(fullPath)));
     }
   }
+}
+
+function assertThemePackageLimits(packageState) {
+  const errors = validateThemePackageLimits(packageState.fileSizes, {
+    entryCount: packageState.entryCount,
+  });
+  if (errors.length === 0) {
+    return;
+  }
+
+  throw new Error(formatThemeValidationFailure({
+    errors,
+    checkedFiles: packageState.fileSizes.size,
+  }));
 }
 
 function toUint8Array(value) {

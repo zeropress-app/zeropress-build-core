@@ -10,6 +10,7 @@ import { ControlFlowRenderer } from '../src/render/control-flow-renderer.js';
 import { renderDocument } from '../src/render/content-renderer.js';
 import { VariableResolver } from '../src/render/variable-resolver.js';
 import { loadThemePackageFromDir } from '../src/theme/load-theme-dir.js';
+import { THEME_PACKAGE_LIMITS } from '@zeropress/theme-validator';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const fixturesDir = path.join(__dirname, 'fixtures');
@@ -1570,6 +1571,59 @@ test('loadThemePackageFromDir preserves theme capability metadata for internal f
     comments: true,
     search: true,
   });
+});
+
+test('loadThemePackageFromDir rejects oversized files before reading theme contents', async () => {
+  const themeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-theme-limit-'));
+
+  try {
+    await fs.cp(goldenThemeDir, themeDir, { recursive: true });
+    await fs.writeFile(
+      path.join(themeDir, 'assets', 'oversized.bin'),
+      Buffer.alloc(THEME_PACKAGE_LIMITS.maxFileBytes + 1),
+    );
+
+    await assert.rejects(
+      loadThemePackageFromDir(themeDir),
+      /Theme validation failed[\s\S]*ERROR THEME_FILE_TOO_LARGE/,
+    );
+  } finally {
+    await fs.rm(themeDir, { recursive: true, force: true });
+  }
+});
+
+test('loadThemePackageFromDir stops directory traversal at the entry limit', async () => {
+  const themeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-entry-limit-'));
+
+  try {
+    await fs.cp(goldenThemeDir, themeDir, { recursive: true });
+    for (let index = 0; index < THEME_PACKAGE_LIMITS.maxEntries; index += 1) {
+      await fs.writeFile(path.join(themeDir, `extra-${index}.txt`), 'fixture');
+    }
+
+    await assert.rejects(
+      loadThemePackageFromDir(themeDir),
+      /Theme validation failed[\s\S]*ERROR THEME_PACKAGE_TOO_MANY_ENTRIES/,
+    );
+  } finally {
+    await fs.rm(themeDir, { recursive: true, force: true });
+  }
+});
+
+test('buildSite rejects oversized in-memory theme assets before writing output', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.assets.set(
+    'oversized.bin',
+    new Uint8Array(THEME_PACKAGE_LIMITS.maxFileBytes + 1),
+  );
+
+  await assert.rejects(
+    buildSite({ previewData, themePackage, writer }),
+    /Theme validation failed[\s\S]*ERROR THEME_FILE_TOO_LARGE/,
+  );
+  assert.deepEqual(writer.getFiles(), []);
 });
 
 test('buildSite rejects v0.6 theme packages before writing output', async () => {

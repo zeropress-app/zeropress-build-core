@@ -165,6 +165,8 @@ Theme validation is enforced through:
 
 `buildSiteFromThemeDir()` is the convenience entry point that loads a theme directory and converts it into the required in-memory `themePackage`.
 
+Theme packages use fixed safety limits shared with `@zeropress/theme-validator`: at most 128 entries, 1 MiB per file, and 4 MiB in total expanded content. `buildSiteFromThemeDir()` checks filesystem sizes before reading file bodies, while `buildSite()` validates the same limits for an already-loaded in-memory package. Packaged ZIP input is handled by `@zeropress/theme`, which additionally limits the archive itself to 2 MiB.
+
 JavaScript theme assets are emitted as provided. Build-core may hash output filenames, but it does not rewrite or minify JavaScript content.
 
 User-defined scalar metadata under `site.meta`, `post.meta`, `page.meta`, and item `meta` is always HTML-escaped during template interpolation. Names ending in `_html` or `_url` do not opt metadata into raw rendering; use the explicit content and custom HTML contracts for trusted raw markup.
