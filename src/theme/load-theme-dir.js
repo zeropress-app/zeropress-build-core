@@ -7,17 +7,39 @@ const TEXT_FILE_EXTENSIONS = new Set(['.html', '.json', '.css', '.js', '.txt', '
 
 export async function loadThemePackageFromDir(themeDir) {
   const fs = await import('node:fs/promises');
+  const { constants: fsConstants } = await import('node:fs');
   const path = await import('node:path');
+
+  const rootStat = await fs.lstat(themeDir);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error(`Theme directory must be a real directory and must not be a symbolic link: ${themeDir}`);
+  }
+  const canonicalThemeDir = await fs.realpath(themeDir);
+  const confirmedRootStat = await fs.lstat(themeDir);
+  if (confirmedRootStat.isSymbolicLink() || !confirmedRootStat.isDirectory()) {
+    throw new Error(`Theme directory must be a real directory and must not be a symbolic link: ${themeDir}`);
+  }
 
   const fileMap = new Map();
   const packageState = {
     entryCount: 0,
     fileSizes: new Map(),
+    pathEntries: [],
+    seenCanonicalPaths: new Map(),
   };
-  await readThemeDir(fs, path, themeDir, themeDir, fileMap, packageState);
+  await readThemeDir(
+    fs,
+    fsConstants,
+    path,
+    canonicalThemeDir,
+    canonicalThemeDir,
+    fileMap,
+    packageState,
+  );
 
   const validation = await validateThemeFiles(fileMap, {
     entryCount: packageState.entryCount,
+    pathEntries: packageState.pathEntries,
   });
   if (!validation.ok) {
     throw new Error(formatThemeValidationFailure(validation));
@@ -122,7 +144,7 @@ function splitIssuePath(issuePath) {
   return { file: normalizedPath, path: '' };
 }
 
-async function readThemeDir(fs, path, rootDir, currentDir, fileMap, packageState) {
+async function readThemeDir(fs, fsConstants, path, rootDir, currentDir, fileMap, packageState) {
   const entries = [];
   const directory = await fs.opendir(currentDir);
   for await (const entry of directory) {
@@ -134,24 +156,84 @@ async function readThemeDir(fs, path, rootDir, currentDir, fileMap, packageState
 
   for (const entry of entries) {
     const fullPath = path.join(currentDir, entry.name);
-    const relativePath = path.relative(rootDir, fullPath).replace(/\\/g, '/');
+    const rawRelativePath = path.relative(rootDir, fullPath);
+    const relativePath = rawRelativePath.replace(/\\/g, '/');
+    if (entry.name.includes('\\')) {
+      throw createThemePathError(
+        'PATH_ESCAPE',
+        rawRelativePath,
+        `Backslashes are not allowed in theme package paths: ${rawRelativePath}`,
+        packageState.fileSizes.size,
+      );
+    }
+    const collisionKey = relativePath.normalize('NFC').toLowerCase();
+    const existingPath = packageState.seenCanonicalPaths.get(collisionKey);
+    if (existingPath !== undefined) {
+      throw createThemePathError(
+        'THEME_PATH_COLLISION',
+        relativePath,
+        `Theme package path collision: '${relativePath}' conflicts with '${existingPath}' after NFC and case normalization`,
+        packageState.fileSizes.size,
+      );
+    }
+    packageState.seenCanonicalPaths.set(collisionKey, relativePath);
+    const stat = await fs.lstat(fullPath);
+    const isSymlink = stat.isSymbolicLink();
+    packageState.pathEntries.push({ path: relativePath, isSymlink });
 
-    if (entry.isDirectory()) {
-      await readThemeDir(fs, path, rootDir, fullPath, fileMap, packageState);
+    if (isSymlink) {
       continue;
     }
 
-    const stat = await fs.stat(fullPath);
-    packageState.fileSizes.set(relativePath, stat.size);
-    assertThemePackageLimits(packageState);
+    if (stat.isDirectory()) {
+      await readThemeDir(fs, fsConstants, path, rootDir, fullPath, fileMap, packageState);
+      continue;
+    }
 
-    const ext = path.extname(entry.name).toLowerCase();
-    if (TEXT_FILE_EXTENSIONS.has(ext)) {
-      fileMap.set(relativePath, await fs.readFile(fullPath, 'utf8'));
-    } else {
-      fileMap.set(relativePath, new Uint8Array(await fs.readFile(fullPath)));
+    if (!stat.isFile()) {
+      continue;
+    }
+
+    const noFollow = fsConstants.O_NOFOLLOW || 0;
+    let handle;
+    try {
+      handle = await fs.open(fullPath, fsConstants.O_RDONLY | noFollow);
+      const openedStat = await handle.stat();
+      if (!openedStat.isFile()) {
+        continue;
+      }
+      packageState.fileSizes.set(relativePath, openedStat.size);
+      assertThemePackageLimits(packageState);
+
+      const ext = path.extname(entry.name).toLowerCase();
+      if (TEXT_FILE_EXTENSIONS.has(ext)) {
+        fileMap.set(relativePath, await handle.readFile('utf8'));
+      } else {
+        fileMap.set(relativePath, new Uint8Array(await handle.readFile()));
+      }
+    } catch (error) {
+      if (error?.code === 'ELOOP') {
+        packageState.pathEntries[packageState.pathEntries.length - 1].isSymlink = true;
+        continue;
+      }
+      throw error;
+    } finally {
+      await handle?.close();
     }
   }
+}
+
+function createThemePathError(code, filePath, message, checkedFiles) {
+  return new Error(formatThemeValidationFailure({
+    errors: [{
+      code,
+      path: filePath,
+      message,
+      severity: 'error',
+      category: 'theme_package_paths',
+    }],
+    checkedFiles,
+  }));
 }
 
 function assertThemePackageLimits(packageState) {

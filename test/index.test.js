@@ -508,6 +508,24 @@ test('buildSite preserves JavaScript string literal whitespace in theme assets',
   assert.match(script, /"a \+ b"/);
 });
 
+test('buildSite serves module theme assets with a JavaScript MIME type', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  themePackage.assets.set('app.mjs', new TextEncoder().encode('export default true;'));
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+    options: { assetHashing: false },
+  });
+
+  const moduleAsset = writer.getFiles().find((file) => file.path === 'assets/app.mjs');
+  assert.ok(moduleAsset);
+  assert.equal(moduleAsset.contentType, 'application/javascript');
+});
+
 test('buildSite exposes optional site.footer fields to themes', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -1604,6 +1622,124 @@ test('loadThemePackageFromDir stops directory traversal at the entry limit', asy
     await assert.rejects(
       loadThemePackageFromDir(themeDir),
       /Theme validation failed[\s\S]*ERROR THEME_PACKAGE_TOO_MANY_ENTRIES/,
+    );
+  } finally {
+    await fs.rm(themeDir, { recursive: true, force: true });
+  }
+});
+
+test('loadThemePackageFromDir rejects file, directory, and dangling symbolic links without following them', {
+  skip: process.platform === 'win32',
+}, async () => {
+  for (const kind of ['file', 'directory', 'dangling']) {
+    const themeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-symlink-'));
+    const outsideDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-outside-'));
+    try {
+      await fs.cp(goldenThemeDir, themeDir, { recursive: true });
+      const linkPath = path.join(themeDir, `linked-${kind}`);
+      if (kind === 'file') {
+        const target = path.join(outsideDir, 'secret.txt');
+        await fs.writeFile(target, 'secret');
+        await fs.symlink(target, linkPath);
+      } else if (kind === 'directory') {
+        await fs.writeFile(path.join(outsideDir, 'secret.txt'), 'secret');
+        await fs.symlink(outsideDir, linkPath);
+      } else {
+        await fs.symlink(path.join(outsideDir, 'missing.txt'), linkPath);
+      }
+
+      await assert.rejects(
+        loadThemePackageFromDir(themeDir),
+        /Theme validation failed[\s\S]*ERROR SYMLINK_NOT_ALLOWED/,
+      );
+    } finally {
+      await fs.rm(themeDir, { recursive: true, force: true });
+      await fs.rm(outsideDir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('loadThemePackageFromDir rejects a symbolic-link theme root', {
+  skip: process.platform === 'win32',
+}, async () => {
+  const parent = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-root-link-'));
+  const themeDir = path.join(parent, 'theme');
+  const aliasPath = path.join(parent, 'theme-alias');
+  await fs.cp(goldenThemeDir, themeDir, { recursive: true });
+  await fs.symlink(themeDir, aliasPath, 'dir');
+
+  try {
+    await assert.rejects(
+      loadThemePackageFromDir(aliasPath),
+      /Theme directory must be a real directory and must not be a symbolic link/,
+    );
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test('loadThemePackageFromDir accepts a theme beneath a symlinked ancestor', {
+  skip: process.platform === 'win32',
+}, async () => {
+  const canonicalTmpDir = await fs.realpath(os.tmpdir());
+  const parent = await fs.mkdtemp(path.join(canonicalTmpDir, 'zeropress-build-core-ancestor-alias-'));
+  const realRoot = path.join(parent, 'real-root');
+  const aliasRoot = path.join(parent, 'alias-root');
+  const themeDir = path.join(realRoot, 'theme');
+  await fs.cp(goldenThemeDir, themeDir, { recursive: true });
+  await fs.symlink(realRoot, aliasRoot, 'dir');
+
+  try {
+    const themePackage = await loadThemePackageFromDir(path.join(aliasRoot, 'theme'));
+    assert.equal(themePackage.metadata.runtime, '0.7');
+  } finally {
+    await fs.rm(parent, { recursive: true, force: true });
+  }
+});
+
+test('loadThemePackageFromDir accepts double-dot substrings in regular filenames', async () => {
+  const themeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-double-dot-'));
+  try {
+    await fs.cp(goldenThemeDir, themeDir, { recursive: true });
+    await fs.writeFile(path.join(themeDir, 'assets', 'name..txt'), 'safe');
+    const themePackage = await loadThemePackageFromDir(themeDir);
+    assert.equal(new TextDecoder().decode(themePackage.assets.get('name..txt')), 'safe');
+  } finally {
+    await fs.rm(themeDir, { recursive: true, force: true });
+  }
+});
+
+test('loadThemePackageFromDir rejects literal backslashes in POSIX filenames', {
+  skip: process.platform === 'win32',
+}, async () => {
+  const themeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-backslash-'));
+  try {
+    await fs.cp(goldenThemeDir, themeDir, { recursive: true });
+    await fs.writeFile(path.join(themeDir, 'assets', 'name\\variant.css'), 'unsafe');
+    await assert.rejects(
+      loadThemePackageFromDir(themeDir),
+      /Theme validation failed[\s\S]*ERROR PATH_ESCAPE[\s\S]*Backslashes are not allowed/,
+    );
+  } finally {
+    await fs.rm(themeDir, { recursive: true, force: true });
+  }
+});
+
+test('loadThemePackageFromDir rejects case-normalized path collisions', async (t) => {
+  const themeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-path-collision-'));
+  try {
+    await fs.cp(goldenThemeDir, themeDir, { recursive: true });
+    await fs.writeFile(path.join(themeDir, 'assets', 'Icon.svg'), 'first');
+    await fs.writeFile(path.join(themeDir, 'assets', 'icon.svg'), 'second');
+    const names = await fs.readdir(path.join(themeDir, 'assets'));
+    if (!names.includes('Icon.svg') || !names.includes('icon.svg')) {
+      t.skip('filesystem does not preserve case-distinct filenames');
+      return;
+    }
+
+    await assert.rejects(
+      loadThemePackageFromDir(themeDir),
+      /Theme validation failed[\s\S]*ERROR THEME_PATH_COLLISION[\s\S]*after NFC and case normalization/,
     );
   } finally {
     await fs.rm(themeDir, { recursive: true, force: true });
@@ -2857,7 +2993,7 @@ test('buildSite fails closed before FilesystemWriter can escape the output direc
         writer,
         options: { assetHashing: false },
       }),
-      /Unsafe output path detected:/,
+      /ERROR PATH_ESCAPE/,
     );
 
     await assert.rejects(fs.access(escapedPath));
@@ -3022,7 +3158,7 @@ test('buildSite rejects unsafe asset output paths before MemoryWriter records fi
         writer,
         options: { assetHashing: false },
       }),
-      /Unsafe output path detected:/,
+      /ERROR PATH_ESCAPE|Unsafe output path detected:/,
     );
     assert.equal(writer.getFiles().length, 0, `Expected no files to be recorded for ${assetPath}`);
   }
