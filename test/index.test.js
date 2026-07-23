@@ -4109,12 +4109,12 @@ test('buildSite omits comment container markup when site.comments.enabled is fal
   assert.equal(postHtml.includes('htmx.org'), false);
 });
 
-test('buildSite omits comment container markup when post.allow_comments is false', async () => {
+test('buildSite treats omitted post.allow_comments as false', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
 
-  previewData.content.posts[0].allow_comments = false;
+  delete previewData.content.posts[0].allow_comments;
   delete previewData.content.posts[0].comments;
 
   await buildSite({
@@ -4319,7 +4319,7 @@ test('buildSite never exposes item request tokens to WordPress or inactive theme
       name: 'item comments disabled',
       expectedState: 'enabled=false;provider=;',
       configure(previewData) {
-        previewData.content.posts[0].allow_comments = false;
+        delete previewData.content.posts[0].allow_comments;
       },
     },
     {
@@ -5108,7 +5108,6 @@ test('buildSite exposes markdown TOC to page and post templates', async () => {
       updated_at_iso: '2026-04-02T00:00:00Z',
       author_id: previewData.content.authors[0].id,
       status: 'published',
-      allow_comments: false,
       category_slugs: [],
       tag_slugs: [],
     },
@@ -5192,7 +5191,6 @@ test('buildSite preserves markdown task list and alert HTML for pages and posts'
       updated_at_iso: '2026-04-02T00:00:00Z',
       author_id: previewData.content.authors[0].id,
       status: 'published',
-      allow_comments: false,
       category_slugs: [],
       tag_slugs: [],
     },

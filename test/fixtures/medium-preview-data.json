@@ -36,7 +36,6 @@
         "updated_at_iso": "2026-03-01T09:00:00Z",
         "author_id": "author-ko",
         "status": "published",
-        "allow_comments": true,
         "category_slugs": [
           "디자인"
         ],
@@ -55,7 +54,6 @@
         "updated_at_iso": "2026-02-28T09:00:00Z",
         "author_id": "author-ko",
         "status": "published",
-        "allow_comments": true,
         "category_slugs": [
           "디자인"
         ],
@@ -75,7 +73,6 @@
         "updated_at_iso": "2026-02-27T09:00:00Z",
         "author_id": "author-en",
         "status": "published",
-        "allow_comments": true,
         "category_slugs": [
           "updates"
         ],
@@ -94,7 +91,6 @@
         "updated_at_iso": "2026-02-26T09:00:00Z",
         "author_id": "author-en",
         "status": "published",
-        "allow_comments": true,
         "category_slugs": [
           "디자인"
         ],

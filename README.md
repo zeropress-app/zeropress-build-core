@@ -252,6 +252,10 @@ The active state requires all of the following:
 - the post or page has `allow_comments: true` and a positive `public_id`
 - the ZeroPress provider has a non-empty item `comments.request_token`
 
+Post and Page `allow_comments` are optional Preview Data fields. Omission is
+normalized to `false`; producers should emit `true` only for items that opt in
+to comments.
+
 The theme-facing `request_token` key exists only for the `zeropress` provider. Preview-data items may retain ignored token metadata for `wordpress` or inactive comment states, but Build Core drops it. An active `wordpress` context omits that key entirely. Post/page objects, structured list items, collection items and cursors, adjacent-item summaries, search data, feeds, and non-detail route roots do not receive a copy of the item token. Themes must use the route-root `comments.enabled` discriminator.
 
 The canonical `preview-data v0.7` site contract uses:
