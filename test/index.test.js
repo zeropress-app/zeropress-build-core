@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildSite, buildSiteFromThemeDir, FilesystemWriter, MemoryWriter } from '../src/index.js';
 import { buildTargetCommentsContext } from '../src/api/build-site.js';
@@ -95,17 +96,20 @@ function getFileContent(files, outputPath) {
   return typeof file.content === 'string' ? file.content : Buffer.from(file.content).toString('utf8');
 }
 
-function normalizeFeedXml(xml) {
-  return xml.replace(
-    /<lastBuildDate>[^<]+<\/lastBuildDate>/,
-    '<lastBuildDate>__LAST_BUILD_DATE__</lastBuildDate>',
-  );
-}
-
 function normalizeBuildFilesSummary(files) {
   return JSON.stringify({
     files: files.map(({ path: filePath, contentType }) => ({ path: filePath, contentType })),
   }, null, 2);
+}
+
+function snapshotBuildFiles(files) {
+  return files.map((file) => ({
+    path: file.path,
+    contentType: file.contentType,
+    content: typeof file.content === 'string'
+      ? file.content
+      : Buffer.from(file.content).toString('base64'),
+  }));
 }
 
 function normalizeSitemapXml(xml) {
@@ -118,6 +122,10 @@ async function readGolden(relativePath) {
 
 function createAssetBuffer(source = 'body { color: red; }') {
   return Buffer.from(source, 'utf8');
+}
+
+function shortSha256(value) {
+  return createHash('sha256').update(value).digest('hex').slice(0, 8);
 }
 
 function escapeRegExp(value) {
@@ -475,7 +483,7 @@ test('buildSite matches the golden fixture for the default preview payload', asy
     ['about/index.html', getFileContent(files, 'about/index.html')],
     ['404.html', getFileContent(files, '404.html')],
     ['robots.txt', getFileContent(files, 'robots.txt')],
-    ['feed.xml', normalizeFeedXml(getFileContent(files, 'feed.xml'))],
+    ['feed.xml', getFileContent(files, 'feed.xml')],
     ['sitemap.xml', normalizeSitemapXml(getFileContent(files, 'sitemap.xml'))],
     ['build-files.summary.json', normalizeBuildFilesSummary(result.files)],
   ];
@@ -506,6 +514,22 @@ test('buildSite preserves JavaScript string literal whitespace in theme assets',
   const script = getFileContent(writer.getFiles(), 'assets/theme.js');
   assert.match(script, /rootMargin: "-40% 0px -55% 0px"/);
   assert.match(script, /"a \+ b"/);
+});
+
+test('buildSite preserves theme CSS bytes and hashes the emitted content', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  const css = '/* keep */\n.card { width: calc(100% + 10px); content: "a  b"; }\n@layer theme { .card { color: oklch(60% 0.2 30); } }\n';
+  const cssBytes = Buffer.from(css);
+  themePackage.assets.set('complex.css', cssBytes);
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const expectedPath = `assets/complex.${shortSha256(cssBytes)}.css`;
+  const asset = writer.getFiles().find((file) => file.path === expectedPath);
+  assert.ok(asset);
+  assert.deepEqual(Buffer.from(asset.content), cssBytes);
 });
 
 test('buildSite serves module theme assets with a JavaScript MIME type', async () => {
@@ -818,9 +842,8 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
       ],
     },
   };
-  previewData.custom_css = {
-    content: 'body { color: rgb(10, 20, 30); }',
-  };
+  const customCss = '\n/* keep custom */\nbody { width: calc(100% + 10px); content: "a  b"; }\n';
+  previewData.custom_css = { content: customCss };
 
   await buildSite({
     previewData,
@@ -833,6 +856,8 @@ test('buildSite renders widget areas and injects preview-data custom CSS assets'
   const customCssAsset = files.find((file) => /^assets\/zeropress-custom\.[a-f0-9]{8}\.css$/.test(file.path));
 
   assert.ok(customCssAsset, 'Expected a hashed custom CSS asset to be emitted');
+  assert.equal(customCssAsset.path, `assets/zeropress-custom.${shortSha256(Buffer.from(customCss))}.css`);
+  assert.equal(getFileContent(files, customCssAsset.path), customCss);
   assert.match(indexHtml, /<link rel="stylesheet" href="\/assets\/zeropress-custom\.[a-f0-9]{8}\.css">/);
   assert.match(indexHtml, /widget-card--profile/);
   assert.match(indexHtml, /src="https:\/\/media\.example\.com\/avatars\/admin\.webp"/);
@@ -1669,13 +1694,26 @@ test('loadThemePackageFromDir rejects a symbolic-link theme root', {
   await fs.symlink(themeDir, aliasPath, 'dir');
 
   try {
-    await assert.rejects(
-      loadThemePackageFromDir(aliasPath),
-      /Theme directory must be a real directory and must not be a symbolic link/,
-    );
+    for (const candidate of [aliasPath, `${aliasPath}${path.sep}`, `${aliasPath}${path.sep}.`]) {
+      await assert.rejects(
+        loadThemePackageFromDir(candidate),
+        /Theme directory must be a real directory and must not be a symbolic link/,
+      );
+    }
+    for (const candidate of [themeDir, `${themeDir}${path.sep}`, `${themeDir}${path.sep}.`]) {
+      const themePackage = await loadThemePackageFromDir(candidate);
+      assert.equal(themePackage.metadata.runtime, '0.7');
+    }
   } finally {
     await fs.rm(parent, { recursive: true, force: true });
   }
+});
+
+test('loadThemePackageFromDir rejects blank theme paths', async () => {
+  await assert.rejects(
+    loadThemePackageFromDir('  '),
+    /Theme directory must be a non-empty path/,
+  );
 });
 
 test('loadThemePackageFromDir accepts a theme beneath a symlinked ancestor', {
@@ -1778,6 +1816,43 @@ test('buildSite rejects v0.6 theme packages before writing output', async () => 
     /Theme validation failed[\s\S]*ERROR INVALID_RUNTIME_VERSION[\s\S]*Reason: theme\.json field 'runtime' must be one of: 0\.7/,
   );
   assert.deepEqual(writer.getFiles(), []);
+});
+
+test('in-memory and directory theme loading format validation issues identically', async () => {
+  const previewData = await loadDefaultPreviewData();
+  const inMemoryTheme = cloneThemePackage(await loadGoldenThemePackage());
+  inMemoryTheme.metadata.runtime = '0.6';
+  const themeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-build-core-formatting-'));
+  await fs.cp(goldenThemeDir, themeDir, { recursive: true });
+  const directoryManifest = JSON.parse(await fs.readFile(path.join(themeDir, 'theme.json'), 'utf8'));
+  directoryManifest.runtime = '0.6';
+  await fs.writeFile(path.join(themeDir, 'theme.json'), `${JSON.stringify(directoryManifest, null, 2)}\n`);
+
+  let inMemoryMessage = '';
+  let directoryMessage = '';
+  try {
+    await buildSite({
+      previewData,
+      themePackage: inMemoryTheme,
+      writer: new MemoryWriter(),
+    });
+  } catch (error) {
+    inMemoryMessage = error.message;
+  }
+  try {
+    await loadThemePackageFromDir(themeDir);
+  } catch (error) {
+    directoryMessage = error.message;
+  } finally {
+    await fs.rm(themeDir, { recursive: true, force: true });
+  }
+
+  assert.ok(inMemoryMessage);
+  assert.ok(directoryMessage);
+  assert.equal(
+    inMemoryMessage.split('\n\n').slice(1).join('\n\n'),
+    directoryMessage.split('\n\n').slice(1).join('\n\n'),
+  );
 });
 
 test('buildSiteFromThemeDir loads the golden fixture theme directory and FilesystemWriter writes files to disk', async () => {
@@ -3547,6 +3622,52 @@ test('buildSite formats +09:00 timestamps identically to Asia/Seoul for fixed +9
   assert.equal(renderedByTimezone.get('+09:00'), renderedByTimezone.get('Asia/Seoul'));
 });
 
+test('buildSite derives feed lastBuildDate from generated_at including offsets and leap seconds', async () => {
+  const cases = [
+    {
+      generatedAt: '2026-03-26T09:30:00.500+09:00',
+      expected: 'Thu, 26 Mar 2026 00:30:00 GMT',
+    },
+    {
+      generatedAt: '2026-03-26T00:30:00-04:00',
+      expected: 'Thu, 26 Mar 2026 04:30:00 GMT',
+    },
+    {
+      generatedAt: '2016-12-31T23:59:60Z',
+      expected: 'Sun, 01 Jan 2017 00:00:00 GMT',
+    },
+  ];
+
+  for (const fixture of cases) {
+    const writer = new MemoryWriter();
+    const previewData = await loadDefaultPreviewData();
+    const themePackage = await loadGoldenThemePackage();
+    previewData.generated_at = fixture.generatedAt;
+
+    await buildSite({ previewData, themePackage, writer });
+
+    assert.match(
+      getFileContent(writer.getFiles(), 'feed.xml'),
+      new RegExp(`<lastBuildDate>${escapeRegExp(fixture.expected)}<\\/lastBuildDate>`),
+    );
+  }
+});
+
+test('buildSite produces byte-identical output for the same preview data', async () => {
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+  const firstWriter = new MemoryWriter();
+  const secondWriter = new MemoryWriter();
+
+  await buildSite({ previewData, themePackage, writer: firstWriter });
+  await buildSite({ previewData, themePackage, writer: secondWriter });
+
+  assert.deepEqual(
+    snapshotBuildFiles(firstWriter.getFiles()),
+    snapshotBuildFiles(secondWriter.getFiles()),
+  );
+});
+
 test('buildSite skips sitemap.xml and feed.xml when site.url is empty', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -3979,11 +4100,12 @@ test('buildSite emits native static search artifacts and adapter results', async
   assert.deepEqual(searchItems.find((item) => item.id === 'page:about')?.headings, ['Search Heading']);
   assert.match(searchItems.find((item) => item.id === 'page:visible-page')?.content_text, /Visible text for search/);
   assert.doesNotMatch(searchItems.find((item) => item.id === 'page:visible-page')?.content_text || '', /hiddenSearchTerm|color:red/);
+  assert.match(searchJs, /const SEGMENTER_LOCALE = "en-US";/);
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'zeropress-search-adapter-'));
   await fs.writeFile(path.join(tempDir, 'package.json'), '{"type":"module"}\n');
   const adapterPath = path.join(tempDir, 'search.js');
-  await fs.writeFile(adapterPath, searchJs);
+  await fs.writeFile(adapterPath, `${searchJs}\nexport { tokenize as __testTokenize };\n`);
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
     assert.match(String(url), /search\.json$/);
@@ -3995,6 +4117,38 @@ test('buildSite emits native static search artifacts and adapter results', async
 
   try {
     const searchModule = await import(`${pathToFileURL(adapterPath).href}?t=${Date.now()}`);
+    assert.deepEqual(searchModule.__testTokenize('alpha alpha'), ['alpha', 'alpha']);
+    assert.deepEqual(searchModule.__testTokenize('서울서울 서울서울'), [
+      '서울서울', '서울', '울서',
+      '서울서울', '서울', '울서',
+    ]);
+
+    const segmenterDescriptor = Object.getOwnPropertyDescriptor(Intl, 'Segmenter');
+    try {
+      Object.defineProperty(Intl, 'Segmenter', {
+        configurable: true,
+        writable: true,
+        value: undefined,
+      });
+      assert.deepEqual(searchModule.__testTokenize('Alpha beta'), ['alpha', 'beta']);
+      Object.defineProperty(Intl, 'Segmenter', {
+        configurable: true,
+        writable: true,
+        value: class ThrowingSegmenter {
+          constructor() {
+            throw new Error('fixture failure');
+          }
+        },
+      });
+      assert.deepEqual(searchModule.__testTokenize('Gamma delta'), ['gamma', 'delta']);
+    } finally {
+      if (segmenterDescriptor) {
+        Object.defineProperty(Intl, 'Segmenter', segmenterDescriptor);
+      } else {
+        delete Intl.Segmenter;
+      }
+    }
+
     const alphaResults = await searchModule.search('alpha', { limit: 5 });
     assert.equal(alphaResults.results.length >= 2, true);
     assert.equal((await alphaResults.results[0].data()).meta.title, 'Alpha Release');
@@ -4892,6 +5046,52 @@ test('renderDocument preserves safe blank target links in markdown HTML', () => 
   assert.doesNotMatch(document.html, /bad-token/);
 });
 
+test('renderDocument parser sanitizer rejects attribute and scheme obfuscation', () => {
+  const document = renderDocument([
+    `<a href="/safe" title='x" onmouseover="alert(1)'>Safe title</a>`,
+    '<a href=" \tjava\nscript:alert(1)">Whitespace</a>',
+    '<a href="jav&#x61;script:alert(1)">Entity</a>',
+    '<a href="vbscript:msgbox(1)">VBScript</a>',
+    '<img src="data:image/svg+xml,bad" onerror="alert(1)" alt="Unsafe">',
+    '<img src="/safe.jpg" alt="Safe">',
+    '<div><broken <img src="/still-safe.jpg" onload="alert(1)"></div>',
+  ].join('\n'), 'html');
+
+  assert.match(document.html, /title="x&quot; onmouseover=&quot;alert\(1\)"/);
+  assert.doesNotMatch(document.html, /title="x"\s+onmouseover=/);
+  assert.doesNotMatch(document.html, /\sonerror=|\sonload=/);
+  assert.doesNotMatch(document.html, /href="[^"]*(?:java|vb)script:/i);
+  assert.doesNotMatch(document.html, /src="data:/i);
+  assert.match(document.html, /<img src="\/safe\.jpg" alt="Safe" \/>/);
+});
+
+test('renderDocument applies tag-specific URL schemes and rejects protocol-relative URLs', () => {
+  const document = renderDocument([
+    '<a href="/docs">Relative</a>',
+    '<a href="https://example.com/docs">HTTPS</a>',
+    '<a href="mailto:hello@example.com">Email</a>',
+    '<a href="tel:+821012345678">Phone</a>',
+    '<a href="//example.com/docs">Protocol relative link</a>',
+    '<img src="/image.jpg" alt="Relative image">',
+    '<img src="https://example.com/image.jpg" alt="HTTPS image">',
+    '<img src="mailto:hello@example.com" alt="Invalid image">',
+    '<iframe src="/embed"></iframe>',
+    '<iframe src="https://example.com/embed"></iframe>',
+    '<iframe src="//example.com/embed"></iframe>',
+  ].join('\n'), 'html');
+
+  assert.match(document.html, /href="\/docs"/);
+  assert.match(document.html, /href="https:\/\/example\.com\/docs"/);
+  assert.match(document.html, /href="mailto:hello@example\.com"/);
+  assert.match(document.html, /href="tel:\+821012345678"/);
+  assert.match(document.html, /src="\/image\.jpg"/);
+  assert.match(document.html, /src="https:\/\/example\.com\/image\.jpg"/);
+  assert.match(document.html, /<iframe src="\/embed"><\/iframe>/);
+  assert.match(document.html, /<iframe src="https:\/\/example\.com\/embed"><\/iframe>/);
+  assert.doesNotMatch(document.html, /(?:href|src)="\/\//);
+  assert.doesNotMatch(document.html, /src="mailto:/);
+});
+
 test('renderDocument preserves safe semantic media HTML in markdown', () => {
   const document = renderDocument([
     '<figure class="gallery-item" onclick="alert(1)">',
@@ -4918,7 +5118,7 @@ test('renderDocument preserves safe iframe title in markdown', () => {
     'markdown',
   );
 
-  assert.match(document.html, /<iframe src="https:\/\/www\.youtube\.com\/embed\/demo" title="YouTube video player" width="560" height="315" frameborder="0" allowfullscreen=""><\/iframe>/);
+  assert.match(document.html, /<iframe src="https:\/\/www\.youtube\.com\/embed\/demo" title="YouTube video player" width="560" height="315" frameborder="0" allowfullscreen><\/iframe>/);
 });
 
 test('renderDocument preserves safe native media HTML in markdown', () => {
@@ -4932,11 +5132,11 @@ test('renderDocument preserves safe native media HTML in markdown', () => {
     '</audio>',
   ].join('\n'), 'markdown');
 
-  assert.match(document.html, /<video controls="" controlslist="nofullscreen nodownload" autoplay="" loop="" muted="" playsinline="" poster="\/media\/demo\.jpg" preload="metadata" width="640" height="360" title="Demo">/);
+  assert.match(document.html, /<video controls controlslist="nofullscreen nodownload" autoplay loop muted playsinline poster="\/media\/demo\.jpg" preload="metadata" width="640" height="360" title="Demo">/);
   assert.match(document.html, /<source src="\/media\/demo\.mp4" type="video\/mp4" \/>/);
-  assert.match(document.html, /<track src="\/media\/demo-en\.vtt" kind="captions" srclang="en" label="English" default="" \/>/);
+  assert.match(document.html, /<track src="\/media\/demo-en\.vtt" kind="captions" srclang="en" label="English" default \/>/);
   assert.match(document.html, /<\/video>/);
-  assert.match(document.html, /<audio controls="" controlslist="nodownload noremoteplayback" preload="none" title="Audio demo">/);
+  assert.match(document.html, /<audio controls controlslist="nodownload noremoteplayback" preload="none" title="Audio demo">/);
   assert.match(document.html, /<source src="\/media\/demo\.mp3" type="audio\/mpeg" \/>/);
   assert.match(document.html, /<\/audio>/);
   assert.doesNotMatch(document.html, /onclick/);
@@ -4953,10 +5153,10 @@ test('renderDocument removes unsafe native media URLs in markdown', () => {
     '<audio src="javascript:alert(1)" controls controlsList="badtoken"></audio>',
   ].join('\n'), 'markdown');
 
-  assert.match(document.html, /<video controls="">/);
+  assert.match(document.html, /<video controls>/);
   assert.match(document.html, /<source type="video\/mp4" \/>/);
   assert.match(document.html, /<track kind="captions" \/>/);
-  assert.match(document.html, /<audio controls=""><\/audio>/);
+  assert.match(document.html, /<audio controls><\/audio>/);
   assert.doesNotMatch(document.html, /javascript:alert/);
   assert.doesNotMatch(document.html, /poster=/);
   assert.doesNotMatch(document.html, /controlslist/);
@@ -4975,6 +5175,26 @@ test('renderDocument removes unsafe srcset candidates from semantic media HTML',
   assert.doesNotMatch(document.html, /javascript:alert/);
 });
 
+test('renderDocument preserves only safe srcset candidates', () => {
+  const document = renderDocument(
+    '<img src="/fallback.jpg" srcset="/safe.jpg 1x, javascript:alert(1) 2x, https://example.com/safe.jpg 3x" alt="Safe">',
+    'html',
+  );
+
+  assert.match(document.html, /srcset="\/safe\.jpg 1x, https:\/\/example\.com\/safe\.jpg 3x"/);
+  assert.doesNotMatch(document.html, /javascript:/);
+});
+
+test('renderDocument removes non-checkbox input elements', () => {
+  const document = renderDocument([
+    '<input type="text" value="not allowed">',
+    '<input type="checkbox" checked disabled aria-label="Allowed">',
+  ].join(''), 'html');
+
+  assert.doesNotMatch(document.html, /type="text"/);
+  assert.match(document.html, /<input type="checkbox" checked disabled aria-label="Allowed" \/>/);
+});
+
 test('renderDocument renders GFM-compatible task lists', () => {
   const document = renderDocument([
     '- [x] Done',
@@ -4982,8 +5202,8 @@ test('renderDocument renders GFM-compatible task lists', () => {
   ].join('\n'), 'markdown');
 
   assert.match(document.html, /<ul class="contains-task-list">/);
-  assert.match(document.html, /<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" checked="" disabled="" aria-label="Completed task" \/> Done<\/li>/);
-  assert.match(document.html, /<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" disabled="" aria-label="Incomplete task" \/> Todo<\/li>/);
+  assert.match(document.html, /<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" checked disabled aria-label="Completed task" \/> Done<\/li>/);
+  assert.match(document.html, /<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" disabled aria-label="Incomplete task" \/> Todo<\/li>/);
   assert.doesNotMatch(document.html, /\[x\]/);
   assert.doesNotMatch(document.html, /\[ \]/);
 });
@@ -5361,13 +5581,13 @@ test('buildSite preserves markdown task list and alert HTML for pages and posts'
   const pageHtml = getFileContent(files, 'markdown-compat-page/index.html');
 
   assert.match(postHtml, /<ul class="contains-task-list">/);
-  assert.match(postHtml, /<input class="task-list-item-checkbox" type="checkbox" checked="" disabled="" aria-label="Completed task" \/>/);
+  assert.match(postHtml, /<input class="task-list-item-checkbox" type="checkbox" checked disabled aria-label="Completed task" \/>/);
   assert.match(postHtml, /<aside class="zp-alert zp-alert--warning" role="note">/);
   assert.match(postHtml, /<p class="zp-alert__title">Warning<\/p>/);
   assert.doesNotMatch(postHtml, /\[!WARNING\]/);
 
   assert.match(pageHtml, /<ul class="contains-task-list">/);
-  assert.match(pageHtml, /<input class="task-list-item-checkbox" type="checkbox" disabled="" aria-label="Incomplete task" \/>/);
+  assert.match(pageHtml, /<input class="task-list-item-checkbox" type="checkbox" disabled aria-label="Incomplete task" \/>/);
   assert.match(pageHtml, /<aside class="zp-alert zp-alert--tip" role="note">/);
   assert.match(pageHtml, /<p class="zp-alert__title">Tip<\/p>/);
   assert.doesNotMatch(pageHtml, /\[!TIP\]/);
@@ -5746,6 +5966,6 @@ test('buildSite preserves dollar replacement tokens inside content slot HTML', a
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/replacement-tokens/index.html');
   assert.match(postHtml, /&lt;FilesMatch \\.php\$&gt;/);
-  assert.match(postHtml, /\$&quot;/);
+  assert.match(postHtml, /<span class="hljs-string">"\$"<\/span>/);
   assert.doesNotMatch(postHtml, /ZEROPRESS_CONTENT_SLOT/);
 });

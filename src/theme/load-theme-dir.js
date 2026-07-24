@@ -2,6 +2,7 @@ import {
   validateThemeFiles,
   validateThemePackageLimits,
 } from '@zeropress/theme-validator';
+import { formatThemeValidationFailure } from './format-theme-validation.js';
 
 const TEXT_FILE_EXTENSIONS = new Set(['.html', '.json', '.css', '.js', '.txt', '.svg', '.xml']);
 
@@ -9,15 +10,19 @@ export async function loadThemePackageFromDir(themeDir) {
   const fs = await import('node:fs/promises');
   const { constants: fsConstants } = await import('node:fs');
   const path = await import('node:path');
-
-  const rootStat = await fs.lstat(themeDir);
-  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
-    throw new Error(`Theme directory must be a real directory and must not be a symbolic link: ${themeDir}`);
+  if (typeof themeDir !== 'string' || !themeDir.trim()) {
+    throw new Error('Theme directory must be a non-empty path');
   }
-  const canonicalThemeDir = await fs.realpath(themeDir);
-  const confirmedRootStat = await fs.lstat(themeDir);
+  const requestedThemeDir = path.resolve(themeDir);
+
+  const rootStat = await fs.lstat(requestedThemeDir);
+  if (rootStat.isSymbolicLink() || !rootStat.isDirectory()) {
+    throw new Error(`Theme directory must be a real directory and must not be a symbolic link: ${requestedThemeDir}`);
+  }
+  const canonicalThemeDir = await fs.realpath(requestedThemeDir);
+  const confirmedRootStat = await fs.lstat(requestedThemeDir);
   if (confirmedRootStat.isSymbolicLink() || !confirmedRootStat.isDirectory()) {
-    throw new Error(`Theme directory must be a real directory and must not be a symbolic link: ${themeDir}`);
+    throw new Error(`Theme directory must be a real directory and must not be a symbolic link: ${requestedThemeDir}`);
   }
 
   const fileMap = new Map();
@@ -87,61 +92,6 @@ export async function loadThemePackageFromDir(themeDir) {
     partials,
     assets,
   };
-}
-
-function formatThemeValidationFailure(validation) {
-  const blocks = [
-    [
-      'Theme validation failed',
-      `Errors: ${validation.errors.length}`,
-      `Checked files: ${validation.checkedFiles}`,
-    ].join('\n'),
-    ...validation.errors.map((issue) => formatThemeValidationIssue(issue)),
-  ];
-  return blocks.join('\n\n');
-}
-
-function formatThemeValidationIssue(issue) {
-  if (!issue) {
-    return 'Reason: Unknown error';
-  }
-
-  const lines = [`ERROR ${issue.code || 'THEME_VALIDATION_ERROR'}`];
-  const location = splitIssuePath(issue.path);
-  if (location.file) {
-    lines.push(`File: ${location.file}`);
-  }
-  if (location.path) {
-    lines.push(`Path: ${location.path}`);
-  }
-  if (Number.isInteger(issue.line) && Number.isInteger(issue.column)) {
-    lines.push(`Line: ${issue.line}, Column: ${issue.column}`);
-  }
-  if (issue.category) {
-    lines.push(`Category: ${issue.category}`);
-  }
-  lines.push(`Reason: ${issue.message || 'Unknown error'}`);
-  if (issue.snippet) {
-    const lineLabel = Number.isInteger(issue.line) ? String(issue.line) : '';
-    lines.push('', `${lineLabel} | ${issue.snippet.line}`, `${' '.repeat(lineLabel.length)} | ${issue.snippet.pointer}`);
-  }
-  if (issue.hint) {
-    lines.push('', 'Hint:', issue.hint);
-  }
-
-  return lines.join('\n');
-}
-
-function splitIssuePath(issuePath) {
-  const normalizedPath = String(issuePath || '');
-  if (normalizedPath.startsWith('theme.json.')) {
-    return {
-      file: 'theme.json',
-      path: normalizedPath.slice('theme.json.'.length),
-    };
-  }
-
-  return { file: normalizedPath, path: '' };
 }
 
 async function readThemeDir(fs, fsConstants, path, rootDir, currentDir, fileMap, packageState) {

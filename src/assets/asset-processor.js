@@ -1,19 +1,6 @@
 import { createHash } from 'node:crypto';
 
 export class AssetProcessor {
-  async processCSS(css) {
-    return css
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/\s+/g, ' ')
-      .replace(/\s*([{}:;,>+~])\s*/g, '$1')
-      .replace(/;}/g, '}')
-      .trim();
-  }
-
-  async processJavaScript(js) {
-    return js;
-  }
-
   generateAssetHash(content) {
     const hash = createHash('sha256');
     hash.update(content);

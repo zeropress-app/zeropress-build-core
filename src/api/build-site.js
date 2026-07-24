@@ -4,6 +4,7 @@ import { isSafeSlugSegment, normalizeStoredSlug } from '@zeropress/slug-policy';
 import { validateThemeFiles } from '@zeropress/theme-validator';
 import { AssetProcessor } from '../assets/asset-processor.js';
 import { renderDocument, renderDocumentContent } from '../render/content-renderer.js';
+import { formatThemeValidationFailure } from '../theme/format-theme-validation.js';
 import { ZeroPressEngine } from '../render/zeropress-engine.js';
 
 const DEFAULT_OPTIONS = {
@@ -64,6 +65,7 @@ const SEARCH_FIELD_WEIGHTS = Object.freeze({
   content_text: 1,
 });
 const SEARCH_RECENCY_BOOST_MAX = 0.15;
+const RFC3339_TIMESTAMP_PATTERN = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:)(60|[0-5]\d)(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 export async function buildSite(input) {
   const options = { ...DEFAULT_OPTIONS, ...(input.options || {}) };
   const state = await createBuildState(input, options);
@@ -109,7 +111,7 @@ export async function buildSite(input) {
 
   if (shouldGenerateSearchArtifacts(state)) {
     await writeOutput(state.writer, state.summaries, SEARCH_INDEX_OUTPUT_PATH, buildSearchIndexJson(state), 'application/json');
-    await writeOutput(state.writer, state.summaries, SEARCH_ADAPTER_OUTPUT_PATH, buildSearchAdapterJs(), 'application/javascript');
+    await writeOutput(state.writer, state.summaries, SEARCH_ADAPTER_OUTPUT_PATH, buildSearchAdapterJs(state.previewData.site.locale), 'application/javascript');
     await writeOutput(state.writer, state.summaries, SEARCH_PAGEFIND_ADAPTER_OUTPUT_PATH, buildSearchPagefindAdapterJs(), 'application/javascript');
   }
 
@@ -119,11 +121,11 @@ export async function buildSite(input) {
       state.writer,
       state.summaries,
       'sitemap.xml',
-      buildSitemapXml(state.previewData.site, state.emitted, state.generatedAt, options.sitemapStylesheetHref),
+      buildSitemapXml(state.previewData.site, state.emitted, options.sitemapStylesheetHref),
       'application/xml',
     );
     if (shouldGenerateFeed(state)) {
-      await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.generatedAt), 'application/rss+xml');
+      await writeOutput(state.writer, state.summaries, 'feed.xml', buildFeedXml(state.previewData.site, state.emitted, state.feedGeneratedAt), 'application/rss+xml');
     }
   }
   if (shouldGenerateRobotsTxt(options)) {
@@ -151,8 +153,8 @@ async function createBuildState(input, options) {
 
   engine.initialize(themePackage);
 
-  const assetOutputs = await buildAssetOutputs(themePackage.assets, assetProcessor, options);
-  const customCssAsset = await buildCustomCssAsset(previewData.custom_css, assetProcessor, options);
+  const assetOutputs = buildAssetOutputs(themePackage.assets, assetProcessor, options);
+  const customCssAsset = buildCustomCssAsset(previewData.custom_css, assetProcessor, options);
   if (customCssAsset) {
     assetOutputs.push(customCssAsset);
   }
@@ -175,7 +177,7 @@ async function createBuildState(input, options) {
     favicon: previewData.site.favicon,
     exposeGenerator: previewData.site.expose_generator !== false,
     options,
-    generatedAt: new Date(),
+    feedGeneratedAt: toDate(previewData.generated_at),
     emitted: {
       frontPage: null,
       indexRoutes: [],
@@ -775,8 +777,8 @@ function normalizeWidgetItem(item, media_origin) {
 }
 
 function normalizeCustomCss(customCss) {
-  const content = normalizeOptionalString(customCss?.content);
-  return content ? { content } : undefined;
+  const content = customCss?.content;
+  return typeof content === 'string' && content.trim() ? { content } : undefined;
 }
 
 function normalizeCustomHtml(customHtml) {
@@ -2248,61 +2250,6 @@ async function normalizeAndValidateThemePackage(themePackage) {
   };
 }
 
-function formatThemeValidationFailure(validation) {
-  const blocks = [
-    [
-      'Theme validation failed',
-      `Errors: ${validation.errors.length}`,
-      `Checked files: ${validation.checkedFiles}`,
-    ].join('\n'),
-    ...validation.errors.map((issue) => formatThemeValidationIssue(issue)),
-  ];
-  return blocks.join('\n\n');
-}
-
-function formatThemeValidationIssue(issue) {
-  if (!issue) {
-    return 'Reason: Unknown error';
-  }
-
-  const lines = [`ERROR ${issue.code || 'THEME_VALIDATION_ERROR'}`];
-  const location = splitIssuePath(issue.path);
-  if (location.file) {
-    lines.push(`File: ${location.file}`);
-  }
-  if (location.path) {
-    lines.push(`Path: ${location.path}`);
-  }
-  if (Number.isInteger(issue.line) && Number.isInteger(issue.column)) {
-    lines.push(`Line: ${issue.line}, Column: ${issue.column}`);
-  }
-  if (issue.category) {
-    lines.push(`Category: ${issue.category}`);
-  }
-  lines.push(`Reason: ${issue.message || 'Unknown error'}`);
-  if (issue.snippet) {
-    const lineLabel = Number.isInteger(issue.line) ? String(issue.line) : '';
-    lines.push('', `${lineLabel} | ${issue.snippet.line}`, `${' '.repeat(lineLabel.length)} | ${issue.snippet.pointer}`);
-  }
-  if (issue.hint) {
-    lines.push('', 'Hint:', issue.hint);
-  }
-
-  return lines.join('\n');
-}
-
-function splitIssuePath(issuePath) {
-  const normalizedPath = String(issuePath || '');
-  if (normalizedPath.startsWith('theme.json.')) {
-    return {
-      file: 'theme.json',
-      path: normalizedPath.slice('theme.json.'.length),
-    };
-  }
-
-  return { file: normalizedPath, path: '' };
-}
-
 function normalizeThemePackageMetadata(sourceMetadata, manifest) {
   return {
     ...manifest,
@@ -2310,50 +2257,37 @@ function normalizeThemePackageMetadata(sourceMetadata, manifest) {
   };
 }
 
-async function buildAssetOutputs(assets, assetProcessor, options) {
+function buildAssetOutputs(assets, assetProcessor, options) {
   const outputs = [];
 
   for (const [assetPath, content] of assets.entries()) {
-    const ext = assetPath.split('.').pop()?.toLowerCase();
-    let processedContent = content;
-    let contentType = getContentType(assetPath);
-
-    if (ext === 'css') {
-      processedContent = await assetProcessor.processCSS(new TextDecoder().decode(content));
-      contentType = 'text/css';
-    } else if (ext === 'js') {
-      processedContent = await assetProcessor.processJavaScript(new TextDecoder().decode(content));
-      contentType = 'application/javascript';
-    }
-
     const hash = options.assetHashing ? `.${assetProcessor.generateAssetHash(content)}` : '';
     const targetPath = `assets/${assetPath.replace(/(\.[^.]+)$/, `${hash}$1`)}`;
 
     outputs.push({
       originalPath: assetPath,
       path: targetPath,
-      content: processedContent,
-      contentType,
+      content,
+      contentType: getContentType(assetPath),
     });
   }
 
   return outputs;
 }
 
-async function buildCustomCssAsset(customCss, assetProcessor, options) {
-  const content = normalizeOptionalString(customCss?.content);
-  if (!content) {
+function buildCustomCssAsset(customCss, assetProcessor, options) {
+  const content = customCss?.content;
+  if (typeof content !== 'string' || !content.trim()) {
     return null;
   }
 
   const sourceBuffer = new TextEncoder().encode(content);
-  const processedContent = await assetProcessor.processCSS(content);
   const hash = options.assetHashing ? `.${assetProcessor.generateAssetHash(sourceBuffer)}` : '';
 
   return {
     originalPath: '__zeropress_custom.css',
     path: `assets/zeropress-custom${hash}.css`,
-    content: processedContent,
+    content,
     contentType: 'text/css',
   };
 }
@@ -3296,11 +3230,13 @@ function normalizeSearchText(value) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
-function buildSearchAdapterJs() {
+function buildSearchAdapterJs(locale) {
   const fieldWeightsJson = JSON.stringify(SEARCH_FIELD_WEIGHTS, null, 2);
+  const localeJson = JSON.stringify(locale);
   return `const FIELD_WEIGHTS = ${fieldWeightsJson};
 const FIELD_NAMES = Object.keys(FIELD_WEIGHTS);
 const RECENCY_BOOST_MAX = ${SEARCH_RECENCY_BOOST_MAX};
+const SEGMENTER_LOCALE = ${localeJson};
 const DEFAULT_LIMIT = 20;
 const BM25_K1 = 1.2;
 const BM25_B = 0.75;
@@ -3540,44 +3476,59 @@ function tokenize(value) {
   }
 
   const tokens = [];
+  const cjkRuns = Array.from(
+    text.matchAll(/[\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}]+/gu),
+    (match) => match[0],
+  );
+  const nonCjkText = text.replace(
+    /[\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}]+/gu,
+    ' ',
+  );
+  let segmented = false;
+
   if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
     try {
-      const segmenter = new Intl.Segmenter(undefined, { granularity: 'word' });
-      for (const part of segmenter.segment(text)) {
+      const segmenter = new Intl.Segmenter(SEGMENTER_LOCALE, { granularity: 'word' });
+      for (const part of segmenter.segment(nonCjkText)) {
         if (part.isWordLike && isUsefulToken(part.segment)) {
           tokens.push(part.segment);
         }
       }
+      segmented = true;
     } catch {
       // Fall through to regex tokenization.
     }
   }
 
-  for (const match of text.matchAll(/[\\p{Letter}\\p{Number}]+/gu)) {
-    if (isUsefulToken(match[0])) {
-      tokens.push(match[0]);
+  if (!segmented) {
+    for (const match of nonCjkText.matchAll(/[\\p{Letter}\\p{Number}]+/gu)) {
+      if (isUsefulToken(match[0])) {
+        tokens.push(match[0]);
+      }
     }
   }
 
-  for (const match of text.matchAll(/[\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}]+/gu)) {
-    tokens.push(...buildNgrams(match[0], 2));
+  for (const run of cjkRuns) {
+    tokens.push(...buildCjkTokens(run));
   }
 
   return tokens;
 }
 
-function buildNgrams(value, size) {
-  const normalized = Array.from(value);
-  if (normalized.length <= size) {
-    return isUsefulToken(value) ? [value] : [];
+function buildCjkTokens(value) {
+  const characters = Array.from(value);
+  const tokens = new Set();
+  if (isUsefulToken(value)) {
+    tokens.add(value);
   }
 
-  const tokens = [];
-  for (let index = 0; index <= normalized.length - size; index += 1) {
-    tokens.push(normalized.slice(index, index + size).join(''));
+  if (characters.length > 2) {
+    for (let index = 0; index <= characters.length - 2; index += 1) {
+      tokens.add(characters.slice(index, index + 2).join(''));
+    }
   }
-  tokens.push(value);
-  return tokens;
+
+  return Array.from(tokens);
 }
 
 function isUsefulToken(value) {
@@ -3683,7 +3634,7 @@ function normalizeLimit(value) {
 `;
 }
 
-function buildSitemapXml(site, emitted, generatedAt, stylesheetHref = '') {
+function buildSitemapXml(site, emitted, stylesheetHref = '') {
   const entries = [
     ...(emitted.frontPage && emitted.frontPage.includeInSitemap !== false
       ? [{
@@ -3732,7 +3683,7 @@ function buildSitemapXml(site, emitted, generatedAt, stylesheetHref = '') {
   return `<?xml version="1.0" encoding="UTF-8"?>${stylesheet}\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>`;
 }
 
-function buildFeedXml(site, emitted, generatedAt) {
+function buildFeedXml(site, emitted, feedGeneratedAt) {
   const channelLink = resolveSiteUrl(site.url, '/');
   const selfLink = resolveSiteUrl(site.url, '/feed.xml');
   const items = [...emitted.posts]
@@ -3744,7 +3695,7 @@ function buildFeedXml(site, emitted, generatedAt) {
     })
     .join('\n');
 
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n  <channel>\n    <title>${escapeXml(site.title)}</title>\n    <link>${escapeXml(channelLink)}</link>\n    <description>${escapeXml(site.description)}</description>\n    <language>${site.locale}</language>\n    <lastBuildDate>${generatedAt.toUTCString()}</lastBuildDate>\n    <atom:link href="${escapeXml(selfLink)}" rel="self" type="application/rss+xml" />\n${items}\n  </channel>\n</rss>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n  <channel>\n    <title>${escapeXml(site.title)}</title>\n    <link>${escapeXml(channelLink)}</link>\n    <description>${escapeXml(site.description)}</description>\n    <language>${site.locale}</language>\n    <lastBuildDate>${feedGeneratedAt.toUTCString()}</lastBuildDate>\n    <atom:link href="${escapeXml(selfLink)}" rel="self" type="application/rss+xml" />\n${items}\n  </channel>\n</rss>`;
 }
 
 function buildRobotsTxt(site) {
@@ -3831,7 +3782,33 @@ function hasCanonicalSiteUrl(siteUrl) {
 }
 
 function toDate(value) {
-  return value ? new Date(value) : new Date();
+  if (value instanceof Date) {
+    const timestamp = value.getTime();
+    if (!Number.isFinite(timestamp)) {
+      throw new Error('Invalid RFC 3339 timestamp');
+    }
+    return new Date(timestamp);
+  }
+
+  if (typeof value !== 'string' || !value) {
+    throw new Error(`Invalid RFC 3339 timestamp: ${String(value)}`);
+  }
+
+  const timestampMatch = value.match(RFC3339_TIMESTAMP_PATTERN);
+  if (!timestampMatch) {
+    throw new Error(`Invalid RFC 3339 timestamp: ${value}`);
+  }
+
+  const isLeapSecond = timestampMatch[2] === '60';
+  const parseValue = isLeapSecond
+    ? `${timestampMatch[1]}59${timestampMatch[3] || ''}${timestampMatch[4]}`
+    : value;
+  const timestamp = Date.parse(parseValue);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error(`Invalid RFC 3339 timestamp: ${value}`);
+  }
+
+  return new Date(timestamp + (isLeapSecond ? 1000 : 0));
 }
 
 function formatUtcIsoSeconds(value) {

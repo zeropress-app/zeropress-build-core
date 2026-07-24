@@ -1,6 +1,7 @@
 import MarkdownIt from 'markdown-it';
 import hljs from 'highlight.js';
 import anchor from 'markdown-it-anchor';
+import sanitizeHtmlParser from 'sanitize-html';
 
 const TOC_LEVELS = new Set([2, 3, 4]);
 const ALERT_TYPES = new Map([
@@ -19,6 +20,57 @@ const ADMONITION_CONTAINER_TYPES = new Map([
   ['CAUTION', { className: 'caution', title: 'Caution' }],
   ['DANGER', { className: 'caution', title: 'Danger' }],
 ]);
+const CONTENT_ALLOWED_TAGS = [
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+  'p', 'br', 'hr',
+  'strong', 'b', 'em', 'u', 's', 'sup', 'sub', 'code', 'pre',
+  'a', 'img',
+  'ul', 'ol', 'li',
+  'blockquote', 'aside',
+  'figure', 'figcaption', 'picture', 'source',
+  'video', 'audio', 'track',
+  'table', 'thead', 'tbody', 'tr', 'th', 'td',
+  'div', 'span', 'nav',
+  'iframe', 'input',
+];
+const CONTENT_ALLOWED_ATTRIBUTES = {
+  a: ['href', 'title', 'class', 'id', 'target', 'rel'],
+  aside: ['role', 'class', 'id'],
+  img: ['src', 'srcset', 'sizes', 'alt', 'title', 'class', 'id', 'width', 'height', 'loading', 'decoding'],
+  iframe: ['src', 'width', 'height', 'frameborder', 'allowfullscreen', 'class', 'title'],
+  input: ['type', 'checked', 'disabled', 'class', 'id', 'aria-label'],
+  source: ['src', 'srcset', 'sizes', 'type', 'media', 'width', 'height', 'class', 'id'],
+  th: ['rowspan', 'colspan', 'align', 'class', 'id'],
+  td: ['rowspan', 'colspan', 'align', 'class', 'id'],
+  video: ['src', 'controls', 'controlslist', 'autoplay', 'loop', 'muted', 'playsinline', 'poster', 'preload', 'width', 'height', 'class', 'id', 'title'],
+  audio: ['src', 'controls', 'controlslist', 'autoplay', 'loop', 'muted', 'preload', 'class', 'id', 'title'],
+  track: ['src', 'kind', 'srclang', 'label', 'default', 'class', 'id'],
+  '*': ['class', 'id'],
+};
+const CONTENT_SANITIZER_OPTIONS = {
+  allowedTags: CONTENT_ALLOWED_TAGS,
+  allowedAttributes: CONTENT_ALLOWED_ATTRIBUTES,
+  allowedSchemes: ['http', 'https'],
+  allowedSchemesByTag: {
+    a: ['http', 'https', 'mailto', 'tel'],
+  },
+  allowedSchemesAppliedToAttributes: ['href', 'src', 'poster'],
+  allowProtocolRelative: false,
+  allowIframeRelativeUrls: true,
+  parseStyleAttributes: false,
+  selfClosing: ['img', 'br', 'hr', 'input', 'source', 'track'],
+  nonTextTags: ['script', 'style', 'textarea', 'option', 'xmp'],
+  transformTags: {
+    a: transformAnchor,
+    th: transformTableCell,
+    td: transformTableCell,
+    video: transformNativeMedia,
+    audio: transformNativeMedia,
+  },
+  exclusiveFilter(frame) {
+    return frame.tag === 'input' && frame.attribs.type !== 'checkbox';
+  },
+};
 
 export function renderDocumentContent(content, documentType = 'markdown') {
   return renderDocument(content, documentType).html;
@@ -429,178 +481,68 @@ function escapeHtml(value) {
 }
 
 function sanitizeHtml(html) {
-  const allowedTags = new Set([
-    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-    'p', 'br', 'hr',
-    'strong', 'b', 'em', 'u', 's', 'sup', 'sub', 'code', 'pre',
-    'a', 'img',
-    'ul', 'ol', 'li',
-    'blockquote', 'aside',
-    'figure', 'figcaption', 'picture', 'source',
-    'video', 'audio', 'track',
-    'table', 'thead', 'tbody', 'tr', 'th', 'td',
-    'div', 'span', 'nav',
-    'iframe', 'input',
-  ]);
-
-  const allowedAttributes = {
-    a: new Set(['href', 'title', 'class', 'id', 'target', 'rel']),
-    aside: new Set(['role', 'class', 'id']),
-    img: new Set(['src', 'srcset', 'sizes', 'alt', 'title', 'class', 'id', 'width', 'height', 'loading', 'decoding']),
-    iframe: new Set(['src', 'width', 'height', 'frameborder', 'allowfullscreen', 'class', 'title']),
-    input: new Set(['type', 'checked', 'disabled', 'class', 'id', 'aria-label']),
-    source: new Set(['src', 'srcset', 'sizes', 'type', 'media', 'width', 'height', 'class', 'id']),
-    th: new Set(['rowspan', 'colspan', 'align', 'class', 'id']),
-    td: new Set(['rowspan', 'colspan', 'align', 'class', 'id']),
-    video: new Set(['src', 'controls', 'controlslist', 'autoplay', 'loop', 'muted', 'playsinline', 'poster', 'preload', 'width', 'height', 'class', 'id', 'title']),
-    audio: new Set(['src', 'controls', 'controlslist', 'autoplay', 'loop', 'muted', 'preload', 'class', 'id', 'title']),
-    track: new Set(['src', 'kind', 'srclang', 'label', 'default', 'class', 'id']),
-    '*': new Set(['class', 'id']),
-  };
-
-  const safeUriPattern = /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
-
-  const stripped = html
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
-
-  const sanitized = stripped.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b([^>]*)?\/?>/g, (match, tag, attributeString) => {
-    const normalizedTag = tag.toLowerCase();
-
-    if (match.startsWith('</')) {
-      return allowedTags.has(normalizedTag) ? `</${normalizedTag}>` : '';
-    }
-
-    if (!allowedTags.has(normalizedTag)) {
-      return '';
-    }
-
-    const tagAllowedAttributes = allowedAttributes[normalizedTag] || new Set();
-    const globalAllowedAttributes = allowedAttributes['*'];
-    const filteredAttributes = [];
-    let anchorTarget = '';
-    let anchorRel = '';
-    let tableCellAlignClass = '';
-
-    if (attributeString) {
-      const attributePattern = /([a-zA-Z][a-zA-Z0-9-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|(\S+)))?/g;
-      let attributeMatch;
-
-      while ((attributeMatch = attributePattern.exec(attributeString)) !== null) {
-        const attributeName = attributeMatch[1].toLowerCase();
-        const attributeValue = attributeMatch[2] ?? attributeMatch[3] ?? attributeMatch[4] ?? '';
-
-        if (!tagAllowedAttributes.has(attributeName) && !globalAllowedAttributes.has(attributeName)) {
-          continue;
-        }
-
-        if ((attributeName === 'href' || attributeName === 'src' || attributeName === 'poster') && !safeUriPattern.test(attributeValue)) {
-          continue;
-        }
-
-        if (normalizedTag === 'a' && attributeName === 'target') {
-          const target = sanitizeAnchorTarget(attributeValue);
-          if (!target) {
-            continue;
-          }
-          anchorTarget = target;
-          continue;
-        }
-
-        if (normalizedTag === 'a' && attributeName === 'rel') {
-          const rel = sanitizeRelList(attributeValue);
-          if (!rel) {
-            continue;
-          }
-          anchorRel = rel;
-          continue;
-        }
-
-        if (attributeName === 'srcset' && !isSafeSrcset(attributeValue, safeUriPattern)) {
-          continue;
-        }
-
-        if (attributeName === 'controlslist') {
-          const controlsList = sanitizeControlsList(attributeValue);
-          if (!controlsList) {
-            continue;
-          }
-          filteredAttributes.push(`${attributeName}="${controlsList}"`);
-          continue;
-        }
-
-        if ((normalizedTag === 'th' || normalizedTag === 'td') && (attributeName === 'rowspan' || attributeName === 'colspan')) {
-          const span = sanitizePositiveIntegerAttribute(attributeValue);
-          if (!span) {
-            continue;
-          }
-          filteredAttributes.push(`${attributeName}="${span}"`);
-          continue;
-        }
-
-        if ((normalizedTag === 'th' || normalizedTag === 'td') && attributeName === 'align') {
-          const alignment = sanitizeTableAlignment(attributeValue);
-          if (!alignment) {
-            continue;
-          }
-          tableCellAlignClass = `zp-align-${alignment}`;
-          continue;
-        }
-
-        if (normalizedTag === 'input' && attributeName === 'type' && attributeValue !== 'checkbox') {
-          continue;
-        }
-
-        filteredAttributes.push(`${attributeName}="${attributeValue}"`);
-      }
-    }
-
-    if (tableCellAlignClass) {
-      appendClassAttribute(filteredAttributes, tableCellAlignClass);
-    }
-
-    if (normalizedTag === 'a') {
-      if (anchorTarget) {
-        filteredAttributes.push(`target="${anchorTarget}"`);
-      }
-      if (anchorTarget === '_blank') {
-        anchorRel = ensureBlankTargetRel(anchorRel);
-      }
-      if (anchorRel) {
-        filteredAttributes.push(`rel="${anchorRel}"`);
-      }
-    }
-
-    const isSelfClosing = match.endsWith('/>') || normalizedTag === 'br' || normalizedTag === 'hr' || normalizedTag === 'img' || normalizedTag === 'input' || normalizedTag === 'source' || normalizedTag === 'track';
-    const attributeSuffix = filteredAttributes.length > 0 ? ` ${filteredAttributes.join(' ')}` : '';
-    return isSelfClosing ? `<${normalizedTag}${attributeSuffix} />` : `<${normalizedTag}${attributeSuffix}>`;
-  });
-
-  return sanitized
-    .split(/(<[^>]+>)/g)
-    .map((part) => {
-      if (part.startsWith('<') && part.endsWith('>')) {
-        return part;
-      }
-
-      return part.replace(/&(?!(?:[a-zA-Z]+|#\d+|#x[0-9a-fA-F]+);)/g, '&amp;');
-    })
-    .join('');
+  return sanitizeHtmlParser(html, CONTENT_SANITIZER_OPTIONS);
 }
 
-function appendClassAttribute(attributes, className) {
-  const classIndex = attributes.findIndex((attribute) => attribute.startsWith('class="'));
-  if (classIndex === -1) {
-    attributes.push(`class="${className}"`);
-    return;
+function transformAnchor(tagName, attributes) {
+  const transformed = { ...attributes };
+  const target = sanitizeAnchorTarget(transformed.target);
+  const rel = sanitizeRelList(transformed.rel);
+
+  if (target) {
+    transformed.target = target;
+  } else {
+    delete transformed.target;
   }
 
-  const existingValue = attributes[classIndex].slice('class="'.length, -1);
-  const classes = existingValue.split(/\s+/).filter(Boolean);
+  const safeRel = target === '_blank' ? ensureBlankTargetRel(rel) : rel;
+  if (safeRel) {
+    transformed.rel = safeRel;
+  } else {
+    delete transformed.rel;
+  }
+
+  return { tagName, attribs: transformed };
+}
+
+function transformTableCell(tagName, attributes) {
+  const transformed = { ...attributes };
+
+  for (const attributeName of ['rowspan', 'colspan']) {
+    const value = sanitizePositiveIntegerAttribute(transformed[attributeName]);
+    if (value) {
+      transformed[attributeName] = value;
+    } else {
+      delete transformed[attributeName];
+    }
+  }
+
+  const alignment = sanitizeTableAlignment(transformed.align);
+  delete transformed.align;
+  if (alignment) {
+    transformed.class = appendClassName(transformed.class, `zp-align-${alignment}`);
+  }
+
+  return { tagName, attribs: transformed };
+}
+
+function transformNativeMedia(tagName, attributes) {
+  const transformed = { ...attributes };
+  const controlsList = sanitizeControlsList(transformed.controlslist);
+  if (controlsList) {
+    transformed.controlslist = controlsList;
+  } else {
+    delete transformed.controlslist;
+  }
+  return { tagName, attribs: transformed };
+}
+
+function appendClassName(value, className) {
+  const classes = String(value || '').split(/\s+/).filter(Boolean);
   if (!classes.includes(className)) {
     classes.push(className);
   }
-  attributes[classIndex] = `class="${classes.join(' ')}"`;
+  return classes.join(' ');
 }
 
 function sanitizePositiveIntegerAttribute(value) {
@@ -666,18 +608,6 @@ function sanitizeControlsList(value) {
     ));
 
   return tokens.join(' ');
-}
-
-function isSafeSrcset(value, safeUriPattern) {
-  const candidates = String(value)
-    .split(',')
-    .map((candidate) => candidate.trim())
-    .filter(Boolean);
-
-  return candidates.length > 0 && candidates.every((candidate) => {
-    const [url] = candidate.split(/\s+/);
-    return Boolean(url) && safeUriPattern.test(url);
-  });
 }
 
 function slugify(value) {
