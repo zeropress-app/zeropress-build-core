@@ -3779,6 +3779,7 @@ function getContentType(assetPath) {
     html: 'text/html',
     css: 'text/css',
     js: 'application/javascript',
+    mjs: 'application/javascript',
     json: 'application/json',
     xml: 'application/xml',
     txt: 'text/plain',
