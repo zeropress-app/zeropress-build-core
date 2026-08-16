@@ -2046,6 +2046,101 @@ test('buildSite runtime 0.7 exposes structured posts, archive groups, and pagina
   assert.match(archiveHtml, /<a class="archive-post" href="\/posts\/hello-zeropress\/">Hello ZeroPress<\/a><time datetime="2026-02-14T09:00:00Z">Feb 14, 2026<\/time>/);
 });
 
+test('buildSite derives one effective summary and exposes it across detail and structured contexts', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  const authoredSummary = 'A'.repeat(200);
+  const longPlaintext = '한'.repeat(158) + '😀😀X';
+  const truncatedPlaintext = '한'.repeat(158) + '😀…';
+
+  previewData.content.posts[0].excerpt = '';
+  previewData.content.posts[0].content = [
+    '<!-- hidden comment -->',
+    '<script>hidden script</script>',
+    '<style>hidden style</style>',
+    '<template>hidden template</template>',
+    '<noscript>hidden fallback</noscript>',
+    '<section><h1>Hello ZeroPress</h1>',
+    '<p>Visible&nbsp;<strong>summary</strong>, &copy; &amp; 😀.</p></section>',
+  ].join('');
+  previewData.content.posts[1].excerpt = '   ';
+  previewData.content.posts[1].document_type = 'markdown';
+  previewData.content.posts[1].content = '# Theme Blocks Deep Dive\n\nMarkdown   summary.';
+  previewData.content.posts[2].excerpt = '  ' + authoredSummary + '  ';
+  previewData.content.posts[2].content = '<p>This body must not replace the authored excerpt.</p>';
+  previewData.content.pages[0].document_type = 'plaintext';
+  previewData.content.pages[0].content = longPlaintext;
+  delete previewData.content.pages[0].excerpt;
+  previewData.collections = {
+    featured: {
+      title: 'Featured',
+      items: [
+        { type: 'post', slug: 'hello-zeropress' },
+        { type: 'page', path: 'about' },
+      ],
+    },
+  };
+  const inputSnapshot = structuredClone(previewData);
+
+  themePackage.templates.set('index', [
+    '{{#for post in posts.items}}<span class="list-summary">{{post.slug}}={{post.summary}}</span>{{/for}}',
+    '{{#for item in collections.featured.items}}<span class="collection-summary">{{item.type}}={{item.summary}}</span>{{/for}}',
+  ].join(''));
+  themePackage.templates.set('post', [
+    '<article data-excerpt="{{post.excerpt}}">',
+    '<p class="detail-summary">{{post.summary}}</p>',
+    '{{#if post.prev}}<span class="prev-summary">{{post.prev.summary}}</span>{{/if}}',
+    '{{#if post.next}}<span class="next-summary">{{post.next.summary}}</span>{{/if}}',
+    '</article>',
+  ].join(''));
+  themePackage.templates.set('page', '<article data-excerpt="{{page.excerpt}}"><p class="page-summary">{{page.summary}}</p></article>');
+  themePackage.templates.set('category', '{{#for post in posts.items}}<p class="category-summary">{{post.summary}}</p>{{/for}}');
+  themePackage.templates.set('tag', '{{#for post in posts.items}}<p class="tag-summary">{{post.summary}}</p>{{/for}}');
+  themePackage.templates.set('archive', '{{#for group in archive.groups}}{{#for post in group.items}}<p class="archive-summary">{{post.summary}}</p>{{/for}}{{/for}}');
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  assert.deepEqual(previewData, inputSnapshot);
+
+  const files = writer.getFiles();
+  const indexHtml = getFileContent(files, 'index.html');
+  const firstPostHtml = getFileContent(files, 'posts/hello-zeropress/index.html');
+  const secondPostHtml = getFileContent(files, 'posts/theme-blocks-deep-dive/index.html');
+  const thirdPostHtml = getFileContent(files, 'posts/archive-patterns/index.html');
+  const pageHtml = getFileContent(files, 'about/index.html');
+  const categoryHtml = getFileContent(files, 'categories/general/index.html');
+  const tagHtml = getFileContent(files, 'tags/intro/index.html');
+  const archiveHtml = getFileContent(files, 'archive/index.html');
+  const feedXml = getFileContent(files, 'feed.xml');
+  const searchItems = JSON.parse(getFileContent(files, '_zeropress/search.json'));
+
+  assert.match(indexHtml, /hello-zeropress=Visible summary, © &amp; 😀\./);
+  assert.match(indexHtml, /theme-blocks-deep-dive=Markdown summary\./);
+  assert.match(indexHtml, /post=Visible summary, © &amp; 😀\./);
+  assert.match(indexHtml, new RegExp('page=' + truncatedPlaintext));
+
+  assert.match(firstPostHtml, /data-excerpt=""/);
+  assert.match(firstPostHtml, /<p class="detail-summary">Visible summary, © &amp; 😀\.<\/p>/);
+  assert.match(firstPostHtml, /<span class="next-summary">Markdown summary\.<\/span>/);
+  assert.doesNotMatch(firstPostHtml, /hidden comment|hidden script|hidden style|hidden template|hidden fallback|Hello ZeroPress<\/p>/);
+  assert.match(secondPostHtml, /data-excerpt="   "/);
+  assert.match(secondPostHtml, /<p class="detail-summary">Markdown summary\.<\/p>/);
+  assert.match(thirdPostHtml, new RegExp('data-excerpt="  ' + authoredSummary + '  "'));
+  assert.match(thirdPostHtml, new RegExp('<p class="detail-summary">' + authoredSummary + '</p>'));
+  assert.match(pageHtml, /data-excerpt=""/);
+  assert.match(pageHtml, new RegExp('<p class="page-summary">' + truncatedPlaintext + '</p>'));
+  assert.match(categoryHtml, /<p class="category-summary">Visible summary, © &amp; 😀\.<\/p>/);
+  assert.match(tagHtml, /<p class="tag-summary">Visible summary, © &amp; 😀\.<\/p>/);
+  assert.match(archiveHtml, /<p class="archive-summary">Visible summary, © &amp; 😀\.<\/p>/);
+  assert.match(feedXml, /<description>Visible summary, © &amp; 😀\.<\/description>/);
+  assert.equal(searchItems.find((item) => item.id === 'post:hello-zeropress')?.excerpt, '');
+});
+
 test('buildSite applies html-extension permalinks and page path overrides', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -2325,6 +2420,48 @@ test('buildSite uses page excerpt for front page page meta description', async (
   assert.match(rootHtml, /property="og:title" content="ZeroPress Preview"/);
   assert.match(rootHtml, /<meta name="description" content="About excerpt should become front page meta description\.">/);
   assert.match(rootHtml, /property="og:description" content="About excerpt should become front page meta description\."/);
+});
+
+test('buildSite uses a derived Page summary before the site description on a page front page', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.front_page = { type: 'page', page_path: 'about' };
+  previewData.site.description = 'Site description should be the final fallback only.';
+  previewData.site.post_index = { enabled: false };
+  previewData.content.pages[0].excerpt = '';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const rootHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(rootHtml, /<meta name="description" content="About page">/);
+  assert.match(rootHtml, /property="og:description" content="About page"/);
+  assert.doesNotMatch(rootHtml, /<meta name="description" content="Site description should be the final fallback only\."/);
+});
+
+test('buildSite uses the site description only when a page front page has no authored or derived summary', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = cloneThemePackage(await loadGoldenThemePackage());
+  previewData.site.front_page = { type: 'page', page_path: 'about' };
+  previewData.site.description = 'Site description is the final front-page fallback.';
+  previewData.site.post_index = { enabled: false };
+  previewData.content.pages[0].excerpt = '';
+  previewData.content.pages[0].content = '';
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const rootHtml = getFileContent(writer.getFiles(), 'index.html');
+  assert.match(rootHtml, /<meta name="description" content="Site description is the final front-page fallback\.">/);
+  assert.match(rootHtml, /property="og:description" content="Site description is the final front-page fallback\."/);
 });
 
 test('buildSite renders non-indexable 404 metadata without canonical or social tags', async () => {
@@ -3239,7 +3376,7 @@ test('buildSite rejects unsafe asset output paths before MemoryWriter records fi
   }
 });
 
-test('buildSite uses escaped post excerpt for meta description on post pages', async () => {
+test('buildSite uses authored Post excerpts and derived Page summaries for meta descriptions', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
   const themePackage = await loadGoldenThemePackage();
@@ -3257,7 +3394,33 @@ test('buildSite uses escaped post excerpt for meta description on post pages', a
   const pageHtml = getFileContent(writer.getFiles(), 'about/index.html');
 
   assert.match(postHtml, /<meta name="description" content="Post &quot;excerpt&quot; &amp; summary">/);
+  assert.match(pageHtml, /<meta name="description" content="About page">/);
+  assert.doesNotMatch(pageHtml, /Site &quot;description&quot; fallback/);
+});
+
+test('buildSite does not give ordinary empty Pages a site or arbitrary meta description fallback', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+
+  previewData.site.description = 'Site fallback must stay on the site front page.';
+  previewData.content.pages[0].content = '<script>not visible</script><!-- not visible -->';
+  delete previewData.content.pages[0].excerpt;
+  previewData.content.pages[0].meta = {
+    ...previewData.content.pages[0].meta,
+    description: 'Arbitrary metadata must not become SEO metadata.',
+  };
+
+  await buildSite({
+    previewData,
+    themePackage,
+    writer,
+  });
+
+  const pageHtml = getFileContent(writer.getFiles(), 'about/index.html');
   assert.doesNotMatch(pageHtml, /<meta name="description"/);
+  assert.doesNotMatch(pageHtml, /property="og:description"/);
+  assert.doesNotMatch(pageHtml, /Site fallback must stay|Arbitrary metadata must not become/);
 });
 
 test('buildSite renders SEO meta for post and page routes', async () => {
@@ -5749,7 +5912,7 @@ test('buildSite resolves named collections in every render context', async () =>
   const collectionTemplate = [
     '<section>{{collections.cover-story.title}} count={{collections.cover-story.count}}',
     '{{#for item in collections.cover-story.items}}',
-    '<a data-type="{{item.type}}" data-badge="{{item.meta.badge}}" data-stack="{{#for stack in item.data.stack}}{{stack}};{{/for}}" data-swatch="{{#for swatch in item.data.swatches}}{{swatch.name}}={{swatch.value}}{{/for}}" href="{{item.url}}">{{item.title}}</a>',
+    '<a data-type="{{item.type}}" data-summary="{{item.summary}}" data-badge="{{item.meta.badge}}" data-stack="{{#for stack in item.data.stack}}{{stack}};{{/for}}" data-swatch="{{#for swatch in item.data.swatches}}{{swatch.name}}={{swatch.value}}{{/for}}" href="{{item.url}}">{{item.title}}</a>',
     '{{/for}}</section>',
   ].join('');
   themePackage.templates.set('index', collectionTemplate);
@@ -5767,8 +5930,8 @@ test('buildSite resolves named collections in every render context', async () =>
     const html = getFileContent(writer.getFiles(), outputPath);
     assert.match(html, /Cover Story/);
     assert.match(html, /count=2/);
-    assert.match(html, /data-type="post" data-badge="Feature" data-stack="ZeroPress;Cloudflare;" data-swatch="" href="\/posts\/hello-zeropress\/"/);
-    assert.match(html, /data-type="page" data-badge="Reference" data-stack="" data-swatch="Ink=#111111" href="\/about\/"/);
+    assert.match(html, /data-type="post" data-summary="Preview excerpt" data-badge="Feature" data-stack="ZeroPress;Cloudflare;" data-swatch="" href="\/posts\/hello-zeropress\/"/);
+    assert.match(html, /data-type="page" data-summary="About page" data-badge="Reference" data-stack="" data-swatch="Ink=#111111" href="\/about\/"/);
   }
 });
 
@@ -5817,7 +5980,7 @@ test('buildSite exposes collection counts and route collection cursors', async (
     '{{#if collections.empty.items}}BAD-empty-items{{/if}}',
     '{{#if collections.empty.count}}BAD-empty-count{{/if}}',
     '{{#if post.collection_cursors.work.prev}} work-prev={{post.collection_cursors.work.prev.title}}:{{post.collection_cursors.work.prev.url}}{{/if}}',
-    '{{#if post.collection_cursors.work.next}} work-next={{post.collection_cursors.work.next.type}}:{{post.collection_cursors.work.next.title}}:{{post.collection_cursors.work.next.url}}{{/if}}',
+    '{{#if post.collection_cursors.work.next}} work-next={{post.collection_cursors.work.next.type}}:{{post.collection_cursors.work.next.title}}:{{post.collection_cursors.work.next.url}}:{{post.collection_cursors.work.next.summary}}{{/if}}',
     '{{#if post.collection_cursors.work.first}} work-first{{/if}}',
     '{{#if post.collection_cursors.work.last}} work-last{{/if}}',
     '{{#if post.collection_cursors.secondary.next}} secondary-next={{post.collection_cursors.secondary.next.title}}{{/if}}',
@@ -5830,7 +5993,7 @@ test('buildSite exposes collection counts and route collection cursors', async (
     ' page-alias={{page.collection_cursor.collection_id}}:{{page.collection_cursor.collection_title}}',
     ' page-facts={{#for fact in page.data.facts}}{{fact.label}}={{fact.value}}{{/for}}',
     ' page-prev-stack={{#for item in page.collection_cursors.work.prev.data.stack}}{{item}};{{/for}}',
-    ' page-prev={{page.collection_cursors.work.prev.title}}:{{page.collection_cursors.work.prev.url}}',
+    ' page-prev={{page.collection_cursors.work.prev.title}}:{{page.collection_cursors.work.prev.url}}:{{page.collection_cursors.work.prev.summary}}',
     ' page-alias-prev={{page.collection_cursor.prev.title}}:{{page.collection_cursor.prev.url}}',
     ' page-next={{page.collection_cursors.work.next.title}}:{{page.collection_cursors.work.next.url}}',
     ' page-alias-next={{page.collection_cursor.next.title}}:{{page.collection_cursor.next.url}}',
@@ -5849,7 +6012,7 @@ test('buildSite exposes collection counts and route collection cursors', async (
   assert.doesNotMatch(firstPostHtml, /BAD-empty/);
   assert.match(firstPostHtml, /work-first/);
   assert.doesNotMatch(firstPostHtml, /work-prev=/);
-  assert.match(firstPostHtml, /work-next=page:About:\//);
+  assert.match(firstPostHtml, /work-next=page:About:\/:About page/);
   assert.match(firstPostHtml, /secondary-next=Archive Patterns/);
   assert.match(firstPostHtml, /alias=work:Selected Work/);
   assert.match(firstPostHtml, /alias-next=About/);
@@ -5864,7 +6027,7 @@ test('buildSite exposes collection counts and route collection cursors', async (
   assert.match(frontPageHtml, /page-alias=work:Selected Work/);
   assert.match(frontPageHtml, /page-facts=Type=Front Page/);
   assert.match(frontPageHtml, /page-prev-stack=ZeroPress;SQLite;/);
-  assert.match(frontPageHtml, /page-prev=Hello ZeroPress:\/posts\/hello-zeropress\//);
+  assert.match(frontPageHtml, /page-prev=Hello ZeroPress:\/posts\/hello-zeropress\/:Preview excerpt/);
   assert.match(frontPageHtml, /page-alias-prev=Hello ZeroPress:\/posts\/hello-zeropress\//);
   assert.match(frontPageHtml, /page-next=Theme Blocks Deep Dive:\/posts\/theme-blocks-deep-dive\//);
   assert.match(frontPageHtml, /page-alias-next=Theme Blocks Deep Dive:\/posts\/theme-blocks-deep-dive\//);

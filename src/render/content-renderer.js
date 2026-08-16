@@ -59,7 +59,7 @@ const CONTENT_SANITIZER_OPTIONS = {
   allowIframeRelativeUrls: true,
   parseStyleAttributes: false,
   selfClosing: ['img', 'br', 'hr', 'input', 'source', 'track'],
-  nonTextTags: ['script', 'style', 'textarea', 'option', 'xmp'],
+  nonTextTags: ['script', 'style', 'template', 'noscript', 'textarea', 'option', 'xmp'],
   transformTags: {
     a: transformAnchor,
     th: transformTableCell,

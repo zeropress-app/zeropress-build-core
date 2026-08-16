@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { assertPreviewData } from '@zeropress/preview-data-validator';
 import { isSafeSlugSegment, normalizeStoredSlug } from '@zeropress/slug-policy';
 import { validateThemeFiles } from '@zeropress/theme-validator';
+import sanitizeHtml from 'sanitize-html';
 import { AssetProcessor } from '../assets/asset-processor.js';
 import { renderDocument, renderDocumentContent } from '../render/content-renderer.js';
 import { formatThemeValidationFailure } from '../theme/format-theme-validation.js';
@@ -52,6 +53,8 @@ const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:']);
 const MEDIA_DELIVERY_MODES = new Set(['none', 'media_domain']);
 const DISCOVERABILITY_VALUES = new Set(['default', 'noindex', 'delist']);
 const CUSTOM_HTML_SLOT_MAX_CODE_POINTS = 65_536;
+const GENERATED_SUMMARY_MAX_CODE_POINTS = 160;
+const SUMMARY_TEXT_BOUNDARY_TAG_PATTERN = /<\/?(?:h[1-6]|p|br|hr|pre|ul|ol|li|blockquote|aside|figure|figcaption|table|thead|tbody|tfoot|tr|th|td|div|nav)\b[^>]*>/gi;
 const HEAD_CLOSING_TAG_PATTERN = /<\/head\s*>/i;
 const BODY_CLOSING_TAG_PATTERN = /<\/body\s*>/i;
 const RESPONSIVE_IMAGE_WIDTHS = [320, 480, 768, 1024, 1280, 1600, 1920];
@@ -261,6 +264,7 @@ async function renderFrontPage(state, route) {
       ...route.page,
       url: currentUrl,
     };
+    const description = page.summary || state.previewData.site.description;
     let html = await state.engine.render(
       'page',
       {
@@ -273,7 +277,7 @@ async function renderFrontPage(state, route) {
         meta: buildPageMeta(state.previewData.site, {
           currentUrl,
           title: buildFrontPageTitle(state.previewData.site),
-          description: page.excerpt,
+          description,
           ogType: 'website',
           image: page.featured_image,
           robotsNoindex: shouldNoindexDocument(page),
@@ -294,7 +298,7 @@ async function renderFrontPage(state, route) {
     state.emitted.frontPage = {
       url: currentUrl,
       title: page.title,
-      description: page.excerpt,
+      description,
       updatedAt: page.updated_at_iso,
       includeInFeed: false,
       includeInSitemap: !isDelistedDocument(page),
@@ -349,7 +353,7 @@ async function renderPost(state, post) {
       meta: buildPageMeta(state.previewData.site, {
         currentUrl,
         title: buildDocumentTitle(post.title, state.previewData.site.title),
-        description: post.excerpt,
+        description: post.summary,
         ogType: 'article',
         image: post.featured_image,
         publishedTime: post.published_at_iso,
@@ -373,7 +377,7 @@ async function renderPost(state, post) {
     state.emitted.posts.push({
       url: currentUrl,
       title: post.title,
-      description: post.excerpt,
+      description: post.summary,
       publishedAt: post.published_at_iso,
       updatedAt: post.updated_at_iso,
       status: post.status,
@@ -398,7 +402,7 @@ async function renderPage(state, page) {
         currentUrl,
         canonicalUrl,
         title: buildDocumentTitle(page.title, state.previewData.site.title),
-        description: page.excerpt,
+        description: page.summary,
         ogType: 'website',
         image: page.featured_image,
         robotsNoindex: shouldNoindexDocument(page),
@@ -419,7 +423,7 @@ async function renderPage(state, page) {
   state.emitted.pages.push({
     url: currentUrl,
     title: page.title,
-    description: page.excerpt,
+    description: page.summary,
     updatedAt: page.updated_at_iso,
     status: page.status,
     includeInSitemap: page.omit_from_sitemap !== true && !isDelistedDocument(page),
@@ -1291,6 +1295,7 @@ function buildCollectionPageSummary(page, frontPage, pageReferencePath) {
     slug: page.slug,
     url: frontPage?.type === 'page' && frontPage.page_path === pageReferencePath ? '/' : page.url,
     excerpt: page.excerpt || '',
+    summary: page.summary || '',
     featured_image: page.featured_image || '',
     updated_at: page.updated_at || '',
     updated_at_iso: page.updated_at_iso || '',
@@ -1348,6 +1353,7 @@ function buildCollectionCursorItemSummary(item) {
     slug: item.slug,
     url: item.url,
     excerpt: item.excerpt || '',
+    summary: item.summary || '',
     featured_image: item.featured_image || '',
     updated_at: item.updated_at || '',
     updated_at_iso: item.updated_at_iso || '',
@@ -1681,12 +1687,15 @@ function preparePage(page, site) {
   const renderedDocument = renderDocument(page.content, documentType);
   const permalink = resolvePagePermalink(site, page);
   const pageFields = { ...page };
+  const excerpt = typeof page.excerpt === 'string' ? page.excerpt : '';
   delete pageFields.comments;
 
   return {
     ...pageFields,
     url: permalink.url,
     document_type: documentType,
+    excerpt,
+    summary: buildDocumentSummary(excerpt, renderedDocument.html, page.title),
     html: renderedDocument.html,
     toc: renderedDocument.toc,
     updated_at: page.updated_at_iso ? formatTimestamp(page.updated_at_iso, site) : '',
@@ -1696,6 +1705,7 @@ function preparePage(page, site) {
 function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug) {
   const documentType = normalizeDocumentType(post.document_type);
   const renderedDocument = renderDocument(post.content, documentType);
+  const excerpt = typeof post.excerpt === 'string' ? post.excerpt : '';
   const author = authorsById.get(post.author_id);
   const permalink = resolvePermalink(site, 'posts', post);
   const categories = post.category_slugs
@@ -1722,7 +1732,8 @@ function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug) {
     url: permalink.url,
     content: post.content,
     document_type: documentType,
-    excerpt: post.excerpt,
+    excerpt,
+    summary: buildDocumentSummary(excerpt, renderedDocument.html, post.title),
     published_at_iso: post.published_at_iso,
     updated_at_iso: post.updated_at_iso,
     author_id: post.author_id,
@@ -1964,6 +1975,7 @@ function buildStructuredPostSummary(post) {
     slug: post.slug,
     url: post.url,
     excerpt: post.excerpt,
+    summary: post.summary,
     published_at: post.published_at,
     published_at_iso: post.published_at_iso,
     reading_time: post.reading_time,
@@ -1991,6 +2003,7 @@ function buildAdjacentPostSummary(post) {
     slug: post.slug,
     url: post.url,
     excerpt: post.excerpt,
+    summary: post.summary,
     published_at: post.published_at,
     published_at_iso: post.published_at_iso,
     data: post.data,
@@ -3185,6 +3198,63 @@ function buildSearchPageItem(page, url, pageReferencePath) {
     updated_at_iso: normalizeIsoTimestamp(page.updated_at_iso),
     content_text: htmlToSearchText(page.html),
   };
+}
+
+function buildDocumentSummary(excerpt, html, title) {
+  const authoredExcerpt = String(excerpt || '').trim();
+  if (authoredExcerpt) {
+    return authoredExcerpt;
+  }
+
+  const visibleText = htmlToSummaryText(html, title);
+  const codePoints = [...visibleText];
+  if (codePoints.length <= GENERATED_SUMMARY_MAX_CODE_POINTS) {
+    return visibleText;
+  }
+
+  const truncated = codePoints
+    .slice(0, GENERATED_SUMMARY_MAX_CODE_POINTS - 1)
+    .join('')
+    .trimEnd();
+  return `${truncated}…`;
+}
+
+function htmlToSummaryText(html, title) {
+  let source = removeNonVisibleSummaryHtml(html);
+  const leadingHeading = source.match(/<h1\b[^>]*>([\s\S]*?)<\/h1\s*>/i);
+  if (
+    leadingHeading
+    && htmlFragmentToSummaryText(source.slice(0, leadingHeading.index)) === ''
+    && normalizeComparableSummaryText(htmlFragmentToSummaryText(leadingHeading[1]))
+      === normalizeComparableSummaryText(title)
+  ) {
+    source = source.slice(0, leadingHeading.index)
+      + source.slice(leadingHeading.index + leadingHeading[0].length);
+  }
+
+  return htmlFragmentToSummaryText(source);
+}
+
+function removeNonVisibleSummaryHtml(html) {
+  return String(html || '')
+    .replace(/<(script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ');
+}
+
+function htmlFragmentToSummaryText(html) {
+  const textWithTagBoundaries = String(html || '').replace(SUMMARY_TEXT_BOUNDARY_TAG_PATTERN, ' ');
+  const decodedText = sanitizeHtml(textWithTagBoundaries, {
+    allowedTags: [],
+    allowedAttributes: {},
+    parser: {
+      decodeEntities: true,
+    },
+  });
+  return normalizeSearchText(decodeHtmlEntities(decodedText));
+}
+
+function normalizeComparableSummaryText(value) {
+  return normalizeSearchText(value).normalize('NFC');
 }
 
 function buildSearchHeadings(toc) {

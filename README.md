@@ -182,7 +182,21 @@ Build-core derives:
 - localized fallback `published_at` / `updated_at` values plus unconditional `published_at_iso` / `updated_at_iso` values
 - datetime formatting from `site.locale`, `site.timezone`, `site.date_style`, and `site.time_style`
 - `reading_time`
+- effective `post.summary` and `page.summary` values for theme listings and metadata
 - a route-root `comments` discriminated context
+
+### Authored excerpts and runtime summaries
+
+Preview Data `post.excerpt` and `page.excerpt` are authored values. Build Core does not replace them with body text; an omitted Page excerpt becomes `""` in the runtime context. It derives a separate `summary` once from each prepared Post or Page:
+
+- a trim-nonempty authored excerpt becomes the summary after trimming only its outer whitespace, without a length limit
+- otherwise, Build Core uses visible text from the rendered HTML, removes comments and non-visible `script`, `style`, `template`, and `noscript` content, removes a leading H1 when it matches the document title, decodes entities, and collapses whitespace
+- a derived body summary is at most 160 Unicode code points, including a final `…` when truncated
+- a document with no displayable text has `summary: ""`
+
+Both fields are available on detail Post/Page contexts. The same precomputed summary is propagated to `posts.items[]`, archive and taxonomy items, Post/Page collection items, collection cursor `prev`/`next` items, and `post.prev`/`post.next`. Themes should use `summary` for optional list/card copy and retain `excerpt` for an explicitly authored detail lede.
+
+Post/Page metadata descriptions use `summary`; ordinary detail routes do not fall back to `site.description`. A Page used as the front page uses `site.description` only when neither an authored nor body-derived summary exists. RSS item descriptions use Post summaries. Native/Pagefind search continues to index the authored excerpt separately and creates a query-specific body excerpt when needed; it does not substitute the general runtime summary. User-defined `meta.description` keys remain ordinary generator/theme metadata and receive no special Build Core interpretation.
 
 Every ordinary rendered route receives effective feature state on `site`, regardless of whether the corresponding Preview Data preference was omitted:
 
