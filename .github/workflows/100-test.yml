@@ -10,6 +10,50 @@ permissions:
   contents: read
 
 jobs:
+  lockfile:
+    name: Lockfile integrity
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      # A lockfile generated while sibling packages were linked from disk records
+      # link entries pointing outside the repository. npm ci does not fail on
+      # those; it installs dangling symlinks, so the breakage only surfaces later.
+      # Assert the resolved sources directly instead.
+      - name: Verify lockfile resolves every dependency from the registry
+        run: |
+          node --input-type=module -e '
+            import fs from "node:fs";
+
+            const lock = JSON.parse(fs.readFileSync("package-lock.json", "utf8"));
+            const offenders = Object.entries(lock.packages ?? {}).filter(([name, entry]) => (
+              name !== ""
+              && (entry.link === true || !String(entry.resolved ?? "").startsWith("https://registry.npmjs.org/"))
+            ));
+
+            if (offenders.length > 0) {
+              for (const [name, entry] of offenders) {
+                console.error(`::error::${name} resolves to ${entry.resolved ?? "a local link"} instead of a registry tarball`);
+              }
+              process.exit(1);
+            }
+            console.log(`Lockfile OK: ${Object.keys(lock.packages).length - 1} dependencies from the registry`);
+          '
+
+      # npm ci additionally fails when the lockfile is out of sync with
+      # package.json, which is what the publish workflow relies on.
+      - name: Verify lockfile is in sync with package.json
+        run: npm ci
+
   test:
     name: Node.js ${{ matrix.node-version }}
     runs-on: ubuntu-latest
