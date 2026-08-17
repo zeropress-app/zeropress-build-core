@@ -34,11 +34,11 @@
   },
   "dependencies": {
     "@zeropress/slug-policy": "0.2.1",
-    "@zeropress/preview-data-validator": "0.7.1",
-    "@zeropress/theme-validator": "0.7.1",
-    "highlight.js": "11.11.1",
-    "markdown-it": "14.3.0",
+    "@zeropress/preview-data-validator": "0.7.3",
+    "@zeropress/theme-validator": "0.7.3",
+    "highlight.js": "11.12.0",
+    "markdown-it": "15.0.0",
     "markdown-it-anchor": "9.2.1",
-    "sanitize-html": "2.17.6"
+    "sanitize-html": "2.17.7"
   }
 }
