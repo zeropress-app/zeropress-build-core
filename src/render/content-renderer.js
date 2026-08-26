@@ -34,6 +34,14 @@ const CONTENT_ALLOWED_TAGS = [
   'iframe', 'input',
 ];
 const CONTENT_ALLOWED_ATTRIBUTES = {
+  h1: ['style'],
+  h2: ['style'],
+  h3: ['style'],
+  h4: ['style'],
+  h5: ['style'],
+  h6: ['style'],
+  p: ['style'],
+  span: ['style'],
   a: ['href', 'title', 'class', 'id', 'target', 'rel'],
   aside: ['role', 'class', 'id'],
   img: ['src', 'srcset', 'sizes', 'alt', 'title', 'class', 'id', 'width', 'height', 'loading', 'decoding'],
@@ -47,6 +55,8 @@ const CONTENT_ALLOWED_ATTRIBUTES = {
   track: ['src', 'kind', 'srclang', 'label', 'default', 'class', 'id'],
   '*': ['class', 'id'],
 };
+const CONTENT_COLOR_STYLE_PATTERN = /^(?:#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})|[a-z]{1,32}|(?:rgb|rgba|hsl|hsla)\((?:[-+.\d%,/\s]|deg|rad|grad|turn)+\))$/i;
+const CONTENT_TEXT_ALIGNMENT_STYLE_PATTERN = /^(?:left|center|right|justify)$/i;
 const CONTENT_SANITIZER_OPTIONS = {
   allowedTags: CONTENT_ALLOWED_TAGS,
   allowedAttributes: CONTENT_ALLOWED_ATTRIBUTES,
@@ -57,7 +67,17 @@ const CONTENT_SANITIZER_OPTIONS = {
   allowedSchemesAppliedToAttributes: ['href', 'src', 'poster'],
   allowProtocolRelative: false,
   allowIframeRelativeUrls: true,
-  parseStyleAttributes: false,
+  allowedStyles: {
+    h1: { 'text-align': [CONTENT_TEXT_ALIGNMENT_STYLE_PATTERN] },
+    h2: { 'text-align': [CONTENT_TEXT_ALIGNMENT_STYLE_PATTERN] },
+    h3: { 'text-align': [CONTENT_TEXT_ALIGNMENT_STYLE_PATTERN] },
+    h4: { 'text-align': [CONTENT_TEXT_ALIGNMENT_STYLE_PATTERN] },
+    h5: { 'text-align': [CONTENT_TEXT_ALIGNMENT_STYLE_PATTERN] },
+    h6: { 'text-align': [CONTENT_TEXT_ALIGNMENT_STYLE_PATTERN] },
+    p: { 'text-align': [CONTENT_TEXT_ALIGNMENT_STYLE_PATTERN] },
+    span: { color: [CONTENT_COLOR_STYLE_PATTERN] },
+  },
+  parseStyleAttributes: true,
   selfClosing: ['img', 'br', 'hr', 'input', 'source', 'track'],
   nonTextTags: ['script', 'style', 'template', 'noscript', 'textarea', 'option', 'xmp'],
   transformTags: {

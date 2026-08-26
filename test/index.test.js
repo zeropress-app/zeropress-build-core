@@ -5209,6 +5209,25 @@ test('renderDocument preserves safe blank target links in markdown HTML', () => 
   assert.doesNotMatch(document.html, /bad-token/);
 });
 
+test('renderDocument preserves only the bounded visual text styles', () => {
+  const document = renderDocument([
+    '<h2 style="text-align: right; position: fixed">Aligned heading</h2>',
+    '<p style="text-align: justify; margin-left: 10rem">',
+    '<span style="color: #C2410C; background-color: black">Colored text</span>',
+    '</p>',
+    '<p style="text-align: diagonal">Invalid alignment</p>',
+    '<span style="color: rgb(10, 20, 30)">RGB text</span>',
+    '<span style="color: url(https://example.com/pixel)">Invalid color</span>',
+    '<div style="text-align: center"><span style="font-size: 9rem">Other styles</span></div>',
+  ].join(''), 'html');
+
+  assert.match(document.html, /<h2 style="text-align:right">Aligned heading<\/h2>/);
+  assert.match(document.html, /<p style="text-align:justify"><span style="color:#C2410C">Colored text<\/span><\/p>/);
+  assert.match(document.html, /<span style="color:rgb\(10, 20, 30\)">RGB text<\/span>/);
+  assert.doesNotMatch(document.html, /position|margin-left|background-color|diagonal|url\(|font-size/);
+  assert.match(document.html, /<div><span>Other styles<\/span><\/div>/);
+});
+
 test('renderDocument parser sanitizer rejects attribute and scheme obfuscation', () => {
   const document = renderDocument([
     `<a href="/safe" title='x" onmouseover="alert(1)'>Safe title</a>`,

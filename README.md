@@ -171,7 +171,7 @@ Theme CSS and JavaScript assets are emitted byte-for-byte as provided. `custom_c
 
 User-defined scalar metadata under `site.meta`, `post.meta`, `page.meta`, and item `meta` is always HTML-escaped during template interpolation. Names ending in `_html` or `_url` do not opt metadata into raw rendering; use the explicit content and custom HTML contracts for trusted raw markup.
 
-Post/Page HTML, Markdown raw HTML, and text-widget HTML pass through a parser-based explicit allowlist. Safe structural, media, table, task-list, and alert markup is retained; event handlers and unsafe URL schemes are removed. Links permit relative URLs, HTTP(S), `mailto:`, and `tel:`. Media and iframe URLs permit relative URLs or HTTP(S), and protocol-relative URLs are rejected. Each `srcset` candidate is checked independently. This sanitizer boundary does not include trusted `custom_html` slots or `standalone_html`, which remain intentionally unchanged.
+Post/Page HTML, Markdown raw HTML, and text-widget HTML pass through a parser-based explicit allowlist. Safe structural, media, table, task-list, and alert markup is retained; event handlers and unsafe URL schemes are removed. Inline presentation is limited to `text-align: left | center | right | justify` on paragraphs/headings and bounded CSS `color` values on spans; every other inline style is removed. Links permit relative URLs, HTTP(S), `mailto:`, and `tel:`. Media and iframe URLs permit relative URLs or HTTP(S), and protocol-relative URLs are rejected. Each `srcset` candidate is checked independently. This sanitizer boundary does not include trusted `custom_html` slots or `standalone_html`, which remain intentionally unchanged.
 
 Build-core derives:
 
