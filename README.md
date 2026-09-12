@@ -121,6 +121,9 @@ Loads a theme directory from disk and renders it using the same core pipeline.
 
 This is useful for local tooling that wants filesystem theme loading but still uses the same deterministic core renderer.
 
+Theme validation failures from either build entry point carry `error.code === 'THEME_VALIDATION_FAILED'`.
+Their messages preserve report and hint line breaks while escaping terminal control characters in diagnostic values such as paths, messages, and source snippets. CLI consumers can preserve the layout of these reports while escaping arbitrary errors as single-line text.
+
 ## Writers
 
 ### `MemoryWriter`

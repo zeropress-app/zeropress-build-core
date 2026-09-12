@@ -5,7 +5,7 @@ import { validateThemeFiles } from '@zeropress/theme-validator';
 import sanitizeHtml from 'sanitize-html';
 import { AssetProcessor } from '../assets/asset-processor.js';
 import { renderDocument, renderDocumentContent } from '../render/content-renderer.js';
-import { formatThemeValidationFailure } from '../theme/format-theme-validation.js';
+import { createThemeValidationError } from '../theme/format-theme-validation.js';
 import { ZeroPressEngine } from '../render/zeropress-engine.js';
 
 const DEFAULT_OPTIONS = {
@@ -2248,7 +2248,7 @@ async function normalizeAndValidateThemePackage(themePackage) {
 
   const validation = await validateThemeFiles(fileMap);
   if (!validation.ok) {
-    throw new Error(formatThemeValidationFailure(validation));
+    throw createThemeValidationError(validation);
   }
 
   if (!validation.manifest) {

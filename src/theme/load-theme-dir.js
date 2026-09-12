@@ -2,7 +2,7 @@ import {
   validateThemeFiles,
   validateThemePackageLimits,
 } from '@zeropress/theme-validator';
-import { formatThemeValidationFailure } from './format-theme-validation.js';
+import { createThemeValidationError } from './format-theme-validation.js';
 
 const TEXT_FILE_EXTENSIONS = new Set(['.html', '.json', '.css', '.js', '.txt', '.svg', '.xml']);
 
@@ -47,7 +47,7 @@ export async function loadThemePackageFromDir(themeDir) {
     pathEntries: packageState.pathEntries,
   });
   if (!validation.ok) {
-    throw new Error(formatThemeValidationFailure(validation));
+    throw createThemeValidationError(validation);
   }
 
   const rawThemeJson = String(fileMap.get('theme.json'));
@@ -174,7 +174,7 @@ async function readThemeDir(fs, fsConstants, path, rootDir, currentDir, fileMap,
 }
 
 function createThemePathError(code, filePath, message, checkedFiles) {
-  return new Error(formatThemeValidationFailure({
+  return createThemeValidationError({
     errors: [{
       code,
       path: filePath,
@@ -183,7 +183,7 @@ function createThemePathError(code, filePath, message, checkedFiles) {
       category: 'theme_package_paths',
     }],
     checkedFiles,
-  }));
+  });
 }
 
 function assertThemePackageLimits(packageState) {
@@ -194,10 +194,10 @@ function assertThemePackageLimits(packageState) {
     return;
   }
 
-  throw new Error(formatThemeValidationFailure({
+  throw createThemeValidationError({
     errors,
     checkedFiles: packageState.fileSizes.size,
-  }));
+  });
 }
 
 function toUint8Array(value) {

@@ -1837,11 +1837,13 @@ test('in-memory and directory theme loading format validation issues identically
       writer: new MemoryWriter(),
     });
   } catch (error) {
+    assert.equal(error.code, 'THEME_VALIDATION_FAILED');
     inMemoryMessage = error.message;
   }
   try {
     await loadThemePackageFromDir(themeDir);
   } catch (error) {
+    assert.equal(error.code, 'THEME_VALIDATION_FAILED');
     directoryMessage = error.message;
   } finally {
     await fs.rm(themeDir, { recursive: true, force: true });
