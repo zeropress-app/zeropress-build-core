@@ -33,12 +33,12 @@
     "node": ">=22.22.0"
   },
   "dependencies": {
-    "@zeropress/slug-policy": "0.2.1",
+    "@zeropress/slug-policy": "0.2.2",
     "@zeropress/preview-data-validator": "0.7.3",
     "@zeropress/theme-validator": "0.7.3",
     "highlight.js": "11.12.0",
-    "markdown-it": "15.0.0",
-    "markdown-it-anchor": "9.2.1",
+    "markdown-it": "15.0.2",
+    "markdown-it-anchor": "10.0.0",
     "sanitize-html": "2.17.7"
   }
 }
