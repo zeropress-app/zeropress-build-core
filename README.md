@@ -42,7 +42,28 @@ import {
 } from '@zeropress/build-core';
 ```
 
-## Purpose
+## Rendering a document body
+
+For a document body without a theme or filesystem access:
+
+```js
+import { renderDocument } from '@zeropress/build-core/content';
+
+const { html, toc } = renderDocument(source, 'html'); // html, markdown, or plaintext
+```
+
+This entry uses the same sanitization and code rendering as a site build.
+HTML code blocks accept `pre > code` or a `language-*` / `lang-*` class on
+`pre`. Editor line breaks become newlines inside `code`, and recognized
+languages receive highlight.js token classes. Unknown languages and Mermaid
+remain plain code. Code samples longer than 100,000 UTF-16 code units retain
+their text without syntax highlighting. Theme or preview CSS supplies the
+visual styling; `html` is a body fragment, not a complete page.
+
+The content entry can be bundled for browsers. For large documents, render in
+a Web Worker to keep editing responsive.
+
+## Site builds
 
 `@zeropress/build-core` is responsible for:
 

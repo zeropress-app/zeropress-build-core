@@ -1,7 +1,7 @@
 import MarkdownIt from 'markdown-it';
-import hljs from 'highlight.js';
 import anchor from 'markdown-it-anchor';
 import sanitizeHtmlParser from 'sanitize-html';
+import { renderCodeBlocks } from './code-blocks.js';
 
 const TOC_LEVELS = new Set([2, 3, 4]);
 const ALERT_TYPES = new Map([
@@ -109,7 +109,7 @@ export function renderDocument(content, documentType = 'markdown') {
 
   if (normalizedType === 'html') {
     return {
-      html: sanitizeHtml(normalizedContent),
+      html: renderCodeBlocks(sanitizeHtml(normalizedContent)),
       toc: [],
     };
   }
@@ -122,7 +122,7 @@ function renderMarkdownDocument(content) {
   const markdown = createMarkdownRenderer(toc);
 
   return {
-    html: sanitizeHtml(markdown.render(content)),
+    html: renderCodeBlocks(sanitizeHtml(markdown.render(content)), { autoDetect: true }),
     toc,
   };
 }
@@ -133,21 +133,6 @@ function createMarkdownRenderer(toc) {
     linkify: false,
     typographer: true,
     breaks: false,
-    highlight(value, language) {
-      if (language && hljs.getLanguage(language)) {
-        try {
-          return hljs.highlight(value, { language }).value;
-        } catch {
-          return value;
-        }
-      }
-
-      try {
-        return hljs.highlightAuto(value).value;
-      } catch {
-        return value;
-      }
-    },
   });
 
   markdown.use(markdownAdmonitionContainers);

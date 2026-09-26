@@ -5,7 +5,11 @@
   "type": "module",
   "license": "MIT",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./content": {
+      "types": "./src/content.d.ts",
+      "default": "./src/content.js"
+    }
   },
   "types": "./src/index.d.ts",
   "files": [
@@ -37,6 +41,7 @@
     "@zeropress/preview-data-validator": "0.7.3",
     "@zeropress/theme-validator": "0.7.3",
     "highlight.js": "11.12.0",
+    "htmlparser2": "12.0.0",
     "markdown-it": "15.0.2",
     "markdown-it-anchor": "10.0.0",
     "sanitize-html": "2.17.7"
