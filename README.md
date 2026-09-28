@@ -214,7 +214,7 @@ Build-core derives:
 Preview Data `post.excerpt` and `page.excerpt` are authored values. Build Core does not replace them with body text; an omitted Page excerpt becomes `""` in the runtime context. It derives a separate `summary` once from each prepared Post or Page:
 
 - a trim-nonempty authored excerpt becomes the summary after trimming only its outer whitespace, without a length limit
-- otherwise, Build Core uses visible text from the rendered HTML, removes comments and non-visible `script`, `style`, `template`, and `noscript` content, removes a leading H1 when it matches the document title, decodes entities, and collapses whitespace
+- otherwise, Build Core uses visible text from the rendered HTML, removes comments and non-visible `script`, `style`, `template`, and `noscript` content, removes a leading H1 when it matches the document title, decodes entities once, and collapses whitespace
 - a derived body summary is at most 160 Unicode code points, including a final `…` when truncated
 - a document with no displayable text has `summary: ""`
 

@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto';
 import { assertPreviewData } from '@zeropress/preview-data-validator';
 import { isSafeSlugSegment, normalizeStoredSlug } from '@zeropress/slug-policy';
 import { validateThemeFiles } from '@zeropress/theme-validator';
-import sanitizeHtml from 'sanitize-html';
 import { AssetProcessor } from '../assets/asset-processor.js';
 import { renderDocument, renderDocumentContent } from '../render/content-renderer.js';
+import { extractHtmlText } from '../render/html-text.js';
 import { createThemeValidationError } from '../theme/format-theme-validation.js';
 import { ZeroPressEngine } from '../render/zeropress-engine.js';
 
@@ -54,7 +54,6 @@ const MEDIA_DELIVERY_MODES = new Set(['none', 'media_domain']);
 const DISCOVERABILITY_VALUES = new Set(['default', 'noindex', 'delist']);
 const CUSTOM_HTML_SLOT_MAX_CODE_POINTS = 65_536;
 const GENERATED_SUMMARY_MAX_CODE_POINTS = 160;
-const SUMMARY_TEXT_BOUNDARY_TAG_PATTERN = /<\/?(?:h[1-6]|p|br|hr|pre|ul|ol|li|blockquote|aside|figure|figcaption|table|thead|tbody|tfoot|tr|th|td|div|nav)\b[^>]*>/gi;
 const HEAD_CLOSING_TAG_PATTERN = /<\/head\s*>/i;
 const BODY_CLOSING_TAG_PATTERN = /<\/body\s*>/i;
 const RESPONSIVE_IMAGE_WIDTHS = [320, 480, 768, 1024, 1280, 1600, 1920];
@@ -912,7 +911,7 @@ function normalizeCommentsApiBaseUrl(value) {
   if (!normalized || normalized === '/') {
     return normalized;
   }
-  return normalized.replace(/\/+$/u, '');
+  return trimSlashes(normalized, { leading: false });
 }
 
 function normalizeTargetComments(comments) {
@@ -1840,7 +1839,7 @@ function normalizePaginationBasePath(basePath) {
     return '/';
   }
 
-  const normalized = decodeRoutePath(String(basePath)).replace(/^\/+|\/+$/g, '');
+  const normalized = trimSlashes(decodeRoutePath(String(basePath)));
   return `/${normalized}/`;
 }
 
@@ -2123,7 +2122,7 @@ function formatTimestamp(value, site) {
 }
 
 function calculateReadingTime(html) {
-  const plainText = String(html || '').replace(/<[^>]*>/g, ' ');
+  const plainText = extractHtmlText(html);
   const wordCount = plainText.trim().split(/\s+/).filter(Boolean).length;
   const minutes = Math.max(1, Math.ceil(wordCount / 200));
   return minutes === 1 ? '1 min read' : `${minutes} min read`;
@@ -2624,7 +2623,7 @@ function routePathToOutputPath(routePath, outputStyle = DEFAULT_PERMALINKS.outpu
     return 'index.html';
   }
   if (outputStyle === 'html-extension') {
-    return `${normalizedPath.replace(/^\/+|\/+$/g, '')}.html`;
+    return `${trimSlashes(normalizedPath)}.html`;
   }
   return `${normalizedPath.replace(/^\//, '')}index.html`;
 }
@@ -2656,11 +2655,21 @@ function pagePathToPublicUrl(routePath, outputStyle = DEFAULT_PERMALINKS.output_
   return withoutTrailingSlash;
 }
 
+function trimSlashes(value, { leading = true } = {}) {
+  let start = 0;
+  let end = value.length;
+  if (leading) {
+    while (start < end && value[start] === '/') start += 1;
+  }
+  while (end > start && value[end - 1] === '/') end -= 1;
+  return value.slice(start, end);
+}
+
 function normalizeRoutePath(routePath) {
   if (!routePath || routePath === '/') {
     return '/';
   }
-  const normalized = decodeRoutePath(String(routePath)).replace(/^\/+|\/+$/g, '');
+  const normalized = trimSlashes(decodeRoutePath(String(routePath)));
   return `/${normalized}/`;
 }
 
@@ -2676,8 +2685,7 @@ function resolveEffectivePageReferencePath(site, page) {
 }
 
 function normalizePageReferencePath(value) {
-  const normalized = decodeRoutePath(normalizeOptionalString(value))
-    .replace(/^\/+|\/+$/gu, '')
+  const normalized = trimSlashes(decodeRoutePath(normalizeOptionalString(value)))
     .normalize('NFC');
   return normalized;
 }
@@ -2718,7 +2726,7 @@ function pageToOutputPath(page, outputStyle) {
 
 function applyPermalinkPattern(pattern, kind, item, site) {
   const tokenValues = buildPermalinkTokenValues(kind, item, site);
-  const body = String(pattern || '').replace(/^\/+|\/+$/g, '');
+  const body = trimSlashes(String(pattern || ''));
   const segments = body.split('/').filter(Boolean).map((segment) => {
     if (segment.startsWith(':')) {
       return tokenValues[segment.slice(1)] || '';
@@ -2938,7 +2946,7 @@ function assertUniqueOutputPaths(plannedPaths) {
 }
 
 function normalizeRouteCollisionKey(url) {
-  return String(url || '').replace(/\/+$/, '') || '/';
+  return trimSlashes(String(url || ''), { leading: false }) || '/';
 }
 
 function assertSafeSlugDerivedOutputPath(rawSlug, outputPath) {
@@ -3160,7 +3168,7 @@ function buildSearchIndexItems(state) {
       tags: Array.isArray(post.tags) ? post.tags.map((tag) => tag.name).filter(Boolean) : [],
       published_at_iso: normalizeIsoTimestamp(post.published_at_iso),
       updated_at_iso: normalizeIsoTimestamp(post.updated_at_iso),
-      content_text: htmlToSearchText(post.html),
+      content_text: extractHtmlText(post.html),
     }));
 
   const frontPagePage = state.renderData.frontPageRoute?.front_page_type === 'page'
@@ -3196,7 +3204,7 @@ function buildSearchPageItem(page, url, pageReferencePath) {
     tags: [],
     published_at_iso: '',
     updated_at_iso: normalizeIsoTimestamp(page.updated_at_iso),
-    content_text: htmlToSearchText(page.html),
+    content_text: extractHtmlText(page.html),
   };
 }
 
@@ -3206,7 +3214,7 @@ function buildDocumentSummary(excerpt, html, title) {
     return authoredExcerpt;
   }
 
-  const visibleText = htmlToSummaryText(html, title);
+  const visibleText = extractHtmlText(html, { omitLeadingHeading: title });
   const codePoints = [...visibleText];
   if (codePoints.length <= GENERATED_SUMMARY_MAX_CODE_POINTS) {
     return visibleText;
@@ -3219,81 +3227,10 @@ function buildDocumentSummary(excerpt, html, title) {
   return `${truncated}…`;
 }
 
-function htmlToSummaryText(html, title) {
-  let source = removeNonVisibleSummaryHtml(html);
-  const leadingHeading = source.match(/<h1\b[^>]*>([\s\S]*?)<\/h1\s*>/i);
-  if (
-    leadingHeading
-    && htmlFragmentToSummaryText(source.slice(0, leadingHeading.index)) === ''
-    && normalizeComparableSummaryText(htmlFragmentToSummaryText(leadingHeading[1]))
-      === normalizeComparableSummaryText(title)
-  ) {
-    source = source.slice(0, leadingHeading.index)
-      + source.slice(leadingHeading.index + leadingHeading[0].length);
-  }
-
-  return htmlFragmentToSummaryText(source);
-}
-
-function removeNonVisibleSummaryHtml(html) {
-  return String(html || '')
-    .replace(/<(script|style|template|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ');
-}
-
-function htmlFragmentToSummaryText(html) {
-  const textWithTagBoundaries = String(html || '').replace(SUMMARY_TEXT_BOUNDARY_TAG_PATTERN, ' ');
-  const decodedText = sanitizeHtml(textWithTagBoundaries, {
-    allowedTags: [],
-    allowedAttributes: {},
-    parser: {
-      decodeEntities: true,
-    },
-  });
-  return normalizeSearchText(decodeHtmlEntities(decodedText));
-}
-
-function normalizeComparableSummaryText(value) {
-  return normalizeSearchText(value).normalize('NFC');
-}
-
 function buildSearchHeadings(toc) {
   return Array.isArray(toc)
     ? toc.map((item) => normalizeSearchText(item?.title)).filter(Boolean)
     : [];
-}
-
-function htmlToSearchText(html) {
-  return normalizeSearchText(decodeHtmlEntities(
-    String(html || '')
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
-      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-      .replace(/<!--[\s\S]*?-->/g, ' ')
-      .replace(/<[^>]+>/g, ' '),
-  ));
-}
-
-function decodeHtmlEntities(value) {
-  const namedEntities = {
-    amp: '&',
-    lt: '<',
-    gt: '>',
-    quot: '"',
-    apos: "'",
-    nbsp: ' ',
-  };
-
-  return String(value || '').replace(/&(#x[0-9a-fA-F]+|#\d+|[a-zA-Z][a-zA-Z0-9]+);/g, (match, entity) => {
-    if (entity.startsWith('#x')) {
-      const codePoint = Number.parseInt(entity.slice(2), 16);
-      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
-    }
-    if (entity.startsWith('#')) {
-      const codePoint = Number.parseInt(entity.slice(1), 10);
-      return Number.isFinite(codePoint) ? String.fromCodePoint(codePoint) : match;
-    }
-    return Object.prototype.hasOwnProperty.call(namedEntities, entity) ? namedEntities[entity] : match;
-  });
 }
 
 function normalizeSearchText(value) {

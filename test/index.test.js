@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { DomUtils, parseDocument } from 'htmlparser2';
 import { buildSite, buildSiteFromThemeDir, FilesystemWriter, MemoryWriter } from '../src/index.js';
 import { buildTargetCommentsContext } from '../src/api/build-site.js';
 import { ControlFlowRenderer } from '../src/render/control-flow-renderer.js';
@@ -94,6 +95,18 @@ function getFileContent(files, outputPath) {
   const file = files.find((entry) => entry.path === outputPath);
   assert.ok(file, `Expected output file ${outputPath} to exist`);
   return typeof file.content === 'string' ? file.content : Buffer.from(file.content).toString('utf8');
+}
+
+function getSitemapUrls(xml) {
+  const document = parseDocument(xml, { xmlMode: true });
+  return new Set(DomUtils.getElementsByTagName('loc', document.children).map((node) => DomUtils.textContent(node)));
+}
+
+function getCommentsMounts(html) {
+  return DomUtils.findAll(
+    (node) => Object.hasOwn(node.attribs, 'data-zp-comments'),
+    parseDocument(html).children,
+  );
 }
 
 function normalizeBuildFilesSummary(files) {
@@ -3260,11 +3273,11 @@ test('buildSite supports medium fixture with raw Unicode slugs and paginated tax
   const categoryPageTwoHtml = getFileContent(files, `categories/${categorySlug}/page/2/index.html`);
   assert.match(categoryPageTwoHtml, /Taxonomy Coverage Check/);
 
-  const sitemapXml = getFileContent(files, 'sitemap.xml');
-  assert.ok(sitemapXml.includes(`https://ko.example/posts/${postSlug}/`));
-  assert.ok(sitemapXml.includes(`https://ko.example/${pageSlug}/`));
-  assert.equal(sitemapXml.includes(`https://ko.example/categories/${categorySlug}/`), false);
-  assert.equal(sitemapXml.includes(`https://ko.example/tags/${tagSlug}/`), false);
+  const sitemapUrls = getSitemapUrls(getFileContent(files, 'sitemap.xml'));
+  assert.ok(sitemapUrls.has(`https://ko.example/posts/${postSlug}/`));
+  assert.ok(sitemapUrls.has(`https://ko.example/${pageSlug}/`));
+  assert.equal(sitemapUrls.has(`https://ko.example/categories/${categorySlug}/`), false);
+  assert.equal(sitemapUrls.has(`https://ko.example/tags/${tagSlug}/`), false);
 });
 
 test('buildSite rejects a page slug with traversal segments', async () => {
@@ -4187,6 +4200,29 @@ test('buildSite can disable fallback robots.txt while keeping other special file
   assert.equal(files.some((file) => file.path === 'feed.xml'), true);
 });
 
+test('buildSite uses visible words and decoded entities for reading time and native search', async () => {
+  const writer = new MemoryWriter();
+  const previewData = await loadDefaultPreviewData();
+  const themePackage = await loadGoldenThemePackage();
+  const post = previewData.content.posts[0];
+  post.document_type = 'html';
+  post.content = '<p>' + 'co<strong>de</strong>&nbsp;word '.repeat(150)
+    + '</p><p>&amp;lt;b&amp;gt; &lt;em&gt;literal&lt;/em&gt;</p>';
+  themePackage.templates.set('post', '<output>{{post.reading_time}}</output>');
+
+  await buildSite({ previewData, themePackage, writer });
+
+  const files = writer.getFiles();
+  const document = parseDocument(getFileContent(files, 'posts/hello-zeropress/index.html'));
+  const [readingTime] = DomUtils.getElementsByTagName('output', document.children);
+  assert.equal(DomUtils.textContent(readingTime), '2 min read');
+  const searchItems = JSON.parse(getFileContent(files, '_zeropress/search.json'));
+  assert.equal(
+    searchItems.find((item) => item.id === 'post:hello-zeropress').content_text,
+    'code word '.repeat(150) + '&lt;b&gt; <em>literal</em>',
+  );
+});
+
 test('buildSite emits native static search artifacts and adapter results', async () => {
   const writer = new MemoryWriter();
   const previewData = await loadDefaultPreviewData();
@@ -4417,8 +4453,8 @@ test('buildSite skips archive routes when archive template is missing', async ()
   assert.equal(files.some((file) => file.path === 'archive/index.html'), false);
   assert.match(getFileContent(files, 'index.html'), /archive=false:/);
 
-  const sitemapXml = getFileContent(files, 'sitemap.xml');
-  assert.equal(sitemapXml.includes('https://example.com/archive/'), false);
+  const sitemapUrls = getSitemapUrls(getFileContent(files, 'sitemap.xml'));
+  assert.equal(sitemapUrls.has('https://example.com/archive/'), false);
 });
 
 test('buildSite skips category routes and sitemap entries when category template is missing', async () => {
@@ -4435,8 +4471,8 @@ test('buildSite skips category routes and sitemap entries when category template
   const files = writer.getFiles();
   assert.equal(files.some((file) => file.path.startsWith('categories/')), false);
 
-  const sitemapXml = getFileContent(files, 'sitemap.xml');
-  assert.equal(sitemapXml.includes('https://example.com/categories/general/'), false);
+  const sitemapUrls = getSitemapUrls(getFileContent(files, 'sitemap.xml'));
+  assert.equal(sitemapUrls.has('https://example.com/categories/general/'), false);
 });
 
 test('buildSite skips tag routes and sitemap entries when tag template is missing', async () => {
@@ -4453,8 +4489,8 @@ test('buildSite skips tag routes and sitemap entries when tag template is missin
   const files = writer.getFiles();
   assert.equal(files.some((file) => file.path.startsWith('tags/')), false);
 
-  const sitemapXml = getFileContent(files, 'sitemap.xml');
-  assert.equal(sitemapXml.includes('https://example.com/tags/intro/'), false);
+  const sitemapUrls = getSitemapUrls(getFileContent(files, 'sitemap.xml'));
+  assert.equal(sitemapUrls.has('https://example.com/tags/intro/'), false);
 });
 
 test('buildSite emits only renderable special-file URLs when optional route templates are missing', async () => {
@@ -4477,12 +4513,12 @@ test('buildSite emits only renderable special-file URLs when optional route temp
   assert.equal(files.some((file) => file.path.startsWith('categories/')), false);
   assert.equal(files.some((file) => file.path.startsWith('tags/')), false);
 
-  const sitemapXml = getFileContent(files, 'sitemap.xml');
-  assert.equal(sitemapXml.includes('https://example.com/archive/'), false);
-  assert.equal(sitemapXml.includes('https://example.com/categories/general/'), false);
-  assert.equal(sitemapXml.includes('https://example.com/tags/intro/'), false);
-  assert.equal(sitemapXml.includes('https://example.com/posts/hello-zeropress/'), true);
-  assert.equal(sitemapXml.includes('https://example.com/about/'), true);
+  const sitemapUrls = getSitemapUrls(getFileContent(files, 'sitemap.xml'));
+  assert.equal(sitemapUrls.has('https://example.com/archive/'), false);
+  assert.equal(sitemapUrls.has('https://example.com/categories/general/'), false);
+  assert.equal(sitemapUrls.has('https://example.com/tags/intro/'), false);
+  assert.equal(sitemapUrls.has('https://example.com/posts/hello-zeropress/'), true);
+  assert.equal(sitemapUrls.has('https://example.com/about/'), true);
 });
 
 test('buildSite releases the archive route when disabled and claims it when enabled', async () => {
@@ -4560,8 +4596,7 @@ test('buildSite omits comment container markup when site.comments.enabled is fal
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
-  assert.equal(postHtml.includes('data-zp-comments'), false);
-  assert.equal(postHtml.includes('htmx.org'), false);
+  assert.equal(getCommentsMounts(postHtml).length, 0);
 });
 
 test('buildSite treats omitted post.allow_comments as false', async () => {
@@ -4579,8 +4614,7 @@ test('buildSite treats omitted post.allow_comments as false', async () => {
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
-  assert.equal(postHtml.includes('data-zp-comments'), false);
-  assert.equal(postHtml.includes('htmx.org'), false);
+  assert.equal(getCommentsMounts(postHtml).length, 0);
 });
 
 test('buildSite renders an empty comments mount when comments are enabled', async () => {
@@ -4595,13 +4629,15 @@ test('buildSite renders an empty comments mount when comments are enabled', asyn
   });
 
   const postHtml = getFileContent(writer.getFiles(), 'posts/hello-zeropress/index.html');
-  assert.equal(postHtml.includes('data-zp-comments'), true);
-  assert.equal(postHtml.includes('data-zp-comments-target-type="post"'), true);
-  assert.equal(postHtml.includes('data-zp-comments-target-public-id="101"'), true);
-  assert.equal(postHtml.includes('data-zp-comments-provider="zeropress"'), true);
-  assert.equal(postHtml.includes('data-zp-comments-api-base-url="https://comments.example.com"'), true);
-  assert.equal(postHtml.includes('hidden'), true);
-  assert.equal(postHtml.includes('htmx.org'), false);
+  const mounts = getCommentsMounts(postHtml);
+  assert.equal(mounts.length, 1);
+  const [mount] = mounts;
+  assert.equal(mount.attribs['data-zp-comments-target-type'], 'post');
+  assert.equal(mount.attribs['data-zp-comments-target-public-id'], '101');
+  assert.equal(mount.attribs['data-zp-comments-provider'], 'zeropress');
+  assert.equal(mount.attribs['data-zp-comments-api-base-url'], 'https://comments.example.com');
+  assert.ok(Object.hasOwn(mount.attribs, 'hidden'));
+  assert.equal(mount.children.length, 0);
 });
 
 test('buildSite disables comments when the theme capability is missing', async () => {
