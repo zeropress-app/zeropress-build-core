@@ -80,8 +80,18 @@ export interface BuildSummaryFile {
   sha256: string;
 }
 
+export interface BuildWarning {
+  code: 'MENU_MAX_DEPTH_EXCEEDED';
+  message: string;
+  menuId: string;
+  maxDepth: number;
+  actualDepth: number;
+  omittedItems: number;
+}
+
 export interface BuildSiteResult {
   files: BuildSummaryFile[];
+  warnings: BuildWarning[];
 }
 
 export function buildSite(input: {

@@ -118,7 +118,8 @@ Returns:
       size: 1234,
       sha256: '...'
     }
-  ]
+  ],
+  warnings: []
 }
 ```
 
@@ -144,6 +145,20 @@ This is useful for local tooling that wants filesystem theme loading but still u
 
 Theme validation failures from either build entry point carry `error.code === 'THEME_VALIDATION_FAILED'`.
 Their messages preserve report and hint line breaks while escaping terminal control characters in diagnostic values such as paths, messages, and source snippets. CLI consumers can preserve the layout of these reports while escaping arbitrary errors as single-line text.
+
+## Menu depth
+
+`theme.json.menu_slots.<menu_id>.max_depth` optionally limits rendered depth
+(top-level items are depth 1). Omission leaves that menu unchanged. Items at the
+limit remain, with empty `children`; deeper descendants are excluded, without
+changing Preview Data. Direct `menus.<id>.items` loops and `{{menu:<id>}}` use
+the same tree.
+
+Both build APIs always return `warnings`. A depth overrun produces one
+`MENU_MAX_DEPTH_EXCEEDED` warning per menu per build, containing `message`,
+`menuId`, `maxDepth`, `actualDepth`, and `omittedItems` (all excluded
+descendants). It does not fail the build. The library does not print warnings;
+callers decide how to display them.
 
 ## Writers
 

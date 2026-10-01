@@ -7,6 +7,7 @@ import { renderDocument, renderDocumentContent } from '../render/content-rendere
 import { extractHtmlText } from '../render/html-text.js';
 import { createThemeValidationError } from '../theme/format-theme-validation.js';
 import { ZeroPressEngine } from '../render/zeropress-engine.js';
+import { prepareRenderMenus } from '../render/menus.js';
 
 const DEFAULT_OPTIONS = {
   assetHashing: true,
@@ -136,6 +137,7 @@ export async function buildSite(input) {
 
   return {
     files: state.summaries,
+    warnings: state.warnings,
   };
 }
 
@@ -151,6 +153,7 @@ async function createBuildState(input, options) {
   const assetProcessor = new AssetProcessor();
   const summaries = [];
   const previewData = normalizePreviewData(input.previewData, options);
+  const { menus, warnings } = prepareRenderMenus(previewData.menus, themePackage.metadata.menu_slots);
   const renderData = createRenderData(previewData, themePackage, options);
 
   engine.initialize(themePackage);
@@ -167,6 +170,8 @@ async function createBuildState(input, options) {
   return {
     writer: input.writer,
     previewData,
+    menus,
+    warnings,
     renderData,
     widgets: resolveWidgetAreas(previewData, renderData),
     engine,
@@ -214,7 +219,7 @@ async function renderRoute(state, templateName, route) {
   let html = await state.engine.render(
     templateName,
     {
-      menus: state.previewData.menus,
+      menus: state.menus,
       widgets: state.widgets,
       collections: state.renderData.collections,
       taxonomies: state.renderData.taxonomies,
@@ -267,7 +272,7 @@ async function renderFrontPage(state, route) {
     let html = await state.engine.render(
       'page',
       {
-        menus: state.previewData.menus,
+        menus: state.menus,
         widgets: state.widgets,
         collections: state.renderData.collections,
         taxonomies: state.renderData.taxonomies,
@@ -308,7 +313,7 @@ async function renderFrontPage(state, route) {
   let html = await state.engine.render(
     'index',
     {
-      menus: state.previewData.menus,
+      menus: state.menus,
       widgets: state.widgets,
       collections: state.renderData.collections,
       taxonomies: state.renderData.taxonomies,
@@ -343,7 +348,7 @@ async function renderPost(state, post) {
   let html = await state.engine.render(
     'post',
     {
-      menus: state.previewData.menus,
+      menus: state.menus,
       widgets: state.widgets,
       collections: state.renderData.collections,
       taxonomies: state.renderData.taxonomies,
@@ -391,7 +396,7 @@ async function renderPage(state, page) {
   let html = await state.engine.render(
     'page',
     {
-      menus: state.previewData.menus,
+      menus: state.menus,
       widgets: state.widgets,
       collections: state.renderData.collections,
       taxonomies: state.renderData.taxonomies,
@@ -437,7 +442,7 @@ async function maybeRenderNotFoundPage(state) {
   let html = await state.engine.render(
     '404',
     {
-      menus: state.previewData.menus,
+      menus: state.menus,
       widgets: state.widgets,
       collections: state.renderData.collections,
       taxonomies: state.renderData.taxonomies,
