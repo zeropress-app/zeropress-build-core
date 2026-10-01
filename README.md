@@ -1,8 +1,10 @@
 # @zeropress/build-core
 
-![npm](https://img.shields.io/npm/v/%40zeropress%2Fbuild-core)
-![license](https://img.shields.io/npm/l/%40zeropress%2Fbuild-core)
-![node](https://img.shields.io/node/v/%40zeropress%2Fbuild-core)
+[![Package Tests](https://github.com/zeropress-app/zeropress-build-core/actions/workflows/100-test.yml/badge.svg?branch=main)](https://github.com/zeropress-app/zeropress-build-core/actions/workflows/100-test.yml)
+[![CodeQL](https://github.com/zeropress-app/zeropress-build-core/actions/workflows/github-code-scanning/codeql/badge.svg?branch=main)](https://github.com/zeropress-app/zeropress-build-core/actions/workflows/github-code-scanning/codeql)
+[![npm](https://img.shields.io/npm/v/%40zeropress%2Fbuild-core)](https://www.npmjs.com/package/@zeropress/build-core)
+[![Socket Badge](https://badge.socket.dev/npm/package/@zeropress/build-core)](https://socket.dev/npm/package/@zeropress/build-core)
+<picture><img alt="license" src="https://img.shields.io/npm/l/%40zeropress%2Fbuild-core"></picture>
 
 Shared deterministic rendering core for Preview Data v0.7 and Theme Runtime v0.7.
 
@@ -10,6 +12,7 @@ This package is the canonical rendering core for preview-data and theme packages
 
 - [@zeropress/build](https://www.npmjs.com/package/@zeropress/build)
 - [@zeropress/theme](https://www.npmjs.com/package/@zeropress/theme)
+- [zeropress-studio](https://github.com/zeropress-app/zeropress-studio)
 
 Public contract references:
 
