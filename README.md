@@ -17,9 +17,9 @@ This package is the canonical rendering core for preview-data and theme packages
 Public contract references:
 
 - [Preview Data v0.7 Spec](https://zeropress.dev/reference/preview-data/specs/v0.7/)
-- [Preview Data v0.7 Schema](https://schemas.zeropress.dev/preview-data/v0.7/schema.json)
+- [Preview Data v0.7 Schema](https://www.schemastore.org/zeropress-preview-data-0.7.json)
 - [Theme Runtime v0.7 Spec](https://zeropress.dev/reference/theme-runtime/specs/v0.7/)
-- [Theme Runtime v0.7 Schema](https://schemas.zeropress.dev/theme-runtime/v0.7/schema.json)
+- [Theme Runtime v0.7 Schema](https://www.schemastore.org/zeropress-theme-runtime-0.7.json)
 
 It accepts canonical preview-data plus a validated theme package and produces static HTML artifacts through a writer interface.
 
