@@ -31,6 +31,7 @@ export interface BuildOptions {
   };
   sitemapStylesheetHref?: string;
   generateFeed?: boolean;
+  generateSearchIndex?: boolean;
   generateRobotsTxt?: boolean;
   reservedOutputPaths?: readonly string[];
 }
@@ -80,7 +81,7 @@ export interface BuildSummaryFile {
   sha256: string;
 }
 
-export interface BuildWarning {
+export interface MenuDepthWarning {
   code: 'MENU_MAX_DEPTH_EXCEEDED';
   message: string;
   menuId: string;
@@ -88,6 +89,25 @@ export interface BuildWarning {
   actualDepth: number;
   omittedItems: number;
 }
+
+export interface NativeSearchIndexLargeWarning {
+  code: 'NATIVE_SEARCH_INDEX_LARGE';
+  message: string;
+  byteLength: number;
+  recordCount: number;
+}
+
+export interface NativeSearchIndexSkippedWarning {
+  code: 'NATIVE_SEARCH_INDEX_SKIPPED';
+  message: string;
+  reason: 'requested' | 'record_limit' | 'size_limit';
+  recordCount: number;
+}
+
+export type BuildWarning =
+  | MenuDepthWarning
+  | NativeSearchIndexLargeWarning
+  | NativeSearchIndexSkippedWarning;
 
 export interface BuildSiteResult {
   files: BuildSummaryFile[];

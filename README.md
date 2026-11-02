@@ -238,7 +238,7 @@ Preview Data `post.excerpt` and `page.excerpt` are authored values. Build Core d
 
 Both fields are available on detail Post/Page contexts. The same precomputed summary is propagated to `posts.items[]`, archive and taxonomy items, Post/Page collection items, collection cursor `prev`/`next` items, and `post.prev`/`post.next`. Themes should use `summary` for optional list/card copy and retain `excerpt` for an explicitly authored detail lede.
 
-Post/Page metadata descriptions use `summary`; ordinary detail routes do not fall back to `site.description`. A Page used as the front page uses `site.description` only when neither an authored nor body-derived summary exists. RSS item descriptions use Post summaries. Native/Pagefind search continues to index the authored excerpt separately and creates a query-specific body excerpt when needed; it does not substitute the general runtime summary. User-defined `meta.description` keys remain ordinary generator/theme metadata and receive no special Build Core interpretation.
+Post/Page metadata descriptions use `summary`; ordinary detail routes do not fall back to `site.description`. A Page used as the front page uses `site.description` only when neither an authored nor body-derived summary exists. RSS item descriptions use Post summaries. When generated, the native search index uses the authored excerpt separately and creates a query-specific body excerpt when needed; it does not substitute the general runtime summary. User-defined `meta.description` keys remain ordinary generator/theme metadata and receive no special Build Core interpretation.
 
 Every ordinary rendered route receives effective feature state on `site`, regardless of whether the corresponding Preview Data preference was omitted:
 
@@ -368,7 +368,80 @@ For ordinary theme-rendered HTML routes, site customization order is determinist
 
 Closing `</head>` and `</body>` tags are matched case-insensitively. If a configured custom HTML slot has no matching closing tag, the build fails with the route, output path, missing tag, and remediation guidance instead of silently dropping the configured content. Themes that consume these slots must render the corresponding closing tag. A `site.front_page.type: "standalone_html"` document remains byte-for-byte independent and does not receive favicon, generator, custom CSS, or custom HTML injection.
 
+### Native search
+
 Native search artifacts are emitted only when preview-data does not set `site.search.enabled: false` and the active theme declares `features.search: true`. When that effective search state is disabled, search widgets are omitted from resolved widget items while their widget areas and non-search siblings remain available. The native adapter tokenizes non-CJK text with `Intl.Segmenter(site.locale)` and falls back to Unicode word matching only when Segmenter is unavailable or fails. CJK runs contribute their full token and unique bigrams while repeated occurrences still contribute term frequency. `search_pagefind.js` is a Pagefind adapter that can replace `search.js` after a post-build Pagefind step.
+
+Pass `options.generateSearchIndex: false` to `buildSite()` or
+`buildSiteFromThemeDir()` to skip native indexing work. Omission or `true`
+generates the index subject to the limits below. This option does not enable
+search on a site or theme that disables it, and it does not delete search
+files: `search.json`, `search.js`, and `search_pagefind.js` are still emitted
+when search is enabled. Explicit and count-based skips avoid extracting
+searchable body text; size checks stop incrementally before serializing an
+oversized record. Normal indexes retain their existing bytes.
+
+The limits use the uncompressed UTF-8 size of the existing two-space-indented
+JSON, including its final newline (1 MiB = 1,048,576 bytes). Searchable records
+are the published, non-delisted posts, pages, and page front page already
+included by the renderer. The front page is counted once.
+
+The first matching rule applies:
+
+| Condition | `search.json` | Search warning |
+| --- | --- | --- |
+| Site or theme search disabled | No search artifacts | None |
+| No searchable records | `[]` followed by a newline | None, even with indexing explicitly skipped |
+| Indexing explicitly skipped | One non-searchable placeholder | `NATIVE_SEARCH_INDEX_SKIPPED` (`requested`) |
+| More than 5,000 searchable records | One non-searchable placeholder | `NATIVE_SEARCH_INDEX_SKIPPED` (`record_limit`) |
+| JSON size at least 5 MiB | One non-searchable placeholder | `NATIVE_SEARCH_INDEX_SKIPPED` (`size_limit`) |
+| JSON size at least 2 MiB and less than 5 MiB | Complete index | `NATIVE_SEARCH_INDEX_LARGE` |
+| JSON size less than 2 MiB | Complete index | None |
+
+Exactly 5,000 records are allowed if the size limit is not reached. Limits
+cannot be bypassed, and no partial index is emitted. Skipping the index does
+not fail the build or change rendered HTML, effective `site.search.enabled`,
+search widgets, or either JavaScript adapter.
+
+When indexing is skipped for a nonempty site, the entire index is replaced by:
+
+```json
+[
+  {
+    "id": "zeropress:search-omitted",
+    "type": "page",
+    "title": "",
+    "url": "/",
+    "excerpt": "",
+    "headings": [],
+    "categories": [],
+    "tags": [],
+    "published_at_iso": "",
+    "updated_at_iso": "",
+    "content_text": ""
+  }
+]
+```
+
+All searchable fields are empty, so the existing native adapter returns no
+results for every query. This record is a placeholder, not a document: an array
+length of one must not be interpreted as one searchable page. A genuinely
+empty site keeps `[]` instead.
+
+The existing WXR starter Pagefind step uses that distinction: a placeholder
+allows it to index the rendered HTML and replace `search.js` with
+`search_pagefind.js`, while `[]` preserves its guard against crawling unmarked
+pages on a site without searchable content. Pagefind does not index the
+placeholder itself. No search manifest or additional output file is needed.
+
+At most one search warning is returned per build. `NATIVE_SEARCH_INDEX_LARGE`
+includes `byteLength` and `recordCount`; `NATIVE_SEARCH_INDEX_SKIPPED` includes
+`reason` and the actual `recordCount`. A size-limit warning does not report an
+exact final size because measurement stops at the limit. Warnings recommend
+an external search index such as Pagefind and state when native search will
+return no results.
+
+### Optional outputs
 
 When archive is disabled or `archive.html` is missing, archive routes and archive widget items are omitted while authored menu items, widget areas, and non-archive siblings remain unchanged. No archive output path is claimed in that state, so content may use `/archive`. Feed behaves the same way for `feed.xml`: a disabled feed neither emits nor claims the file. Enabled feeds add one RSS autodiscovery link to `meta.head_tags` on ordinary theme-rendered routes; `404.html` and standalone front-page HTML do not receive it.
 
@@ -391,6 +464,7 @@ Supported options:
 - `favicon`
 - `sitemapStylesheetHref`
 - `generateFeed`
+- `generateSearchIndex`
 - `generateRobotsTxt`
 - `reservedOutputPaths`
 
@@ -398,6 +472,7 @@ Defaults:
 
 - `assetHashing: true`
 - `generateFeed: true`
+- `generateSearchIndex: true` (automatic limits still apply)
 - `generateRobotsTxt: true`
 
 `reservedOutputPaths` is an internal orchestration boundary for callers that already own files in the final output tree, such as a copied public directory. Reserved files are safety-validated and participate in clean-URL alias, exact-path, and file/directory hierarchy collision checks, but Build Core does not write them or include them in the returned file summaries.

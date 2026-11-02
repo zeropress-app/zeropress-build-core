@@ -8,10 +8,12 @@ import { extractHtmlText } from '../render/html-text.js';
 import { createThemeValidationError } from '../theme/format-theme-validation.js';
 import { ZeroPressEngine } from '../render/zeropress-engine.js';
 import { prepareRenderMenus } from '../render/menus.js';
+import { buildSearchIndex } from '../search/build-search-index.js';
 
 const DEFAULT_OPTIONS = {
   assetHashing: true,
   generateFeed: true,
+  generateSearchIndex: true,
   generateRobotsTxt: true,
 };
 
@@ -3156,45 +3158,53 @@ function insertBeforeClosingTag(html, closingTagPattern, content) {
 }
 
 function buildSearchIndexJson(state) {
-  return `${JSON.stringify(buildSearchIndexItems(state), null, 2)}\n`;
+  const documents = [];
+  for (const post of state.renderData.posts) {
+    if (post.status === 'published' && !isDelistedDocument(post)) {
+      documents.push({ type: 'post', document: post });
+    }
+  }
+
+  const addPage = (page, url) => {
+    if (page && page.status === 'published' && !isDelistedDocument(page)) {
+      documents.push({
+        type: 'page',
+        document: page,
+        url,
+        referencePath: state.renderData.pageReferencePathByPage.get(page),
+      });
+    }
+  };
+  if (state.renderData.frontPageRoute?.front_page_type === 'page') {
+    addPage(state.renderData.frontPageRoute.page, '/');
+  }
+  for (const page of state.renderData.pages) addPage(page, page.url);
+
+  const result = buildSearchIndex({
+    documents,
+    generateSearchIndex: state.options.generateSearchIndex,
+    createItem: (entry) => entry.type === 'post'
+      ? buildSearchPostItem(entry.document)
+      : buildSearchPageItem(entry.document, entry.url, entry.referencePath),
+  });
+  state.warnings.push(...result.warnings);
+  return result.json;
 }
 
-function buildSearchIndexItems(state) {
-  const posts = state.renderData.posts
-    .filter((post) => post.status === 'published' && !isDelistedDocument(post))
-    .map((post) => ({
-      id: `post:${post.slug}`,
-      type: 'post',
-      title: post.title,
-      url: post.url,
-      excerpt: normalizeSearchText(post.excerpt),
-      headings: buildSearchHeadings(post.toc),
-      categories: Array.isArray(post.categories) ? post.categories.map((category) => category.name).filter(Boolean) : [],
-      tags: Array.isArray(post.tags) ? post.tags.map((tag) => tag.name).filter(Boolean) : [],
-      published_at_iso: normalizeIsoTimestamp(post.published_at_iso),
-      updated_at_iso: normalizeIsoTimestamp(post.updated_at_iso),
-      content_text: extractHtmlText(post.html),
-    }));
-
-  const frontPagePage = state.renderData.frontPageRoute?.front_page_type === 'page'
-    ? state.renderData.frontPageRoute.page
-    : null;
-  const frontPageItems = frontPagePage && frontPagePage.status === 'published' && !isDelistedDocument(frontPagePage)
-    ? [buildSearchPageItem(
-        frontPagePage,
-        '/',
-        state.renderData.pageReferencePathByPage.get(frontPagePage),
-      )]
-    : [];
-  const pageItems = state.renderData.pages
-    .filter((page) => page.status === 'published' && !isDelistedDocument(page))
-    .map((page) => buildSearchPageItem(
-      page,
-      page.url,
-      state.renderData.pageReferencePathByPage.get(page),
-    ));
-
-  return [...posts, ...frontPageItems, ...pageItems];
+function buildSearchPostItem(post) {
+  return {
+    id: `post:${post.slug}`,
+    type: 'post',
+    title: post.title,
+    url: post.url,
+    excerpt: normalizeSearchText(post.excerpt),
+    headings: buildSearchHeadings(post.toc),
+    categories: Array.isArray(post.categories) ? post.categories.map((category) => category.name).filter(Boolean) : [],
+    tags: Array.isArray(post.tags) ? post.tags.map((tag) => tag.name).filter(Boolean) : [],
+    published_at_iso: normalizeIsoTimestamp(post.published_at_iso),
+    updated_at_iso: normalizeIsoTimestamp(post.updated_at_iso),
+    content_text: extractHtmlText(post.html),
+  };
 }
 
 function buildSearchPageItem(page, url, pageReferencePath) {
