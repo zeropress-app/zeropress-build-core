@@ -22,6 +22,10 @@ export interface BuildWriter {
 }
 
 export interface BuildOptions {
+  /** Allow validated PNG/JPEG/GIF/WebP Base64 body images. Defaults to false. */
+  allowDataUriImages?: boolean;
+  /** Aggregate removed body image URLs; defaults to allowDataUriImages. */
+  reportDataUriImages?: boolean;
   /** Inclusive UTF-8 input-body maximum; omitted/null means no body-policy ceiling. */
   maxBodyBytes?: number | null;
   assetHashing?: boolean;
@@ -107,7 +111,18 @@ export interface NativeSearchIndexSkippedWarning {
   recordCount: number;
 }
 
+export interface DataUriImagesRemovedWarning {
+  code: 'DATA_URI_IMAGES_REMOVED';
+  message: string;
+  count: number;
+  documentCount: number;
+  reasons: Partial<Record<import('./content.js').DataUriImageRemovalReason, number>>;
+  /** At most ten examples; no image payloads, source text or URLs. */
+  affected: { collection: 'posts' | 'pages'; publicId?: number }[];
+}
+
 export type BuildWarning =
+  | DataUriImagesRemovedWarning
   | import('@zeropress/preview-data-validator/content-policy').ContentBodyWarning
   | MenuDepthWarning
   | NativeSearchIndexLargeWarning

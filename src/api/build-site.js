@@ -5,6 +5,7 @@ import { isSafeSlugSegment, normalizeStoredSlug } from '@zeropress/slug-policy';
 import { validateThemeFiles } from '@zeropress/theme-validator';
 import { AssetProcessor } from '../assets/asset-processor.js';
 import { renderDocument, renderDocumentContent } from '../render/content-renderer.js';
+import { assertDataUriOptions, createDataImageWarningCollector } from '../render/data-uri-images.js';
 import { extractHtmlText } from '../render/html-text.js';
 import { createThemeValidationError } from '../theme/format-theme-validation.js';
 import { ZeroPressEngine } from '../render/zeropress-engine.js';
@@ -78,6 +79,7 @@ export async function buildSite(input) {
 }
 
 export async function buildSiteFromSource(input) {
+  assertDataUriOptions(input.options);
   const bodyPolicy = normalizeBodyPolicy(input.options);
   const bodyWarnings = createBodyWarningCollector();
   const previewData = await readSourceCatalog(input.source, input.workStore, bodyWarnings, bodyPolicy);
@@ -86,6 +88,7 @@ export async function buildSiteFromSource(input) {
 
 async function buildInternal(input, workStore, bodyWarnings = createBodyWarningCollector(), bodyPolicy = normalizeBodyPolicy(input.options)) {
   const options = { ...DEFAULT_OPTIONS, ...(input.options || {}) };
+  assertDataUriOptions(options);
   const state = await createBuildState(input, options, workStore, bodyWarnings, bodyPolicy);
   try {
   assertPlannedOutputPathsSafe(state);
@@ -179,7 +182,9 @@ async function createBuildState(input, options, workStore, bodyWarnings, bodyPol
   const { menus, warnings } = prepareRenderMenus(previewData.menus, themePackage.metadata.menu_slots);
   warnings.push(...bodyWarnings.warnings());
   const payloads = createPayloadManager(workStore);
-  const renderData = await createRenderData(previewData, themePackage, options, payloads);
+  const imageWarnings = createDataImageWarningCollector(options);
+  const renderData = await createRenderData(previewData, themePackage, options, payloads, imageWarnings);
+  warnings.push(...imageWarnings.warnings());
 
   engine.initialize(themePackage);
 
@@ -1010,7 +1015,7 @@ function normalizePostIndex(post_index) {
   };
 }
 
-async function createRenderData(previewData, themePackage = {}, options = {}, payloads = null) {
+async function createRenderData(previewData, themePackage = {}, options = {}, payloads = null, imageWarnings) {
   const themeMetadata = themePackage.metadata || {};
   const themeSupportsComments = themeMetadata?.features?.comments === true;
   const themeSupportsPostIndex = themeMetadata?.features?.post_index !== false;
@@ -1090,7 +1095,7 @@ async function createRenderData(previewData, themePackage = {}, options = {}, pa
   const preparedPosts = [];
   for (const post of previewData.content.posts) {
     const raw = payloads ? await payloads.raw(post) : post;
-    const prepared = preparePost(raw, previewData.site, authorsById, categoriesBySlug, tagsBySlug);
+    const prepared = preparePost(raw, previewData.site, authorsById, categoriesBySlug, tagsBySlug, imageWarnings.forDocument('posts', raw));
     preparedPosts.push(payloads ? await payloads.prepare(prepared) : prepared);
   }
   const discoverablePreparedPosts = preparedPosts.filter((post) => !isDelistedDocument(post));
@@ -1108,7 +1113,7 @@ async function createRenderData(previewData, themePackage = {}, options = {}, pa
   const pages = [];
   for (const page of previewData.content.pages) {
     const raw = payloads ? await payloads.raw(page) : page;
-    const prepared = preparePage(raw, previewData.site);
+    const prepared = preparePage(raw, previewData.site, imageWarnings.forDocument('pages', raw));
     pages.push(payloads ? await payloads.prepare(prepared) : prepared);
   }
   const pageReferencePathByPage = new Map(pages.map((page, index) => [
@@ -1735,9 +1740,9 @@ function resolveProfileWidget(baseWidget, settings) {
   };
 }
 
-function preparePage(page, site) {
+function preparePage(page, site, contentOptions) {
   const documentType = normalizeDocumentType(page.document_type);
-  const renderedDocument = renderDocument(page.content, documentType);
+  const renderedDocument = renderDocument(page.content, documentType, contentOptions);
   const permalink = resolvePagePermalink(site, page);
   const pageFields = { ...page };
   const excerpt = typeof page.excerpt === 'string' ? page.excerpt : '';
@@ -1755,9 +1760,9 @@ function preparePage(page, site) {
   };
 }
 
-function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug) {
+function preparePost(post, site, authorsById, categoriesBySlug, tagsBySlug, contentOptions) {
   const documentType = normalizeDocumentType(post.document_type);
-  const renderedDocument = renderDocument(post.content, documentType);
+  const renderedDocument = renderDocument(post.content, documentType, contentOptions);
   const excerpt = typeof post.excerpt === 'string' ? post.excerpt : '';
   const author = authorsById.get(post.author_id);
   const permalink = resolvePermalink(site, 'posts', post);

@@ -2,6 +2,7 @@ import MarkdownIt from 'markdown-it';
 import anchor from 'markdown-it-anchor';
 import sanitizeHtmlParser from 'sanitize-html';
 import { renderCodeBlocks } from './code-blocks.js';
+import { assertDataUriOptions, dataImageSanitizerOptions } from './data-uri-images.js';
 
 const TOC_LEVELS = new Set([2, 3, 4]);
 const ALERT_TYPES = new Map([
@@ -92,11 +93,15 @@ const CONTENT_SANITIZER_OPTIONS = {
   },
 };
 
-export function renderDocumentContent(content, documentType = 'markdown') {
-  return renderDocument(content, documentType).html;
+export function renderDocumentContent(content, documentType = 'markdown', options = {}) {
+  return renderDocument(content, documentType, options).html;
 }
 
-export function renderDocument(content, documentType = 'markdown') {
+export function renderDocument(content, documentType = 'markdown', options = {}) {
+  assertDataUriOptions(options);
+  if (options.onDataUriImageRemoved !== undefined && typeof options.onDataUriImageRemoved !== 'function') {
+    throw new TypeError('onDataUriImageRemoved must be a function');
+  }
   const normalizedContent = typeof content === 'string' ? content : '';
   const normalizedType = normalizeDocumentType(documentType);
 
@@ -109,20 +114,20 @@ export function renderDocument(content, documentType = 'markdown') {
 
   if (normalizedType === 'html') {
     return {
-      html: renderCodeBlocks(sanitizeHtml(normalizedContent)),
+      html: renderCodeBlocks(sanitizeHtml(normalizedContent, options)),
       toc: [],
     };
   }
 
-  return renderMarkdownDocument(normalizedContent);
+  return renderMarkdownDocument(normalizedContent, options);
 }
 
-function renderMarkdownDocument(content) {
+function renderMarkdownDocument(content, options) {
   const toc = [];
   const markdown = createMarkdownRenderer(toc);
 
   return {
-    html: renderCodeBlocks(sanitizeHtml(markdown.render(content)), { autoDetect: true }),
+    html: renderCodeBlocks(sanitizeHtml(markdown.render(content), options), { autoDetect: true }),
     toc,
   };
 }
@@ -485,8 +490,8 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function sanitizeHtml(html) {
-  return sanitizeHtmlParser(html, CONTENT_SANITIZER_OPTIONS);
+function sanitizeHtml(html, options) {
+  return sanitizeHtmlParser(html, dataImageSanitizerOptions(CONTENT_SANITIZER_OPTIONS, options));
 }
 
 function transformAnchor(tagName, attributes) {

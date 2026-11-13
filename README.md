@@ -256,6 +256,53 @@ Build-core derives:
 - effective `post.summary` and `page.summary` values for theme listings and metadata
 - a route-root `comments` discriminated context
 
+### Data URI body images
+
+Data URI image URLs are removed by default. Set
+`BuildOptions.allowDataUriImages: true` to opt in for this build only. The
+standalone content entry accepts a third options argument:
+
+```js
+const { html } = renderDocument(source, 'markdown', { allowDataUriImages: true });
+```
+
+Only `data:image/png;base64,...`, `data:image/jpeg;base64,...`,
+`data:image/gif;base64,...` and `data:image/webp;base64,...` are accepted, with
+case-insensitive MIME names. Base64 must use the standard alphabet and canonical
+padding, without whitespace, percent encoding or additional MIME parameters.
+The decoded header/signature must match the declared type; basic container/end
+markers are checked without decoding the whole image. This is not a complete
+image decoder or a pixel/dimension limit.
+
+The permission applies to body Markdown images and HTML `<img src>` / each
+`<img srcset>` candidate. SVG, other formats, links, iframes, CSS URLs, media
+`<source>` elements, text widgets and structured fields such as `featured_image`
+and site logos keep their existing policies. Unsupported Markdown destinations
+that the Markdown parser leaves as literal text are not rendered images and
+do not produce a removal warning. Code examples and plaintext remain literal.
+
+Images stay inline in the HTML; no asset files are extracted. Input body limits,
+search limits, path protection and output replacement checks still apply.
+Base64 contributes to the body size and to every generated page containing it.
+Check the final HTML against hosting file limits; external image files remain
+preferable for larger or reused images. Authored Markdown/source exports are
+not rewritten by this rendering policy.
+
+Build warnings aggregate removals as `DATA_URI_IMAGES_REMOVED` with `count`
+(image URLs, including srcset candidates), `documentCount`, per-reason counts
+(`disabled`, `unsupported_format`, `invalid_base64`, `invalid_image`) and at
+most ten affected collection/public-ID examples (IDs when present). Payloads
+and URLs are never included. Each body is counted once even when it appears on
+multiple routes. The API never logs. Malformed `srcset` candidates are discarded
+before sanitization without logging their URLs or embedded image data.
+
+`reportDataUriImages` defaults to the value of `allowDataUriImages` (false when
+both are omitted). Callers can enable reporting while retaining default removal;
+Build Pages does this. Existing WXR and Studio callers keep their original
+behavior. The content-only API offers an optional
+`onDataUriImageRemoved(reason)` callback instead of build-level aggregation.
+Neither option mutates shared sanitizer defaults or Preview Data.
+
 ### Authored excerpts and runtime summaries
 
 Preview Data `post.excerpt` and `page.excerpt` are authored values. Build Core does not replace them with body text; an omitted Page excerpt becomes `""` in the runtime context. It derives a separate `summary` once from each prepared Post or Page:
@@ -495,6 +542,8 @@ Supported options:
 - `generateFeed`
 - `generateSearchIndex`
 - `maxBodyBytes`
+- `allowDataUriImages`
+- `reportDataUriImages`
 - `generateRobotsTxt`
 - `reservedOutputPaths`
 
@@ -504,6 +553,8 @@ Defaults:
 - `generateFeed: true`
 - `generateSearchIndex: true` (automatic limits still apply)
 - `maxBodyBytes`: no ceiling when omitted, `undefined` or `null`; a positive integer sets an inclusive UTF-8 input body limit
+- `allowDataUriImages: false`
+- `reportDataUriImages`: follows `allowDataUriImages` unless explicitly set
 - `generateRobotsTxt: true`
 
 `reservedOutputPaths` is an internal orchestration boundary for callers that already own files in the final output tree, such as a copied public directory. Reserved files are safety-validated and participate in clean-URL alias, exact-path, and file/directory hierarchy collision checks, but Build Core does not write them or include them in the returned file summaries.
