@@ -149,6 +149,35 @@ This is useful for local tooling that wants filesystem theme loading but still u
 Theme validation failures from either build entry point carry `error.code === 'THEME_VALIDATION_FAILED'`.
 Their messages preserve report and hint line breaks while escaping terminal control characters in diagnostic values such as paths, messages, and source snippets. CLI consumers can preserve the layout of these reports while escaping arbitrary errors as single-line text.
 
+## Post and page body limits
+
+Input `posts/pages.content` warns from **256 KiB (262,144 UTF-8 bytes)**, including
+markup, whitespace and inline data. There is no fixed body ceiling by default;
+existing format, memory, time and storage constraints still apply.
+
+Set `BuildOptions.maxBodyBytes` to a positive integer below
+`Number.MAX_SAFE_INTEGER` for an inclusive maximum. `{ maxBodyBytes: 1048576 }`
+accepts exactly 1 MiB and rejects larger input with `CONTENT_BODY_TOO_LARGE`.
+Omission, `undefined` or `null` selects no ceiling. Zero, fractions, non-finite
+values and strings are invalid. Use a finite ceiling when processing untrusted
+content within a fixed resource budget.
+
+Object and source APIs check real content before rendering or calling the public
+writer. Source preflight runs before compact records replace bodies. Delisted
+records, front pages and search-disabled sites remain subject to the configured
+maximum; `generateSearchIndex: false` does not bypass it. Content is not truncated
+and accepted output bytes remain unchanged.
+
+Core returns at most one `CONTENT_BODY_LARGE` warning with `count`,
+`maxBodyBytes`, up to 20 `affected` identifiers and `omittedExamples`, without
+logging. Size-error `details.limitBytes` identifies the configured ceiling;
+`bodyBytes` is a lower bound when `exact` is false.
+
+The option checks input content, not rendered HTML or final themed pages.
+Rendering can increase file sizes. Schema validation, chunk/work-store limits
+and standalone content-rendering helpers keep their own contracts. This does
+not bound memory already allocated by object callers or enable Base64 images.
+
 ## Menu depth
 
 `theme.json.menu_slots.<menu_id>.max_depth` optionally limits rendered depth
@@ -465,6 +494,7 @@ Supported options:
 - `sitemapStylesheetHref`
 - `generateFeed`
 - `generateSearchIndex`
+- `maxBodyBytes`
 - `generateRobotsTxt`
 - `reservedOutputPaths`
 
@@ -473,6 +503,7 @@ Defaults:
 - `assetHashing: true`
 - `generateFeed: true`
 - `generateSearchIndex: true` (automatic limits still apply)
+- `maxBodyBytes`: no ceiling when omitted, `undefined` or `null`; a positive integer sets an inclusive UTF-8 input body limit
 - `generateRobotsTxt: true`
 
 `reservedOutputPaths` is an internal orchestration boundary for callers that already own files in the final output tree, such as a copied public directory. Reserved files are safety-validated and participate in clean-URL alias, exact-path, and file/directory hierarchy collision checks, but Build Core does not write them or include them in the returned file summaries.

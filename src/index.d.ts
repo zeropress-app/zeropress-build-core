@@ -22,6 +22,8 @@ export interface BuildWriter {
 }
 
 export interface BuildOptions {
+  /** Inclusive UTF-8 input-body maximum; omitted/null means no body-policy ceiling. */
+  maxBodyBytes?: number | null;
   assetHashing?: boolean;
   favicon?: {
     icon?: string;
@@ -106,6 +108,7 @@ export interface NativeSearchIndexSkippedWarning {
 }
 
 export type BuildWarning =
+  | import('@zeropress/preview-data-validator/content-policy').ContentBodyWarning
   | MenuDepthWarning
   | NativeSearchIndexLargeWarning
   | NativeSearchIndexSkippedWarning;

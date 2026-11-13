@@ -1,12 +1,13 @@
 import { createPreviewDataValidationSession, PREVIEW_CONTENT_COLLECTIONS } from '@zeropress/preview-data-validator';
 import { assertSourceCollections, assertValidation } from '@zeropress/preview-data-validator/chunks';
+import { checkBodySize } from '@zeropress/preview-data-validator/content-policy';
 
 const RAW = Symbol('raw document payload');
 const STORED = Symbol('prepared document payload');
 const PAYLOAD_FIELDS = ['content', 'html', 'toc', 'excerpt', 'meta', 'data'];
 const CACHE_BYTES = 32 * 1024 * 1024;
 
-export async function readSourceCatalog(source, workStore) {
+export async function readSourceCatalog(source, workStore, bodyWarnings, bodyPolicy) {
   if (!source || typeof source.records !== 'function' || !workStore?.put || !workStore?.get) {
     throw new Error('buildSiteFromSource requires a replayable source and a workStore with put/get');
   }
@@ -24,6 +25,9 @@ export async function readSourceCatalog(source, workStore) {
         throw error;
       }
       if (collection === 'posts' || collection === 'pages') {
+        const identity = `${collection}:${entry.value.public_id ?? entry.value.slug}`;
+        const bytes = checkBodySize(entry.value.content, identity, 'Preview Data content', bodyPolicy);
+        bodyWarnings.add(identity, bytes);
         const { content: body, excerpt, meta, data, ...fields } = entry.value;
         const payload = { content: body, ...(Object.hasOwn(entry.value, 'excerpt') ? { excerpt } : {}), ...(meta !== undefined ? { meta } : {}), ...(data !== undefined ? { data } : {}) };
         content[collection].push({ ...fields, content: '', ...(collection === 'posts' ? { excerpt: '' } : {}), [RAW]: await workStore.put(payload) });

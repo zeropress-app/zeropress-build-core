@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { assertPreviewData } from '@zeropress/preview-data-validator';
+import { checkBodySize, createBodyWarningCollector, normalizeBodyPolicy } from '@zeropress/preview-data-validator/content-policy';
 import { isSafeSlugSegment, normalizeStoredSlug } from '@zeropress/slug-policy';
 import { validateThemeFiles } from '@zeropress/theme-validator';
 import { AssetProcessor } from '../assets/asset-processor.js';
@@ -77,13 +78,15 @@ export async function buildSite(input) {
 }
 
 export async function buildSiteFromSource(input) {
-  const previewData = await readSourceCatalog(input.source, input.workStore);
-  return buildInternal({ ...input, previewData }, input.workStore);
+  const bodyPolicy = normalizeBodyPolicy(input.options);
+  const bodyWarnings = createBodyWarningCollector();
+  const previewData = await readSourceCatalog(input.source, input.workStore, bodyWarnings, bodyPolicy);
+  return buildInternal({ ...input, previewData }, input.workStore, bodyWarnings, bodyPolicy);
 }
 
-async function buildInternal(input, workStore) {
+async function buildInternal(input, workStore, bodyWarnings = createBodyWarningCollector(), bodyPolicy = normalizeBodyPolicy(input.options)) {
   const options = { ...DEFAULT_OPTIONS, ...(input.options || {}) };
-  const state = await createBuildState(input, options, workStore);
+  const state = await createBuildState(input, options, workStore, bodyWarnings, bodyPolicy);
   try {
   assertPlannedOutputPathsSafe(state);
 
@@ -155,12 +158,18 @@ async function buildInternal(input, workStore) {
   } finally { state.payloads?.clear(); }
 }
 
-async function createBuildState(input, options, workStore) {
+async function createBuildState(input, options, workStore, bodyWarnings, bodyPolicy) {
   if (!input?.writer || typeof input.writer.write !== 'function') {
     throw new Error('buildSite requires a writer with an async write(file) method');
   }
 
-  if (!workStore) assertBuildPreviewData(input.previewData);
+  if (!workStore) {
+    assertBuildPreviewData(input.previewData);
+    for (const collection of ['posts', 'pages']) for (const record of input.previewData.content[collection] || []) {
+      const identity = `${collection}:${record.public_id ?? record.slug}`;
+      bodyWarnings.add(identity, checkBodySize(record.content, identity, 'Preview Data content', bodyPolicy));
+    }
+  }
   const themePackage = await normalizeAndValidateThemePackage(input.themePackage);
 
   const engine = new ZeroPressEngine();
@@ -168,6 +177,7 @@ async function createBuildState(input, options, workStore) {
   const summaries = [];
   const previewData = normalizePreviewData(input.previewData, options);
   const { menus, warnings } = prepareRenderMenus(previewData.menus, themePackage.metadata.menu_slots);
+  warnings.push(...bodyWarnings.warnings());
   const payloads = createPayloadManager(workStore);
   const renderData = await createRenderData(previewData, themePackage, options, payloads);
 

@@ -91,19 +91,27 @@ test('site and theme search disabling take precedence over the indexing option',
   }
 });
 
-test('automatic size omission still emits the adapters and succeeds', async () => {
-  const input = await fixture();
-  input.previewData.content.posts = [input.previewData.content.posts[0]];
-  input.previewData.content.posts[0].content = '<p>' + 'x'.repeat(5 * 1024 * 1024) + '</p>';
-  input.previewData.content.pages = [];
-  const result = await build(input);
-  assert.equal(result.warnings.length, 1);
-  assert.equal(result.warnings[0].reason, 'size_limit');
-  assert.equal(result.warnings[0].recordCount, 1);
-  assert.equal(JSON.parse(String(result.output.get(indexPath))).length, 1);
-  assert.equal(JSON.parse(String(result.output.get(indexPath)))[0].id, 'zeropress:search-omitted');
-  for (const name of adapterPaths) assert.ok(result.output.has(name));
-});
+for (const [recordCount, bodyBytes] of [[1, 5 * 1024 * 1024], [6, 900 * 1024]]) {
+  test(`automatic search size omission succeeds with ${recordCount} body/bodies of ${bodyBytes} bytes`, async () => {
+    const input = await fixture();
+    const content = '<p>' + 'x'.repeat(bodyBytes - 7) + '</p>';
+    input.previewData.content.posts = Array.from({ length: recordCount }, (_, i) => ({
+      ...input.previewData.content.posts[0], public_id: 100 + i, slug: `example-${i}`, content,
+    }));
+    input.previewData.content.pages = [];
+    // No body ceiling by default, even when one body alone reaches 5 MiB.
+    const result = await build(input);
+    const warning = result.warnings.find(w => w.code === 'NATIVE_SEARCH_INDEX_SKIPPED');
+    assert.equal(warning.reason, 'size_limit');
+    assert.equal(warning.recordCount, recordCount);
+    assert.equal(result.warnings.filter(w => w.code.startsWith('NATIVE_SEARCH_')).length, 1);
+    assert.equal(result.warnings.find(w => w.code === 'CONTENT_BODY_LARGE').count, recordCount);
+    assert.equal(JSON.parse(String(result.output.get(indexPath))).length, 1);
+    assert.equal(JSON.parse(String(result.output.get(indexPath)))[0].id, 'zeropress:search-omitted');
+    for (const name of adapterPaths) assert.ok(result.output.has(name));
+    assert.ok(String(result.output.get('posts/example-0/index.html')).includes(content), 'render the complete accepted body');
+  });
+}
 
 test('the unchanged native adapter never matches the sentinel with either tokenizer', async () => {
   const input = await fixture();
