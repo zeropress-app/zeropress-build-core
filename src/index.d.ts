@@ -1,4 +1,4 @@
-import type { PreviewDataV07 } from '@zeropress/preview-data-validator';
+import type { PreviewDataV07, PreviewDataSource, PreviewDataWorkStore } from '@zeropress/preview-data-validator';
 import type { ThemeManifest } from '@zeropress/theme-validator';
 
 export interface ThemePackage {
@@ -18,6 +18,7 @@ export interface BuildCoreFile {
 
 export interface BuildWriter {
   write(file: BuildCoreFile): Promise<void>;
+  writeStream?(file: BuildCoreStreamFile): Promise<void>;
 }
 
 export interface BuildOptions {
@@ -135,6 +136,29 @@ export class MemoryWriter implements BuildWriter {
 }
 
 export class FilesystemWriter implements BuildWriter {
+  writeStream(file: BuildCoreStreamFile): Promise<void>;
   constructor(options: { outDir: string });
   write(file: BuildCoreFile): Promise<void>;
 }
+
+export interface BuildCoreStreamFile {
+  path: string;
+  content: AsyncIterable<string | Uint8Array> | Iterable<string | Uint8Array>;
+  contentType: string;
+}
+export function buildSiteFromSource(input: {
+  source: PreviewDataSource;
+  workStore: PreviewDataWorkStore;
+  themePackage: ThemePackage;
+  writer: BuildWriter;
+  options?: BuildOptions;
+}): Promise<BuildSiteResult>;
+export function buildSiteFromSourceAndThemeDir(input: {
+  source: PreviewDataSource;
+  workStore: PreviewDataWorkStore;
+  themeDir: string;
+  writer: BuildWriter;
+  options?: BuildOptions;
+}): Promise<BuildSiteResult>;
+
+export type { PreviewDataV07, PreviewDataSource, PreviewDataWorkStore } from '@zeropress/preview-data-validator';

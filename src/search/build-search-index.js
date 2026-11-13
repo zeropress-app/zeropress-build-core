@@ -16,36 +16,54 @@ const OMITTED_INDEX_JSON = `${JSON.stringify([{
   content_text: '',
 }], null, 2)}\n`;
 
-// createItem stays lazy: skip/count limits must not extract searchable body text.
+// Both callers use the same accumulator; skipped builds never request a body.
 export function buildSearchIndex({ documents, createItem, generateSearchIndex = true }) {
-  const recordCount = documents.length;
-  if (recordCount === 0) return { json: '[]\n', warnings: [] };
-  if (generateSearchIndex === false) return skippedIndex('requested', recordCount);
-  if (recordCount > MAX_RECORDS) return skippedIndex('record_limit', recordCount);
-
-  const chunks = [];
-  // Opening "[\n" and closing "\n]\n", including the final newline.
-  let byteLength = 5;
-  for (const document of documents) {
-    const item = createItem(document);
-    const separatorBytes = chunks.length === 0 ? 0 : 2;
-    const remaining = MAX_BYTES - byteLength - separatorBytes;
-    const itemBytes = measureItemBytes(item, remaining);
-    if (itemBytes >= remaining) return skippedIndex('size_limit', recordCount);
-
-    // Only serialize a record after proving it fits. Indentation matches the
-    // original JSON.stringify(items, null, 2) output byte for byte.
-    chunks.push('  ' + JSON.stringify(item, null, 2).replaceAll('\n', '\n  '));
-    byteLength += separatorBytes + itemBytes;
+  const builder = searchAccumulator(documents.length, generateSearchIndex);
+  if (!builder.result) for (const document of documents) {
+    if (!builder.add(createItem(document))) break;
   }
+  return builder.finish();
+}
 
-  const warnings = byteLength >= WARNING_BYTES ? [{
-    code: 'NATIVE_SEARCH_INDEX_LARGE',
-    message: `Native search index is ${byteLength} bytes (${recordCount} searchable records). Consider an external search index such as Pagefind for larger sites.`,
-    byteLength,
-    recordCount,
-  }] : [];
-  return { json: `[\n${chunks.join(',\n')}\n]\n`, warnings };
+export async function buildSearchIndexAsync({ documents, createItem, generateSearchIndex = true }) {
+  const builder = searchAccumulator(documents.length, generateSearchIndex);
+  if (!builder.result) for (const document of documents) {
+    if (!builder.add(await createItem(document))) break;
+  }
+  return builder.finish();
+}
+
+function searchAccumulator(recordCount, generateSearchIndex) {
+  let result = recordCount === 0 ? { json: '[]\n', warnings: [] }
+    : generateSearchIndex === false ? skippedIndex('requested', recordCount)
+    : recordCount > MAX_RECORDS ? skippedIndex('record_limit', recordCount) : null;
+  const chunks = [];
+  let byteLength = 5;
+  return {
+    get result() { return result; },
+    add(item) {
+      const separatorBytes = chunks.length === 0 ? 0 : 2;
+      const remaining = MAX_BYTES - byteLength - separatorBytes;
+      const itemBytes = measureItemBytes(item, remaining);
+      if (itemBytes >= remaining) {
+        chunks.length = 0;
+        result = skippedIndex('size_limit', recordCount);
+        return false;
+      }
+      chunks.push('  ' + JSON.stringify(item, null, 2).replaceAll('\n', '\n  '));
+      byteLength += separatorBytes + itemBytes;
+      return true;
+    },
+    finish() {
+      if (result) return result;
+      const warnings = byteLength >= WARNING_BYTES ? [{
+        code: 'NATIVE_SEARCH_INDEX_LARGE',
+        message: `Native search index is ${byteLength} bytes (${recordCount} searchable records). Consider an external search index such as Pagefind for larger sites.`,
+        byteLength, recordCount,
+      }] : [];
+      return { json: `[\n${chunks.join(',\n')}\n]\n`, warnings };
+    },
+  };
 }
 
 function skippedIndex(reason, recordCount) {

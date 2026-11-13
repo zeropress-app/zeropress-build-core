@@ -1,4 +1,4 @@
-export { buildSite } from './api/build-site.js';
-export { buildSiteFromThemeDir } from './api/build-site-from-theme-dir.js';
+export { buildSite, buildSiteFromSource } from './api/build-site.js';
+export { buildSiteFromThemeDir, buildSiteFromSourceAndThemeDir } from './api/build-site-from-theme-dir.js';
 export { MemoryWriter } from './output/memory-writer.js';
 export { FilesystemWriter } from './output/filesystem-writer.js';

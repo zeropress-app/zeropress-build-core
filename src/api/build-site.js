@@ -8,7 +8,8 @@ import { extractHtmlText } from '../render/html-text.js';
 import { createThemeValidationError } from '../theme/format-theme-validation.js';
 import { ZeroPressEngine } from '../render/zeropress-engine.js';
 import { prepareRenderMenus } from '../render/menus.js';
-import { buildSearchIndex } from '../search/build-search-index.js';
+import { buildSearchIndexAsync } from '../search/build-search-index.js';
+import { readSourceCatalog, createPayloadManager, inheritStoredFields } from './source-state.js';
 
 const DEFAULT_OPTIONS = {
   assetHashing: true,
@@ -72,8 +73,18 @@ const SEARCH_FIELD_WEIGHTS = Object.freeze({
 const SEARCH_RECENCY_BOOST_MAX = 0.15;
 const RFC3339_TIMESTAMP_PATTERN = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:)(60|[0-5]\d)(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 export async function buildSite(input) {
+  return buildInternal(input);
+}
+
+export async function buildSiteFromSource(input) {
+  const previewData = await readSourceCatalog(input.source, input.workStore);
+  return buildInternal({ ...input, previewData }, input.workStore);
+}
+
+async function buildInternal(input, workStore) {
   const options = { ...DEFAULT_OPTIONS, ...(input.options || {}) };
-  const state = await createBuildState(input, options);
+  const state = await createBuildState(input, options, workStore);
+  try {
   assertPlannedOutputPathsSafe(state);
 
   if (state.renderData.frontPageRoute) {
@@ -115,18 +126,18 @@ export async function buildSite(input) {
   }
 
   if (shouldGenerateSearchArtifacts(state)) {
-    await writeOutput(state.writer, state.summaries, SEARCH_INDEX_OUTPUT_PATH, buildSearchIndexJson(state), 'application/json');
+    await writeOutput(state.writer, state.summaries, SEARCH_INDEX_OUTPUT_PATH, await buildSearchIndexJson(state), 'application/json');
     await writeOutput(state.writer, state.summaries, SEARCH_ADAPTER_OUTPUT_PATH, buildSearchAdapterJs(state.previewData.site.locale), 'application/javascript');
     await writeOutput(state.writer, state.summaries, SEARCH_PAGEFIND_ADAPTER_OUTPUT_PATH, buildSearchPagefindAdapterJs(), 'application/javascript');
   }
 
   await maybeRenderNotFoundPage(state);
   if (hasCanonicalSiteUrl(state.previewData.site.url)) {
-    await writeOutput(
+    await writeOutputStream(
       state.writer,
       state.summaries,
       'sitemap.xml',
-      buildSitemapXml(state.previewData.site, state.emitted, options.sitemapStylesheetHref),
+      sitemapXmlParts(state.previewData.site, state.emitted, options.sitemapStylesheetHref),
       'application/xml',
     );
     if (shouldGenerateFeed(state)) {
@@ -141,14 +152,15 @@ export async function buildSite(input) {
     files: state.summaries,
     warnings: state.warnings,
   };
+  } finally { state.payloads?.clear(); }
 }
 
-async function createBuildState(input, options) {
+async function createBuildState(input, options, workStore) {
   if (!input?.writer || typeof input.writer.write !== 'function') {
     throw new Error('buildSite requires a writer with an async write(file) method');
   }
 
-  assertBuildPreviewData(input.previewData);
+  if (!workStore) assertBuildPreviewData(input.previewData);
   const themePackage = await normalizeAndValidateThemePackage(input.themePackage);
 
   const engine = new ZeroPressEngine();
@@ -156,7 +168,8 @@ async function createBuildState(input, options) {
   const summaries = [];
   const previewData = normalizePreviewData(input.previewData, options);
   const { menus, warnings } = prepareRenderMenus(previewData.menus, themePackage.metadata.menu_slots);
-  const renderData = createRenderData(previewData, themePackage, options);
+  const payloads = createPayloadManager(workStore);
+  const renderData = await createRenderData(previewData, themePackage, options, payloads);
 
   engine.initialize(themePackage);
 
@@ -175,6 +188,7 @@ async function createBuildState(input, options) {
     menus,
     warnings,
     renderData,
+    payloads,
     widgets: resolveWidgetAreas(previewData, renderData),
     engine,
     assetProcessor,
@@ -211,6 +225,16 @@ function assertBuildPreviewData(previewData) {
   }
 }
 
+async function renderTemplate(state, name, values, context) {
+  if (!state.payloads) return state.engine.render(name, values, context);
+  // Pagination contains only route metadata, never stored document payloads.
+  // Preserve it directly instead of walking thousands of page links again.
+  const { pagination, ...payloadValues } = values;
+  const hydrated = await state.payloads.hydrate(payloadValues);
+  if (Object.hasOwn(values, 'pagination')) hydrated.pagination = pagination;
+  return state.engine.render(name, hydrated, context);
+}
+
 async function renderRoute(state, templateName, route) {
   const currentUrl = routePathToPublicUrl(route.path, state.previewData.site.permalinks.output_style);
   const outputPath = routePathToOutputPath(route.path, state.previewData.site.permalinks.output_style);
@@ -218,7 +242,7 @@ async function renderRoute(state, templateName, route) {
     isFrontPage: route.is_front_page === true,
     isPostIndex: route.is_post_index === true,
   });
-  let html = await state.engine.render(
+  let html = await renderTemplate(state,
     templateName,
     {
       menus: state.menus,
@@ -267,11 +291,11 @@ async function renderFrontPage(state, route) {
 
   if (route.front_page_type === 'page') {
     const page = {
-      ...route.page,
+      ...(state.payloads ? await state.payloads.hydrate(route.page) : route.page),
       url: currentUrl,
     };
     const description = page.summary || state.previewData.site.description;
-    let html = await state.engine.render(
+    let html = await renderTemplate(state,
       'page',
       {
         menus: state.menus,
@@ -312,7 +336,7 @@ async function renderFrontPage(state, route) {
     return;
   }
 
-  let html = await state.engine.render(
+  let html = await renderTemplate(state,
     'index',
     {
       menus: state.menus,
@@ -345,9 +369,10 @@ async function renderFrontPage(state, route) {
 }
 
 async function renderPost(state, post) {
+  if (state.payloads) post = await state.payloads.hydrate(post);
   const currentUrl = post.url;
   const outputPath = routePathToOutputPath(post.url, state.previewData.site.permalinks.output_style);
-  let html = await state.engine.render(
+  let html = await renderTemplate(state,
     'post',
     {
       menus: state.menus,
@@ -392,10 +417,12 @@ async function renderPost(state, post) {
 }
 
 async function renderPage(state, page) {
+  const referencePath = state.renderData.pageReferencePathByPage.get(page);
+  if (state.payloads) page = await state.payloads.hydrate(page);
   const currentUrl = page.url;
   const outputPath = pageToOutputPath(page, state.previewData.site.permalinks.output_style);
   const canonicalUrl = normalizeOptionalString(page.canonical_url) || currentUrl;
-  let html = await state.engine.render(
+  let html = await renderTemplate(state,
     'page',
     {
       menus: state.menus,
@@ -417,7 +444,7 @@ async function renderPage(state, page) {
     createRenderContext(
       state.previewData.site,
       currentUrl,
-      getTargetCommentsContext(state, 'page', state.renderData.pageReferencePathByPage.get(page)),
+      getTargetCommentsContext(state, 'page', referencePath),
     ),
   );
   html = state.assetProcessor.updateAssetReferences(html, state.assetMap);
@@ -441,7 +468,7 @@ async function maybeRenderNotFoundPage(state) {
     return;
   }
 
-  let html = await state.engine.render(
+  let html = await renderTemplate(state,
     '404',
     {
       menus: state.menus,
@@ -973,7 +1000,7 @@ function normalizePostIndex(post_index) {
   };
 }
 
-function createRenderData(previewData, themePackage = {}, options = {}) {
+async function createRenderData(previewData, themePackage = {}, options = {}, payloads = null) {
   const themeMetadata = themePackage.metadata || {};
   const themeSupportsComments = themeMetadata?.features?.comments === true;
   const themeSupportsPostIndex = themeMetadata?.features?.post_index !== false;
@@ -1050,7 +1077,12 @@ function createRenderData(previewData, themePackage = {}, options = {}) {
   for (const target of previewData.content.pages) {
     delete target.comments;
   }
-  const preparedPosts = previewData.content.posts.map((post) => preparePost(post, previewData.site, authorsById, categoriesBySlug, tagsBySlug));
+  const preparedPosts = [];
+  for (const post of previewData.content.posts) {
+    const raw = payloads ? await payloads.raw(post) : post;
+    const prepared = preparePost(raw, previewData.site, authorsById, categoriesBySlug, tagsBySlug);
+    preparedPosts.push(payloads ? await payloads.prepare(prepared) : prepared);
+  }
   const discoverablePreparedPosts = preparedPosts.filter((post) => !isDelistedDocument(post));
   const adjacentPostsBySlug = new Map(
     discoverablePreparedPosts.map((post, index) => [post.slug, {
@@ -1063,7 +1095,12 @@ function createRenderData(previewData, themePackage = {}, options = {}) {
     prev: adjacentPostsBySlug.get(post.slug)?.prev || null,
     next: adjacentPostsBySlug.get(post.slug)?.next || null,
   }));
-  const pages = previewData.content.pages.map((page) => preparePage(page, previewData.site));
+  const pages = [];
+  for (const page of previewData.content.pages) {
+    const raw = payloads ? await payloads.raw(page) : page;
+    const prepared = preparePage(raw, previewData.site);
+    pages.push(payloads ? await payloads.prepare(prepared) : prepared);
+  }
   const pageReferencePathByPage = new Map(pages.map((page, index) => [
     page,
     rawPageReferencePaths.get(previewData.content.pages[index]),
@@ -1131,10 +1168,10 @@ function createRenderData(previewData, themePackage = {}, options = {}) {
           path: entry.path,
           page: entry.page,
           totalPages: entry.totalPages,
-          archive: {
-            groups: buildArchiveGroups(entry.items, postBySlug, previewData.site),
+          get archive() {
+            return { groups: buildArchiveGroups(entry.items, postBySlug, previewData.site) };
           },
-          pagination: buildStructuredPagination(entry.paginationData),
+          get pagination() { return buildStructuredPagination(entry.paginationData); },
         }))
       : [],
     categoryRoutes: buildTaxonomyRoutes({
@@ -1295,7 +1332,7 @@ function resolveCollectionItem(collectionId, item, index, postBySlug, pageByPath
 }
 
 function buildCollectionPageSummary(page, frontPage, pageReferencePath) {
-  return {
+  return inheritStoredFields({
     type: 'page',
     title: page.title,
     slug: page.slug,
@@ -1308,7 +1345,7 @@ function buildCollectionPageSummary(page, frontPage, pageReferencePath) {
     ...(page.featured_media ? { featured_media: { ...page.featured_media } } : {}),
     meta: page.meta,
     data: page.data,
-  };
+  }, page, ['excerpt', 'meta', 'data']);
 }
 
 function attachCollectionCursors(collections, collectionTargetByItem) {
@@ -1353,7 +1390,7 @@ function buildCollectionCursorItemSummary(item) {
     return null;
   }
 
-  return {
+  return inheritStoredFields({
     type: item.type,
     title: item.title,
     slug: item.slug,
@@ -1365,7 +1402,7 @@ function buildCollectionCursorItemSummary(item) {
     updated_at_iso: item.updated_at_iso || '',
     meta: item.meta,
     data: item.data,
-  };
+  }, item, ['excerpt', 'meta', 'data']);
 }
 
 function buildFrontPageRoute(frontPage, pageByPath, effectivePostIndexEnabled, post_indexBasePath) {
@@ -1441,8 +1478,8 @@ function buildPostIndexRoutes(options) {
     is_post_index: true,
     page: entry.page,
     totalPages: entry.totalPages,
-    posts: buildStructuredPostCollection(entry.items, options.postBySlug),
-    pagination: buildStructuredPagination(entry.paginationData),
+    get posts() { return buildStructuredPostCollection(entry.items, options.postBySlug); },
+    get pagination() { return buildStructuredPagination(entry.paginationData); },
   }));
 }
 
@@ -1790,8 +1827,8 @@ function buildTaxonomyRoutes(options) {
         slug: item.slug,
         page: entry.page,
         totalPages: entry.totalPages,
-        posts: buildStructuredPostCollection(entry.items, options.postBySlug),
-        pagination: buildStructuredPagination(entry.paginationData),
+        get posts() { return buildStructuredPostCollection(entry.items, options.postBySlug); },
+        get pagination() { return buildStructuredPagination(entry.paginationData); },
         ...options.renderExtras(item),
       });
     }
@@ -1817,7 +1854,7 @@ function buildPaginatedCollection(options) {
       page,
       totalPages,
       items: options.items.slice(start, end),
-      paginationData: buildPaginationData(page, totalPages, totalPosts, basePath, outputStyle),
+      get paginationData() { return buildPaginationData(page, totalPages, totalPosts, basePath, outputStyle); },
     });
   }
 
@@ -1852,6 +1889,8 @@ function normalizePaginationBasePath(basePath) {
 
 function buildPaginationData(currentPage, totalPages, totalPosts, basePath, outputStyle = DEFAULT_PERMALINKS.output_style) {
   const buildPageUrl = (page) => routePathToPublicUrl(buildPaginatedPath(basePath, page), outputStyle);
+  const pageAt = (number) => ({ number, url: buildPageUrl(number), current: number === currentPage });
+  let pages;
 
   return {
     enabled: true,
@@ -1862,14 +1901,8 @@ function buildPaginationData(currentPage, totalPages, totalPosts, basePath, outp
     hasPrev: currentPage > 1,
     nextUrl: currentPage < totalPages ? buildPageUrl(currentPage + 1) : undefined,
     prevUrl: currentPage > 1 ? buildPageUrl(currentPage - 1) : undefined,
-    pages: Array.from({ length: totalPages }, (_, index) => {
-      const page = index + 1;
-      return {
-        number: page,
-        url: buildPageUrl(page),
-        current: page === currentPage,
-      };
-    }),
+    pageAt,
+    get pages() { return pages ??= Array.from({ length: totalPages }, (_, index) => pageAt(index + 1)); },
   };
 }
 
@@ -1898,11 +1931,11 @@ function buildStructuredPagination(paginationData) {
     has_multiple_pages: paginationData.totalPages > 1,
     prev_url: paginationData.prevUrl || '',
     next_url: paginationData.nextUrl || '',
-    pages: paginationData.pages.map((page) => ({
+    get pages() { return paginationData.pages.map((page) => ({
       number: page.number,
       url: page.url,
       current: page.current,
-    })),
+    })); },
     window: buildPaginationWindow(paginationData),
   };
 }
@@ -1914,14 +1947,10 @@ function buildPaginationWindow(paginationData) {
   }
 
   const currentPage = paginationData.currentPage;
-  const pageMap = new Map(
-    paginationData.pages.map((page) => [page.number, {
-      kind: 'page',
-      number: page.number,
-      url: page.url,
-      current: page.current,
-    }]),
-  );
+  const pageAt = (number) => {
+    const page = paginationData.pageAt ? paginationData.pageAt(number) : paginationData.pages[number - 1];
+    return page ? { kind: 'page', number: page.number, url: page.url, current: page.current } : null;
+  };
 
   if (totalPages <= 7) {
     return paginationData.pages.map((page) => ({
@@ -1958,7 +1987,7 @@ function buildPaginationWindow(paginationData) {
       windowItems.push({ kind: 'gap' });
     }
 
-    const pageItem = pageMap.get(number);
+    const pageItem = pageAt(number);
     if (pageItem) {
       windowItems.push(pageItem);
     }
@@ -1976,7 +2005,7 @@ function buildStructuredPostItems(posts, postBySlug) {
 }
 
 function buildStructuredPostSummary(post) {
-  return {
+  return inheritStoredFields({
     title: post.title,
     slug: post.slug,
     url: post.url,
@@ -1996,7 +2025,7 @@ function buildStructuredPostSummary(post) {
     },
     categories: Array.isArray(post.categories) ? post.categories.map((category) => ({ ...category })) : [],
     tags: Array.isArray(post.tags) ? post.tags.map((tag) => ({ ...tag })) : [],
-  };
+  }, post, ['excerpt', 'meta', 'data']);
 }
 
 function buildAdjacentPostSummary(post) {
@@ -2004,7 +2033,7 @@ function buildAdjacentPostSummary(post) {
     return null;
   }
 
-  return {
+  return inheritStoredFields({
     title: post.title,
     slug: post.slug,
     url: post.url,
@@ -2013,7 +2042,7 @@ function buildAdjacentPostSummary(post) {
     published_at: post.published_at,
     published_at_iso: post.published_at_iso,
     data: post.data,
-  };
+  }, post, ['excerpt', 'data']);
 }
 
 function buildArchiveGroups(posts, postBySlug, site) {
@@ -2624,6 +2653,27 @@ async function writeOutput(writer, summaries, path, content, contentType) {
   });
 }
 
+async function writeOutputStream(writer, summaries, path, content, contentType) {
+  const rawPath = String(path || '');
+  const normalizedPath = normalizeOutputPath(rawPath);
+  assertSafeRelativeOutputPath(rawPath, normalizedPath);
+  if (typeof writer.writeStream !== 'function') {
+    // Existing writers retain their one-complete-file contract.
+    return writeOutput(writer, summaries, path, Array.from(content).join(''), contentType);
+  }
+  const hash = createHash('sha256');
+  let size = 0, complete = false;
+  async function* tracked() {
+    for await (const part of content) {
+      hash.update(part); size += getContentSize(part); yield part;
+    }
+    complete = true;
+  }
+  await writer.writeStream({ path: normalizedPath, content: tracked(), contentType });
+  if (!complete) throw new Error('Streaming writer did not consume the complete file');
+  summaries.push({ path: normalizedPath, contentType, size, sha256: hash.digest('hex') });
+}
+
 function routePathToOutputPath(routePath, outputStyle = DEFAULT_PERMALINKS.output_style) {
   const normalizedPath = normalizeRoutePath(routePath);
   if (normalizedPath === '/') {
@@ -3157,7 +3207,7 @@ function insertBeforeClosingTag(html, closingTagPattern, content) {
   return String(html).replace(closingTagPattern, (closingTag) => `${content}${closingTag}`);
 }
 
-function buildSearchIndexJson(state) {
+async function buildSearchIndexJson(state) {
   const documents = [];
   for (const post of state.renderData.posts) {
     if (post.status === 'published' && !isDelistedDocument(post)) {
@@ -3180,12 +3230,15 @@ function buildSearchIndexJson(state) {
   }
   for (const page of state.renderData.pages) addPage(page, page.url);
 
-  const result = buildSearchIndex({
+  const result = await buildSearchIndexAsync({
     documents,
     generateSearchIndex: state.options.generateSearchIndex,
-    createItem: (entry) => entry.type === 'post'
-      ? buildSearchPostItem(entry.document)
-      : buildSearchPageItem(entry.document, entry.url, entry.referencePath),
+    createItem: async (entry) => {
+      const document = state.payloads ? await state.payloads.hydrate(entry.document) : entry.document;
+      return entry.type === 'post'
+        ? buildSearchPostItem(document)
+        : buildSearchPageItem(document, entry.url, entry.referencePath);
+    },
   });
   state.warnings.push(...result.warnings);
   return result.json;
@@ -3656,53 +3709,34 @@ function normalizeLimit(value) {
 `;
 }
 
-function buildSitemapXml(site, emitted, stylesheetHref = '') {
-  const entries = [
-    ...(emitted.frontPage && emitted.frontPage.includeInSitemap !== false
-      ? [{
-        url: emitted.frontPage.url,
-        ...(emitted.frontPage.updatedAt ? { lastmod: toDate(emitted.frontPage.updatedAt) } : {}),
-        changefreq: 'daily',
-        priority: 1.0,
-      }]
-      : []),
-    ...emitted.indexRoutes
-      .filter((route) => route.page === 1)
-      .map((route) => ({
-        url: route.url,
-        changefreq: 'daily',
-        priority: route.url === '/' ? 1.0 : 0.7,
-      })),
-    ...emitted.posts.map((post) => ({
-      url: post.url,
-      lastmod: toDate(post.updatedAt),
-      changefreq: 'weekly',
-      priority: 0.8,
-    })),
-    ...emitted.pages
-      .filter((page) => page.includeInSitemap !== false)
-      .map((page) => ({
-        url: page.url,
-        ...(page.updatedAt ? { lastmod: toDate(page.updatedAt) } : {}),
-        changefreq: 'monthly',
-        priority: 0.7,
-      })),
-  ];
+function* sitemapEntries(emitted) {
+  if (emitted.frontPage && emitted.frontPage.includeInSitemap !== false) yield {
+    url: emitted.frontPage.url,
+    ...(emitted.frontPage.updatedAt ? { lastmod: toDate(emitted.frontPage.updatedAt) } : {}),
+    changefreq: 'daily', priority: 1.0,
+  };
+  for (const route of emitted.indexRoutes) if (route.page === 1) yield {
+    url: route.url, changefreq: 'daily', priority: route.url === '/' ? 1.0 : 0.7,
+  };
+  for (const post of emitted.posts) yield { url: post.url, lastmod: toDate(post.updatedAt), changefreq: 'weekly', priority: 0.8 };
+  for (const page of emitted.pages) if (page.includeInSitemap !== false) yield {
+    url: page.url, ...(page.updatedAt ? { lastmod: toDate(page.updatedAt) } : {}), changefreq: 'monthly', priority: 0.7,
+  };
+}
 
-  const body = entries.map((entry) => {
-    const loc = escapeXml(resolveSiteUrl(site.url, entry.url));
-    const lastmod = entry.lastmod
-      ? `\n    <lastmod>${formatUtcIsoSeconds(entry.lastmod)}</lastmod>`
-      : '';
-    return `  <url>\n    <loc>${loc}</loc>${lastmod}\n    <changefreq>${entry.changefreq}</changefreq>\n    <priority>${entry.priority.toFixed(1)}</priority>\n  </url>`;
-  }).join('\n');
-
+function* sitemapXmlParts(site, emitted, stylesheetHref = '') {
   const normalizedStylesheetHref = normalizeOptionalString(stylesheetHref);
   const stylesheet = normalizedStylesheetHref
-    ? `\n<?xml-stylesheet type="text/xsl" href="${escapeXml(normalizedStylesheetHref)}"?>`
-    : '';
-
-  return `<?xml version="1.0" encoding="UTF-8"?>${stylesheet}\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${body}\n</urlset>`;
+    ? `\n<?xml-stylesheet type="text/xsl" href="${escapeXml(normalizedStylesheetHref)}"?>` : '';
+  yield `<?xml version="1.0" encoding="UTF-8"?>${stylesheet}\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+  let first = true;
+  for (const entry of sitemapEntries(emitted)) {
+    const loc = escapeXml(resolveSiteUrl(site.url, entry.url));
+    const lastmod = entry.lastmod ? `\n    <lastmod>${formatUtcIsoSeconds(entry.lastmod)}</lastmod>` : '';
+    yield `${first ? '' : '\n'}  <url>\n    <loc>${loc}</loc>${lastmod}\n    <changefreq>${entry.changefreq}</changefreq>\n    <priority>${entry.priority.toFixed(1)}</priority>\n  </url>`;
+    first = false;
+  }
+  yield '\n</urlset>';
 }
 
 function buildFeedXml(site, emitted, feedGeneratedAt) {

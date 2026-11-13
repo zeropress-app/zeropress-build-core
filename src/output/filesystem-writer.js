@@ -14,4 +14,15 @@ export class FilesystemWriter {
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.writeFile(fullPath, file.content);
   }
+
+  async writeStream(file) {
+    const fs = await import('node:fs/promises');
+    const path = await import('node:path');
+    const fullPath = path.join(this.outDir, String(file.path || '').replace(/^\/+/, ''));
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    const handle = await fs.open(fullPath, 'w');
+    try { for await (const part of file.content) await handle.writeFile(part); }
+    finally { await handle.close(); }
+  }
+
 }

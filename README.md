@@ -477,6 +477,41 @@ Defaults:
 
 `reservedOutputPaths` is an internal orchestration boundary for callers that already own files in the final output tree, such as a copied public directory. Reserved files are safety-validated and participate in clean-URL alias, exact-path, and file/directory hierarchy collision checks, but Build Core does not write them or include them in the returned file summaries.
 
+## Building from a replayable source
+
+`buildSiteFromSource({source, workStore, themePackage, writer, options})` and
+`buildSiteFromSourceAndThemeDir({source, workStore, themeDir, writer, options})`
+are additive APIs. Existing `buildSite`/`buildSiteFromThemeDir` object inputs remain
+supported. Do not reassemble chunks into one object before using the source API.
+
+A source supplies a Preview Data header plus ordered, replayable collection records.
+The shared validator checks individual fields and cross-record references before
+rendering. Core keeps a compact metadata catalog and stores original/prepared bodies,
+HTML, TOCs and custom record data in the caller's asynchronous `put/get` work store.
+It restores the template context for the current route and uses a bounded 32 MiB
+serialized-payload cache. Existing sorting, route context, widgets, menus, comments,
+feed, sitemap and native search policies are preserved.
+
+Import `createDiskWorkStore` and `openPreviewDataSource` from `@zeropress/build-core/node`
+in Node hosts. The existing core runtime requirements are unchanged. Core does not close
+a caller-owned source/store; close both in `finally`, including after failures.
+Hosts may supply a disk, database or another asynchronous store implementing the
+same asynchronous contract. Its references must remain valid throughout the build.
+Core treats references as opaque values, including `0`, empty strings and `null`.
+
+Listing pagination/context is constructed when each route renders, avoiding retention
+of a full pagination array for every route. Global IDs, routes, taxonomies, menu and
+collection metadata still scale with the site. A template exposing a very large
+collection or record can still require substantial memory; this is not a constant
+memory or arbitrary-size guarantee.
+
+Writers may implement `writeStream({path, content, contentType})`, where `content` is
+an async iterable of string/byte chunks. Core uses it for the sitemap, computes the
+same byte/hash summary while writing, and requires full consumption. Existing
+`write(file)` writers keep working through a buffered fallback. Use a disk/stream
+writer for capacity work; `MemoryWriter` intentionally retains output. Transactional
+publication belongs to the host (the build CLI stages the complete output directory).
+
 ## License
 
 MIT

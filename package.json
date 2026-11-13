@@ -9,6 +9,10 @@
     "./content": {
       "types": "./src/content.d.ts",
       "default": "./src/content.js"
+    },
+    "./node": {
+      "types": "./src/node.d.ts",
+      "default": "./src/node.js"
     }
   },
   "types": "./src/index.d.ts",
@@ -38,7 +42,7 @@
   },
   "dependencies": {
     "@zeropress/slug-policy": "^0.2.2",
-    "@zeropress/preview-data-validator": "^0.7.7",
+    "@zeropress/preview-data-validator": "^0.7.11",
     "@zeropress/theme-validator": "^0.7.7",
     "highlight.js": "11.12.0",
     "htmlparser2": "12.0.0",
